@@ -1,83 +1,89 @@
-# Transcribe for macOS 🎙️
+# Transcribe
 
-A privacy-first audio transcription app for macOS with local AI processing and YouTube support. Optimized for Swedish language but supports 100+ languages.
+A native macOS app for speech-to-text transcription. Runs entirely on-device using WhisperKit and CoreML -- no data leaves your machine unless you choose cloud transcription. Optimized for Swedish with KB Whisper models, but supports 100+ languages.
 
 ![Swift](https://img.shields.io/badge/Swift-6.1-orange)
-![macOS](https://img.shields.io/badge/macOS-15.5+-blue)
+![macOS](https://img.shields.io/badge/macOS-26+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-## ✨ Features
+![Main window](screenshot-main.jpg)
 
-- **🔒 Privacy First** - All files stored temporarily, auto-deleted on quit
-- **🎤 Audio Recording** - Built-in recording with waveform visualization  
-- **📹 YouTube Support** - Download and transcribe videos directly
-- **🤖 Local AI** - WhisperKit & KB Whisper models run on-device
-- **🌍 Multi-language** - 100+ languages with auto-detection
-- **🇸🇪 Swedish Optimized** - Special models for Swedish transcription
+![Transcription with LLM processing](screenshot-transcribe.jpg)
 
-## 🚀 Quick Start
+## Features
 
-### Requirements
-- macOS 15.5 (Sequoia) or later
-- 8GB RAM (16GB recommended)
-- M1 +
+- **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded.
+- **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/mickekringai/kb-whisper-coreml), fine-tuned for Swedish speech.
+- **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
+- **YouTube transcription** -- Paste a URL, the app downloads the audio and transcribes it.
+- **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance.
+- **Cloud transcription (optional)** -- Berget AI provides GDPR-compliant cloud transcription for when you need it.
+- **Privacy by default** -- All recordings and downloads are stored in a temporary cache and automatically deleted when the app quits.
+- **100+ languages** -- Whisper supports broad multilingual transcription with automatic language detection.
 
-### Installation
+## Requirements
 
-1. Clone the repository:
+- macOS 26 (Tahoe) or later
+- Apple Silicon (M1+)
+- 8 GB RAM minimum (16 GB recommended for large models)
+
+## Installation
+
 ```bash
-git clone https://github.com/yourusername/transcribe-macos.git
-cd transcribe-macos/Transcribe
+git clone https://github.com/mickekring/Transcribe-MacOS-App.git
+cd Transcribe-MacOS-App
 ```
 
-2. Open in Xcode:
+### Building
+
+There is currently an Xcode 26 beta bug where building from the Xcode UI fails with an `___llvm_profile_runtime` undefined symbol error. This is caused by `CLANG_COVERAGE_MAPPING` defaulting to YES, which adds coverage instrumentation to pure-C SPM dependencies (yyjson, a transitive dependency of WhisperKit) without linking the profiling runtime. Build from the command line instead:
+
 ```bash
-open Transcribe.xcodeproj
+xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
 ```
 
-3. Build and run (⌘R)
+The default model (KB Whisper Small) downloads automatically on first launch.
 
-## 🎯 Usage
+## Models
 
-1. **Record Audio** - Click microphone button to start recording
-2. **Import Files** - Drag & drop audio/video files onto the window
-3. **YouTube** - Paste YouTube URL and click transcribe
-4. **Export** - Save transcription as text file
+**Local (on-device):**
 
-## 🔐 Security
+| Model | Size | Notes |
+|-------|------|-------|
+| KB Whisper Base | ~150 MB | Fast, good for Swedish |
+| KB Whisper Small | ~500 MB | Default. Best balance of speed and accuracy for Swedish |
+| KB Whisper Medium | ~1.5 GB | Higher accuracy |
+| KB Whisper Large | ~3 GB | Highest accuracy |
+| OpenAI Whisper | Base--Large v3 | General multilingual models |
 
-- No tracking or analytics
-- Temporary file storage only (`/var/folders/*/T/`)
-- Automatic cleanup on app termination
-- Local processing available (no internet required)
+KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://huggingface.co/mickekringai/kb-whisper-coreml) on Hugging Face.
 
-## 🛠️ Tech Stack
+**Cloud (optional):**
 
-- **SwiftUI** - Native macOS interface
-- **WhisperKit** - Local transcription engine
-- **YouTubeKit** - YouTube downloading
-- **AVFoundation** - Audio processing
+[Berget AI](https://berget.ai) -- Swedish cloud infrastructure, GDPR-compliant. Requires an API key configured in Settings.
 
-## 📦 Models
+## Tech Stack
 
-### Local Models
-- **WhisperKit** - OpenAI Whisper (Tiny to Large)
-- **KB Whisper** - Swedish-optimized models
+- **SwiftUI** -- Native macOS interface with dark/light mode
+- **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** -- On-device speech recognition via CoreML
+- **[YouTubeKit](https://github.com/nickkval/YouTubeKit)** -- YouTube audio downloading
+- **AVFoundation / CoreAudio** -- Audio recording, playback, and device management
+- **Security.framework** -- API keys stored in macOS Keychain
 
-### Cloud (Optional)
-- **Berget AI** - GDPR-compliant Swedish service
+## Privacy and Security
 
-## 📄 License
+- All transcription happens locally by default
+- Recordings and YouTube downloads are stored in `~/Library/Caches/Transcribe/` and deleted on app quit
+- Leftover files from force-quits are cleaned up on next launch
+- API keys are stored in the macOS Keychain, not in plaintext
+- No analytics, no tracking, no telemetry
 
-MIT License - See [LICENSE](LICENSE) file for details
+## License
 
-## 👨‍💻 Author
+MIT License -- see [LICENSE](LICENSE) for details.
 
-**Micke Kring**  
-[mickekring.se](https://mickekring.se)  
+## Author
 
-**Claude Code**
+**Micke Kring** -- [mickekring.se](https://mickekring.se)
 
----
-
-<sub>Built with ❤️ in Sweden</sub>
+Built with [Claude Code](https://claude.ai/code).
