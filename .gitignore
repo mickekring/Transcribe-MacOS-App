@@ -2,8 +2,10 @@
 # Documentation Files (as requested)
 # =====================================
 *.md
-!README.md  # Keep the main README visible
-!CLAUDE.md  # Keep Claude Code instructions visible
+!README.md
+!CLAUDE.md
+!ARCHITECTURE.md
+!DECISIONS.md
 Documentation/
 Docs/
 docs/
