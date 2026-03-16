@@ -39,7 +39,7 @@ struct TranscriptionLanguage: Identifiable, Hashable {
 }
 
 class LanguageManager: ObservableObject {
-    static let shared = LanguageManager()
+    nonisolated(unsafe) static let shared = LanguageManager()
     
     @Published var selectedLanguage: TranscriptionLanguage = .auto
     @AppStorage("transcriptionLanguage") private var savedLanguageCode: String = "auto"
@@ -57,10 +57,9 @@ class LanguageManager: ObservableObject {
         }
     }
     
+    @MainActor
     func selectLanguage(_ language: TranscriptionLanguage) {
-        DispatchQueue.main.async { [weak self] in
-            self?.selectedLanguage = language
-            self?.savedLanguageCode = language.code
-        }
+        selectedLanguage = language
+        savedLanguageCode = language.code
     }
 }

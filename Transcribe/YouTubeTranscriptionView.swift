@@ -14,7 +14,7 @@ struct YouTubeTranscriptionView: View {
     
     var body: some View {
         ZStack {
-            Color.white
+            Color.surfaceBackground
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
@@ -65,7 +65,7 @@ struct YouTubeTranscriptionView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
-        .background(Color.white)
+        .background(Color.surfaceBackground)
         .overlay(
             Rectangle()
                 .fill(Color.borderLight)
@@ -82,7 +82,7 @@ struct YouTubeTranscriptionView: View {
                 // YouTube Icon
                 ZStack {
                     Circle()
-                        .fill(LinearGradient.primaryGradient.opacity(0.1))
+                        .fill(Color.primaryAccent.opacity(0.12))
                         .frame(width: 100, height: 100)
                     
                     Image(systemName: "play.rectangle.fill")
@@ -135,8 +135,12 @@ struct YouTubeTranscriptionView: View {
                 }
                 .foregroundColor(.textPrimary)
                 .frame(width: 180, height: 44)
-                .background(Color.white)
+                .background(Color.cardBackground)
                 .cornerRadius(22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(Color.borderLight, lineWidth: 0.5)
+                )
             }
             .buttonStyle(.plain)
             .disabled(youtubeURL.isEmpty || isProcessing)
@@ -170,7 +174,7 @@ struct YouTubeTranscriptionView: View {
                             .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                     } placeholder: {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.1))
+                            .fill(Color.cardBackground)
                             .frame(width: 400, height: 225)
                             .overlay(
                                 ProgressView()

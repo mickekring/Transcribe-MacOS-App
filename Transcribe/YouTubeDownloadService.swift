@@ -64,7 +64,7 @@ class YouTubeDownloadService: ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ Failed to fetch video title: \(error.localizedDescription)")
+            // Silently ignore
         }
         
         return nil
@@ -101,36 +101,9 @@ class YouTubeDownloadService: ObservableObject {
             }
         }
         
-        // Use only local method, no fallback
-        let video = YouTube(videoID: videoID, methods: [.local])
-        
         do {
-            // Get all available streams
-            let streams = try await video.streams
-            
-            // Debug: print available stream counts
-            print("\n📊 Available streams for video ID: \(videoID)")
-            print("  - Total streams: \(streams.count)")
-            print("  - Audio-only streams: \(streams.filterAudioOnly().count)")
-            print("  - Video-only streams: \(streams.filterVideoOnly().count)")
-            print("  - Video+Audio streams: \(streams.filterVideoAndAudio().count)")
-            
-            // List all audio streams with details
-            print("\n🎵 Audio-only streams available:")
-            for (index, stream) in streams.filterAudioOnly().enumerated() {
-                print("  Audio stream \(index):")
-                print("    - Format: \(stream.fileExtension.rawValue)")
-                print("    - URL length: \(stream.url.absoluteString.count) chars")
-            }
-            
-            // List video streams sorted by resolution
-            print("\n📹 Video streams available:")
-            let videoStreams = streams.filterVideoOnly() + streams.filterVideoAndAudio()
-            for (index, stream) in videoStreams.prefix(5).enumerated() {
-                print("  Video stream \(index):")
-                print("    - Format: \(stream.fileExtension.rawValue)")
-                print("    - Has audio: \(stream.includesVideoAndAudioTrack)")
-            }
+            // Fetch streams in a nonisolated context to avoid Sendable issues with YouTube type
+            let streams = try await Self.fetchStreams(videoID: videoID)
             
             // Prioritize audio-only streams for fastest download and transcription
             let targetStream: YouTubeKit.Stream
@@ -141,29 +114,21 @@ class YouTubeDownloadService: ObservableObject {
                 // Prefer M4A format for best compatibility
                 if let m4aStream = audioStreams.first(where: { $0.fileExtension == .m4a }) {
                     targetStream = m4aStream
-                    print("\n✅ SELECTED: M4A audio-only stream")
                 } else {
                     // Use any audio stream
                     targetStream = audioStreams.first!
-                    print("\n✅ SELECTED: Audio-only stream (\(targetStream.fileExtension.rawValue))")
                 }
             } else {
                 // If no audio-only, get the lowest resolution video
                 // Use the built-in method that finds the lowest resolution
                 if let lowestVideo = streams.lowestResolutionStream() {
                     targetStream = lowestVideo
-                    print("\n✅ SELECTED: Lowest resolution video stream")
                 } else if let anyStream = streams.first {
                     targetStream = anyStream
-                    print("\n⚠️ SELECTED: First available stream (fallback)")
                 } else {
                     throw YouTubeError.noSuitableStream
                 }
             }
-            
-            print("📥 Download URL: \(targetStream.url.absoluteString.prefix(100))...")
-            print("📦 File type: \(targetStream.fileExtension.rawValue)")
-            print("🎬 Has video+audio: \(targetStream.includesVideoAndAudioTrack)")
             
             return try await downloadStream(targetStream, videoID: videoID)
             
@@ -173,12 +138,13 @@ class YouTubeDownloadService: ObservableObject {
         }
     }
     
+    /// Fetch YouTube streams in a nonisolated context to avoid sending non-Sendable YouTube type across actor boundaries
+    private nonisolated static func fetchStreams(videoID: String) async throws -> [YouTubeKit.Stream] {
+        let video = YouTube(videoID: videoID, methods: [.local])
+        return try await video.streams
+    }
+    
     private func downloadStream(_ stream: YouTubeKit.Stream, videoID: String) async throws -> URL {
-        // Log stream details for debugging
-        print("\n🚀 Starting download:")
-        print("  - File extension: \(stream.fileExtension.rawValue)")
-        print("  - Has video+audio: \(stream.includesVideoAndAudioTrack)")
-        
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("Transcribe")
             .appendingPathComponent("YouTube")
@@ -192,27 +158,11 @@ class YouTubeDownloadService: ObservableObject {
         let fileName = "youtube_\(videoID).\(fileExtension)"
         let localURL = tempDir.appendingPathComponent(fileName)
         
-        // Debug logging
-        print("\n📹 ========== YOUTUBE STORAGE DEBUG ==========")
-        print("📁 Storage Type: TEMPORARY (auto-cleanup on app quit)")
-        print("📍 Full Path: \(localURL.path)")
-        print("📂 Directory: \(tempDir.path)")
-        print("🗑️ Auto-cleanup: YES - File will be deleted when app quits")
-        print("🎬 Video ID: \(videoID)")
-        print("📦 File Format: \(fileExtension)")
-        print("⏰ Download started: \(Date())")
-        print("=============================================\n")
-        
         // Remove existing file if present
         try? FileManager.default.removeItem(at: localURL)
         
         // Use simple URLSession without custom headers that might break YouTube
         let session = URLSession.shared
-        
-        let startTime = Date()
-        var lastDownloadedBytes: Int64 = 0
-        
-        print("⏬ Starting download from: \(stream.url.absoluteString.prefix(100))...")
         
         // First, get the file size with a HEAD request
         var headRequest = URLRequest(url: stream.url)
@@ -222,12 +172,19 @@ class YouTubeDownloadService: ObservableObject {
         let totalSize = headResponse.expectedContentLength
         
         if totalSize > 0 {
-            print("📏 Total file size: \(String(format: "%.2f MB", Double(totalSize) / (1024 * 1024)))")
-            
-            // Download in 2MB chunks to avoid throttling
+            // Download in 2MB chunks to avoid throttling, writing each chunk to disk incrementally
             let chunkSize: Int64 = 2 * 1024 * 1024  // 2MB chunks as recommended in GitHub issue
-            var downloadedData = Data()
             var currentOffset: Int64 = 0
+            
+            // Create the file and open a file handle for incremental writing
+            FileManager.default.createFile(atPath: localURL.path, contents: nil, attributes: nil)
+            guard let fileHandle = try? FileHandle(forWritingTo: localURL) else {
+                throw YouTubeError.downloadFailed
+            }
+            
+            defer {
+                try? fileHandle.close()
+            }
             
             while currentOffset < totalSize {
                 let endOffset = min(currentOffset + chunkSize - 1, totalSize - 1)
@@ -241,11 +198,12 @@ class YouTubeDownloadService: ObservableObject {
                     
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200...206).contains(httpResponse.statusCode) else {
-                        print("❌ Chunk download failed with status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                         throw YouTubeError.downloadFailed
                     }
                     
-                    downloadedData.append(chunkData)
+                    // Write chunk directly to disk instead of accumulating in memory
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write(chunkData)
                     currentOffset = endOffset + 1
                     
                     // Update progress
@@ -254,52 +212,27 @@ class YouTubeDownloadService: ObservableObject {
                         self.downloadProgress = min(progress, 1.0)
                     }
                     
-                    print(String(format: "📊 Progress: %.1f%% (%d/%d bytes)", 
-                               progress * 100, currentOffset, totalSize))
-                    
                 } catch {
-                    print("❌ Failed to download chunk at offset \(currentOffset): \(error)")
                     throw error
                 }
             }
             
-            // Save to file
-            try downloadedData.write(to: localURL)
-            lastDownloadedBytes = Int64(downloadedData.count)
-            
-            print("✅ Downloaded file size: \(String(format: "%.2f MB", Double(lastDownloadedBytes) / (1024 * 1024)))")
-            
         } else {
             // Fallback to simple download if we can't get file size
-            print("⚠️ Could not determine file size, using simple download...")
-            
             let (data, response) = try await session.data(from: stream.url)
             
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
-                print("❌ Download failed with status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 throw YouTubeError.downloadFailed
             }
             
             try data.write(to: localURL)
-            lastDownloadedBytes = Int64(data.count)
         }
         
         // Update progress to 100%
         await MainActor.run {
             self.downloadProgress = 1.0
         }
-        
-        // Final download statistics
-        let totalTime = Date().timeIntervalSince(startTime)
-        let fileSizeMB = Double(lastDownloadedBytes) / (1024 * 1024)
-        let averageSpeed = fileSizeMB / totalTime
-        
-        print("\n✅ Download complete!")
-        print("  - Total size: \(String(format: "%.2f MB", fileSizeMB))")
-        print("  - Total time: \(String(format: "%.1f seconds", totalTime))")
-        print("  - Average speed: \(String(format: "%.2f MB/s", averageSpeed))")
-        print("  - Saved to: \(fileName)")
         
         await MainActor.run {
             downloadedFileURL = localURL
@@ -315,14 +248,11 @@ class YouTubeDownloadService: ObservableObject {
     }
     
     private func extractAudio(from videoURL: URL, videoID: String) async throws -> URL {
-        print("🎵 Extracting audio from video file...")
-        
         let asset = AVAsset(url: videoURL)
         
         // Check if asset has audio track
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard !audioTracks.isEmpty else {
-            print("⚠️ No audio track found, using video file as-is")
             return videoURL
         }
         
@@ -336,7 +266,6 @@ class YouTubeDownloadService: ObservableObject {
         
         // Create export session
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            print("⚠️ Failed to create export session, using original file")
             return videoURL
         }
         
@@ -347,7 +276,6 @@ class YouTubeDownloadService: ObservableObject {
         await exportSession.export()
         
         if exportSession.status == .completed {
-            print("✅ Audio extracted successfully")
             // Clean up original video file
             try? FileManager.default.removeItem(at: videoURL)
             
@@ -357,7 +285,6 @@ class YouTubeDownloadService: ObservableObject {
             
             return outputURL
         } else {
-            print("⚠️ Audio extraction failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
             return videoURL
         }
     }

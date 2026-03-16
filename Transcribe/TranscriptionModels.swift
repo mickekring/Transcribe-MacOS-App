@@ -33,72 +33,18 @@ struct TranscriptionSegment: Codable {
     let speaker: String?
 }
 
-struct TranscriptionOptions {
-    var language: String = "auto"
-    var model: WhisperModel = .base
-    var task: TranscriptionTask = .transcribe
-    var temperature: Float = 0.0
-    var enableTimestamps: Bool = true
-    var enableSpeakerDiarization: Bool = false
-    var outputFormat: OutputFormat = .text
-}
+// MARK: - Text Processing Prompts
 
-enum TranscriptionTask: String, CaseIterable {
-    case transcribe
-    case translate
-}
-
-enum OutputFormat: String, CaseIterable {
-    case text = "txt"
-    case srt = "srt"
-    case vtt = "vtt"
-    case json = "json"
-    case docx = "docx"
-}
-
-enum WhisperModel: String, CaseIterable {
-    case tiny = "kb-whisper-tiny"
-    case base = "kb-whisper-base"
-    case small = "kb-whisper-small"
-    case medium = "kb-whisper-medium"
-    case large = "kb-whisper-large"
+struct TextProcessingPrompt: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var prompt: String
+    let createdAt: Date
     
-    var displayName: String {
-        switch self {
-        case .tiny: return "Tiny (Fast)"
-        case .base: return "Base (Balanced)"
-        case .small: return "Small (Good)"
-        case .medium: return "Medium (Better)"
-        case .large: return "Large (Best)"
-        }
-    }
-    
-    var sizeInMB: Int {
-        switch self {
-        case .tiny: return 39
-        case .base: return 74
-        case .small: return 244
-        case .medium: return 769
-        case .large: return 1550
-        }
-    }
-}
-
-struct AudioFile: Identifiable {
-    let id = UUID()
-    let url: URL
-    let duration: TimeInterval
-    let format: String
-    let sampleRate: Int
-    let channels: Int
-    
-    var fileName: String {
-        url.lastPathComponent
-    }
-    
-    var fileSizeInMB: Double {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = attributes?[.size] as? Int64 ?? 0
-        return Double(fileSize) / (1024 * 1024)
+    init(id: UUID = UUID(), name: String, prompt: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.prompt = prompt
+        self.createdAt = createdAt
     }
 }

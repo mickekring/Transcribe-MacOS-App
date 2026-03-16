@@ -3,6 +3,7 @@
 # =====================================
 *.md
 !README.md  # Keep the main README visible
+!CLAUDE.md  # Keep Claude Code instructions visible
 Documentation/
 Docs/
 docs/

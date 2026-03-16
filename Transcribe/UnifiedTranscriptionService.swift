@@ -48,7 +48,6 @@ class UnifiedTranscriptionService: ObservableObject {
     
     /// Determines which service to use based on model name
     private func getServiceType(for model: String) -> ServiceType {
-        print("🔍 UnifiedTranscriptionService: Model '\(model)' -> Using WhisperKit")
         // All models now use WhisperKit
         return .whisperKit
     }
@@ -58,22 +57,20 @@ class UnifiedTranscriptionService: ObservableObject {
         modelState = .loading
         currentModel = nil
         activeService = nil
-        
-        let serviceType = getServiceType(for: modelName)
+        errorMessage = nil
         
         do {
             // All models use WhisperKit now
-            print("🔧 Loading WhisperKit model: \(modelName)")
-            await whisperKitService.loadModel(modelName)
+            try await whisperKitService.loadModel(modelName)
             activeService = whisperKitWrapper
-            print("✅ WhisperKit service activated for model: \(modelName)")
             
             currentModel = modelName
             modelState = .loaded
-            print("✅ Model loaded successfully: \(modelName) using WhisperKit")
             
         } catch {
             modelState = .unloaded
+            activeService = nil
+            currentModel = nil
             errorMessage = error.localizedDescription
             throw error
         }
@@ -81,7 +78,9 @@ class UnifiedTranscriptionService: ObservableObject {
     
     /// Unload current model
     func unloadModel() {
-        whisperKitService.whisperKit = nil
+        Task {
+            await whisperKitService.unloadModel()
+        }
         
         activeService = nil
         currentModel = nil
@@ -90,22 +89,21 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Check if a model is downloaded
-    func isModelDownloaded(_ modelName: String) -> Bool {
+    func isModelDownloaded(_ modelName: String) async -> Bool {
         // WhisperKit handles its own model management
-        return whisperKitService.availableModels.contains(modelName)
+        return await whisperKitService.availableModels.contains(modelName)
     }
     
     /// Download a model
     func downloadModel(_ modelName: String, progressHandler: ((Double) -> Void)? = nil) async throws {
         // WhisperKit downloads models automatically when loading
-        await whisperKitService.loadModel(modelName)
+        try await whisperKitService.loadModel(modelName)
     }
     
     /// Delete a downloaded model
     func deleteModel(_ modelName: String) throws {
         // WhisperKit manages its own model deletion
         // This would need to be implemented in WhisperKitService
-        print("WhisperKit model deletion not yet implemented")
     }
     
     // MARK: - Transcription
@@ -114,20 +112,10 @@ class UnifiedTranscriptionService: ObservableObject {
     func transcribe(
         audioURL: URL,
         language: String = "sv",
-        progressHandler: ((Double) -> Void)? = nil
+        progressHandler: (@Sendable (Double) -> Void)? = nil
     ) async throws -> TranscriptionResult {
-        print("🎤 Starting transcription with model: \(currentModel ?? "unknown")")
-        
         guard let activeService = activeService else {
-            print("❌ No active service available!")
             throw UnifiedError.noServiceAvailable
-        }
-        
-        // Log which service is being used
-        if activeService is WhisperKitServiceWrapper {
-            print("✅ Using WhisperKit (CoreML) for transcription")
-        } else {
-            print("⚠️ Unknown service type: \(type(of: activeService))")
         }
         
         isTranscribing = true
@@ -137,7 +125,7 @@ class UnifiedTranscriptionService: ObservableObject {
         }
         
         // Update progress
-        let progressUpdate: (Double) -> Void = { [weak self] progress in
+        let progressUpdate: @Sendable (Double) -> Void = { [weak self] progress in
             Task { @MainActor in
                 self?.transcriptionProgress = progress
                 progressHandler?(progress)
@@ -155,8 +143,9 @@ class UnifiedTranscriptionService: ObservableObject {
     // MARK: - Model Information
     
     /// Get list of all available models
-    func getAllAvailableModels() -> [TranscriptionModel] {
+    func getAllAvailableModels() async -> [TranscriptionModel] {
         var models: [TranscriptionModel] = []
+        let available = await whisperKitService.availableModels
         
         // KB Whisper CoreML models (WhisperKit)
         let kbCoreMLModels = [
@@ -166,7 +155,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "145 MB",
                 language: "Swedish",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("kb_whisper-base-coreml")
+                downloaded: available.contains("kb_whisper-base-coreml")
             ),
             TranscriptionModel(
                 id: "kb_whisper-small-coreml",
@@ -174,7 +163,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "483 MB",
                 language: "Swedish",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("kb_whisper-small-coreml")
+                downloaded: available.contains("kb_whisper-small-coreml")
             )
         ]
         
@@ -186,7 +175,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "147 MB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("openai_whisper-base")
+                downloaded: available.contains("openai_whisper-base")
             ),
             TranscriptionModel(
                 id: "openai_whisper-small",
@@ -194,7 +183,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "488 MB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("openai_whisper-small")
+                downloaded: available.contains("openai_whisper-small")
             ),
             TranscriptionModel(
                 id: "openai_whisper-medium",
@@ -202,7 +191,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "1.5 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("openai_whisper-medium")
+                downloaded: available.contains("openai_whisper-medium")
             ),
             TranscriptionModel(
                 id: "openai_whisper-large-v2",
@@ -210,7 +199,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "3.1 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("openai_whisper-large-v2")
+                downloaded: available.contains("openai_whisper-large-v2")
             ),
             TranscriptionModel(
                 id: "openai_whisper-large-v3",
@@ -218,7 +207,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "3.1 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: whisperKitService.availableModels.contains("openai_whisper-large-v3")
+                downloaded: available.contains("openai_whisper-large-v3")
             )
         ]
         
@@ -229,13 +218,13 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Get Swedish-optimized models
-    func getSwedishModels() -> [TranscriptionModel] {
-        return getAllAvailableModels().filter { $0.language == "Swedish" }
+    func getSwedishModels() async -> [TranscriptionModel] {
+        return await getAllAvailableModels().filter { $0.language == "Swedish" }
     }
     
     /// Get multilingual models
-    func getMultilingualModels() -> [TranscriptionModel] {
-        return getAllAvailableModels().filter { $0.language == "Multilingual" }
+    func getMultilingualModels() async -> [TranscriptionModel] {
+        return await getAllAvailableModels().filter { $0.language == "Multilingual" }
     }
 }
 
@@ -245,13 +234,14 @@ protocol TranscriptionServiceProtocol {
     func transcribe(
         audioURL: URL,
         language: String,
-        progressHandler: ((Double) -> Void)?
+        progressHandler: (@Sendable (Double) -> Void)?
     ) async throws -> TranscriptionResult
 }
 
 // MARK: - Conformance to protocol
 
 // WhisperKit wrapper for protocol conformance
+@MainActor
 class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
     private let whisperKitService: WhisperKitService
     
@@ -262,19 +252,37 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
     func transcribe(
         audioURL: URL,
         language: String,
-        progressHandler: ((Double) -> Void)?
+        progressHandler: (@Sendable (Double) -> Void)?
     ) async throws -> TranscriptionResult {
         // Use WhisperKitService's existing transcribe method
-        // For now, we'll collect the streaming updates and return the final result
+        // Collect the streaming updates and return the final result
         var finalText = ""
+        var latestText = ""
         var finalSegments: [TranscriptionSegment] = []
+        var latestSegments: [TranscriptionSegment] = []
+        let currentModelId = await whisperKitService.currentModel
         
         for try await update in whisperKitService.transcribe(
             fileURL: audioURL,
-            modelId: whisperKitService.currentModel ?? "openai_whisper-base",
+            modelId: currentModelId ?? "openai_whisper-base",
             language: language
         ) {
             progressHandler?(update.progress)
+            
+            // Always capture the latest text to avoid losing partial results
+            if !update.text.isEmpty {
+                latestText = update.text
+                latestSegments = update.segments.enumerated().map { index, segment in
+                    TranscriptionSegment(
+                        id: index,
+                        start: segment.start,
+                        end: segment.end,
+                        text: segment.text,
+                        confidence: nil,
+                        speaker: nil
+                    )
+                }
+            }
             
             if update.isComplete {
                 finalText = update.text
@@ -291,13 +299,17 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
             }
         }
         
+        // Use final text if available, otherwise use the latest captured text
+        let resultText = finalText.isEmpty ? latestText : finalText
+        let resultSegments = finalSegments.isEmpty ? latestSegments : finalSegments
+        
         return TranscriptionResult(
-            text: finalText,
-            segments: finalSegments,
+            text: resultText,
+            segments: resultSegments,
             language: language,
-            duration: finalSegments.last?.end ?? 0,
+            duration: resultSegments.last?.end ?? 0,
             timestamp: Date(),
-            modelUsed: whisperKitService.currentModel ?? "unknown"
+            modelUsed: currentModelId ?? "unknown"
         )
     }
 }

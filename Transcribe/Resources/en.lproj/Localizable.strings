@@ -14,6 +14,7 @@
 "general" = "General";
 "transcription" = "Transcription";
 "local_models" = "Local Models";
+"downloaded_models" = "Downloaded Models";
 "cloud_models" = "Cloud Models";
 "api_keys" = "API Keys";
 "services" = "Services";
@@ -51,6 +52,22 @@
 "remove" = "Remove";
 "api_key_required" = "API Key Required";
 "available" = "Available";
+"not_downloaded" = "Not downloaded";
+"no_models_downloaded" = "No models downloaded yet. Select a model from the toolbar — it will download automatically on first use.";
+"delete_model" = "Delete Model";
+"delete_model_confirm" = "Are you sure you want to delete this model? You can download it again later.";
+"downloading_model" = "Downloading %@...";
+"download_progress" = "%@ of %@";
+
+/* Settings - Model Info */
+"downloaded_models_description" = "These models run entirely on your device. Your audio and transcriptions never leave your computer.";
+"cloud_transcription_description" = "GDPR-safe — All data stays in Sweden";
+"cloud_transcription_model_subtitle" = "Swedish-optimized transcription";
+"berget_llm_description" = "GDPR-safe — All data stays in Sweden";
+"berget_cloud_service_description" = "Swedish GDPR-safe cloud service for transcription";
+"ollama_llm_description" = "Ollama runs language models locally on your computer. Your data never leaves your machine.";
+"ollama_not_installed" = "Ollama is not running. Download it from";
+"local_language_model" = "Local language model";
 
 /* Settings - API Keys */
 "api_keys" = "API Keys";
@@ -76,6 +93,15 @@
 "summary" = "Summary";
 "action_items" = "Action Items";
 "key_points" = "Key Points";
+
+/* Settings - Process Text */
+"process_text" = "Process Text";
+"prompts" = "Prompts";
+"prompts_settings_description" = "Create prompts for processing transcribed text with language models. Each prompt becomes a system prompt.";
+"add_prompt" = "Add Prompt";
+"edit_prompt" = "Edit";
+"delete_prompt" = "Delete Prompt";
+"prompt_name" = "Prompt Name";
 
 /* Dropdown menus */
 "language" = "Language";
@@ -122,18 +148,34 @@
 "duration" = "Duration";
 "transcription_time" = "Transcription Time";
 "words" = "Words";
+"tokens" = "Tokens";
 "transcribing" = "Transcribing...";
 "speed" = "Speed";
 "format" = "Format";
 "export_text" = "Text (.txt)";
 "export_srt" = "Subtitles (.srt)";
 "export_vtt" = "WebVTT (.vtt)";
+"export_transcription_txt" = "Transcription - Text (.txt)";
+"export_transcription_md" = "Transcription - Markdown (.md)";
+"export_processed_txt" = "Processed Text - Text (.txt)";
+"export_processed_md" = "Processed Text - Markdown (.md)";
 "options" = "Options";
 "font_size" = "Font Size";
 "show_timestamps" = "Show timestamps";
+"retranscribe" = "Re-transcribe";
+"process_transcription" = "Process Transcription";
+"select_prompt" = "Select prompt";
+"add_information" = "Add information";
+"edit_information" = "Edit information";
+"additional_information" = "Additional Information";
+"additional_info_description" = "Add context for the language model, e.g. speaker names, meeting topic or other relevant details.";
+"process" = "Process";
+"processing_with_llm" = "Processing...";
+"clear" = "Clear";
 
 /* WhisperKit Messages */
 "downloading_whisperkit_model" = "Downloading WhisperKit model (first time only, this may take a moment)...";
+"preparing_model_first_use" = "Preparing %@ for use. This is a one-time setup...";
 "initializing_whisperkit" = "Initializing WhisperKit...";
 "loading_audio_file" = "Loading audio file...";
 
@@ -148,3 +190,32 @@
 "processing_chunk" = "Processing chunk %d of %d...";
 "merging_results" = "Merging transcription results...";
 "chunk_of" = "Chunk %d of %d";
+
+/* Unsaved changes */
+"unsaved_transcription" = "Unsaved Transcription";
+"unsaved_transcription_message" = "You have a transcription that hasn't been saved. Would you like to copy it to the clipboard before leaving?";
+"copy_and_go_back" = "Copy & Go Back";
+"go_back_without_saving" = "Go Back Without Saving";
+"cancel" = "Cancel";
+"export_error" = "Export Failed";
+
+/* Recording View */
+"back" = "Back";
+"recording_in_progress" = "Recording...";
+"recording_complete" = "Recording complete";
+"tap_to_record" = "Press to start recording";
+"pause" = "Pause";
+"play" = "Play";
+"start_over" = "Start Over";
+"mic_permission_required" = "Microphone Permission Required";
+"mic_permission_message" = "To record audio, Transcribe needs access to your microphone. Go to System Settings > Privacy & Security > Microphone and enable Transcribe.";
+"leave_recording" = "Leave recording?";
+"stay" = "Stay";
+"leave" = "Leave";
+"recording_in_progress_leave" = "A recording is in progress. If you leave, the recording will be lost.";
+"untranscribed_recording_leave" = "You have a recording that hasn't been transcribed. If you leave, it will be lost.";
+"audio_input_device" = "Audio Input";
+
+/* Theme */
+"switch_to_light" = "Switch to Light Mode";
+"switch_to_dark" = "Switch to Dark Mode";

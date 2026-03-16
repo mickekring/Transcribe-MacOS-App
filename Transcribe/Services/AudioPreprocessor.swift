@@ -2,7 +2,7 @@ import Foundation
 import AVFoundation
 
 class AudioPreprocessor {
-    static let shared = AudioPreprocessor()
+    nonisolated(unsafe) static let shared = AudioPreprocessor()
     
     // Maximum file size (25 MB)
     private let maxFileSize: Int64 = 25 * 1024 * 1024
@@ -30,7 +30,7 @@ class AudioPreprocessor {
     
     func preprocessAudio(
         url: URL,
-        onProgress: ((String) -> Void)? = nil
+        onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProcessedAudio {
         onProgress?(NSLocalizedString("analyzing_audio_file", comment: ""))
         

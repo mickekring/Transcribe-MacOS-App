@@ -2,208 +2,238 @@ import Foundation
 import WhisperKit
 import AVFoundation
 
+@MainActor
 class WhisperKitService {
     var whisperKit: WhisperKit?
     private let languageManager = LanguageManager.shared
     private var isInitializing = false
     private var currentModelId: String?
     
-    
     var currentModel: String? {
         return currentModelId
     }
     
-    var availableModels: [String] = [
-        "kb_whisper-base-coreml",
-        "kb_whisper-small-coreml",
-        "kb_whisper-medium-coreml",
-        "kb_whisper-large-coreml",
-        "openai_whisper-base",
-        "openai_whisper-small", 
-        "openai_whisper-medium",
-        "openai_whisper-large-v2",
-        "openai_whisper-large-v3"
-    ]
+    var availableModels: [String] {
+        ModelManager.allLocalModels
+    }
     
+    // MARK: - Model Metadata
+    
+    /// Maps a model ID to the HuggingFace repo that hosts it.
+    private func modelRepo(for modelId: String) -> String {
+        if modelId.starts(with: "kb_whisper-") {
+            return "mickekringai/kb-whisper-coreml"
+        }
+        return "argmaxinc/whisperkit-coreml"
+    }
+    
+    /// Maps a model ID to the WhisperKit variant name used inside the repo.
+    private func modelVariant(for modelId: String) -> String {
+        switch modelId {
+        case "kb_whisper-base-coreml": return "base"
+        case "kb_whisper-small-coreml": return "small"
+        case "kb_whisper-medium-coreml": return "medium"
+        case "kb_whisper-large-coreml": return "large"
+        case "openai_whisper-base": return "openai_whisper-base"
+        case "openai_whisper-small": return "openai_whisper-small"
+        case "openai_whisper-medium": return "openai_whisper-medium"
+        case "openai_whisper-large-v2": return "openai_whisper-large-v2"
+        case "openai_whisper-large-v3": return "openai_whisper-large-v3"
+        default: return "openai_whisper-base"
+        }
+    }
+    
+    // MARK: - Initialization
     
     func initialize(modelId: String) async throws {
-        guard !isInitializing else { 
-            print("🔒 WhisperKit: Already initializing, skipping duplicate request")
-            return 
+        guard !isInitializing else {
+            throw TranscriptionError.modelNotFound
         }
         isInitializing = true
+        defer { isInitializing = false }
         
-        defer { 
-            isInitializing = false 
-            print("🔓 WhisperKit: Initialization complete (success or failure)")
-        }
+        let modelManager = ModelManager.shared
+        let variant = modelVariant(for: modelId)
+        let repo = modelRepo(for: modelId)
+        let downloadBase = modelManager.downloadBase
         
-        print("🚀 WhisperKit: Starting initialization for model: \(modelId)")
-        
-        do {
-            let task: Task<WhisperKit?, Error>
-            
-            // Check if this is a KB model that needs special handling
-            if modelId.starts(with: "kb_whisper-") {
-                print("🇸🇪 WhisperKit: Detected KB Whisper model: \(modelId)")
-                
-                let variant: String
-                switch modelId {
-                case "kb_whisper-base-coreml":
-                    variant = "base"
-                    print("📦 WhisperKit: KB Base model selected")
-                case "kb_whisper-small-coreml":
-                    variant = "small"
-                    print("📦 WhisperKit: KB Small model selected")
-                case "kb_whisper-medium-coreml":
-                    variant = "medium"
-                    print("📦 WhisperKit: KB Medium model selected")
-                case "kb_whisper-large-coreml":
-                    variant = "large"
-                    print("📦 WhisperKit: KB Large model selected")
-                default:
-                    variant = "base"
-                    print("📦 WhisperKit: Default to KB Base model")
-                }
-                
-                task = Task {
-                    print("🔄 WhisperKit: Loading KB model variant: \(variant)")
-                    
-                    // WhisperKit DOES support custom repositories using modelRepo parameter!
-                    // The key is separating the model name from the repository
-                    
-                    print("📍 Using WhisperKitConfig with modelRepo parameter")
-                    print("  - Model: \(variant)")
-                    print("  - Repository: mickekringai/kb-whisper-coreml")
-                    
-                    // Create config with the correct parameters
-                    let config = WhisperKitConfig(
-                        model: variant,  // Just "base" or "small"
-                        modelRepo: "mickekringai/kb-whisper-coreml",  // Your custom repo
-                        verbose: true  // Enable verbose logging
-                    )
-                    
-                    print("🚀 Loading KB Whisper \(variant) from custom repository...")
-                    
-                    do {
-                        let kit = try await WhisperKit(config)
-                        print("✅ WhisperKit: Successfully loaded KB model '\(variant)' from mickekringai/kb-whisper-coreml")
-                        return kit
-                    } catch {
-                        print("❌ Failed to load KB model: \(error)")
-                        print("📝 Error details: \(error.localizedDescription)")
-                        throw error
-                    }
-                }
-            } else {
-                print("🌍 WhisperKit: Detected standard OpenAI model: \(modelId)")
-                
-                // Standard WhisperKit model
-                let modelName = mapModelIdToWhisperKitModel(modelId)
-                print("📦 WhisperKit: Mapped to model name: \(modelName)")
-                
-                task = Task {
-                    print("🔄 WhisperKit: Loading standard model: \(modelName)")
-                    
-                    // WhisperKit will automatically download the model if needed
-                    let kit = try await WhisperKit(model: modelName)
-                    print("✅ WhisperKit: Successfully created WhisperKit instance for: \(modelName)")
-                    return kit
-                }
-            }
-            
-            currentModelId = modelId
-            print("💾 WhisperKit: Set current model ID to: \(modelId)")
-            
-            // Wait for initialization with timeout
-            let timeoutTask = Task {
-                try await Task.sleep(nanoseconds: 30_000_000_000) // 30 second timeout
-                print("⏰ WhisperKit: Timeout reached, cancelling initialization")
-                task.cancel()
-                throw TranscriptionError.timeout
-            }
+        // Check if we already have this model downloaded locally
+        if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
+            let config = WhisperKitConfig(
+                modelFolder: cachedFolder,
+                verbose: true,
+                download: false
+            )
             
             do {
-                print("⏳ WhisperKit: Waiting for model initialization...")
-                whisperKit = try await task.value
-                timeoutTask.cancel()
-                print("✅ WhisperKit: Model initialization successful!")
-                print("📊 WhisperKit: whisperKit instance = \(whisperKit != nil ? "Created" : "Nil")")
+                let kit = try await WhisperKit(config)
+                whisperKit = kit
+                currentModelId = modelId
+                return
             } catch {
-                timeoutTask.cancel()
-                print("❌ WhisperKit: Task failed with error: \(error)")
-                print("🔍 WhisperKit: Error type: \(type(of: error))")
-                print("📝 WhisperKit: Error description: \(error.localizedDescription)")
-                throw error
+                // Cached model failed to load — fall through to re-download
+                modelManager.deleteModel(modelId)
             }
+        }
+        
+        // If a background download is already in progress (from dropdown selection),
+        // wait for it to finish instead of starting a second download.
+        if modelManager.isDownloading[modelId] == true {
+            while modelManager.isDownloading[modelId] == true {
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            // Download finished — check if model is now cached
+            if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
+                let config = WhisperKitConfig(
+                    modelFolder: cachedFolder,
+                    verbose: true,
+                    download: false
+                )
+                let kit = try await WhisperKit(config)
+                whisperKit = kit
+                currentModelId = modelId
+                return
+            }
+            // If download failed, fall through to re-download below
+        }
+        
+        // Model not cached locally — download with progress tracking, then load
+        
+        // Signal download started
+        modelManager.isDownloading[modelId] = true
+        modelManager.downloadProgress[modelId] = 0
+        
+        do {
+            // Phase 1: Download via WhisperKit.download() with progress callback
+            let modelFolder = try await WhisperKit.download(
+                variant: variant,
+                downloadBase: downloadBase,
+                from: repo,
+                progressCallback: { progress in
+                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
+                    let speed = progress.userInfo[.throughputKey] as? Double
+                    Task { @MainActor in
+                        modelManager.downloadProgress[modelId] = fraction
+                        if let speed {
+                            modelManager.downloadSpeed[modelId] = speed
+                        }
+                    }
+                }
+            )
+            
+            // Download complete
+            modelManager.isDownloading[modelId] = false
+            modelManager.downloadProgress[modelId] = 1.0
+            modelManager.downloadSpeed.removeValue(forKey: modelId)
+            
+            // Phase 2: Load the downloaded model (no network needed)
+            let config = WhisperKitConfig(
+                modelFolder: modelFolder.path,
+                verbose: true,
+                download: false
+            )
+            
+            let kit = try await WhisperKit(config)
+            whisperKit = kit
+            currentModelId = modelId
+            
+            // Persist the resolved model folder path for future offline use
+            modelManager.saveModelFolderPath(modelFolder.path, for: modelId)
         } catch {
-            print("❌ WhisperKit initialization failed: \(error)")
-            print("🔍 Error details:")
-            print("  - Type: \(type(of: error))")
-            print("  - Description: \(error.localizedDescription)")
-            
-            // Try to extract more details from the error
-            if let errorString = String(describing: error).components(separatedBy: "\"").dropFirst().first {
-                print("  - Extracted message: \(errorString)")
-            }
-            
+            // Clear download state on failure
+            modelManager.isDownloading[modelId] = false
+            modelManager.downloadProgress.removeValue(forKey: modelId)
+            modelManager.downloadSpeed.removeValue(forKey: modelId)
+            whisperKit = nil
             throw error
         }
     }
     
-    func loadModel(_ modelName: String) async {
-        print("🎯 WhisperKitService.loadModel called with: \(modelName)")
+    /// Downloads a model without loading it into memory.
+    /// Used when the user selects a non-downloaded model from the dropdown.
+    func downloadOnly(modelId: String) async throws {
+        let modelManager = ModelManager.shared
+        
+        // Skip if already downloaded or already downloading
+        guard modelManager.cachedModelFolder(for: modelId) == nil else { return }
+        guard modelManager.isDownloading[modelId] != true else { return }
+        
+        let variant = modelVariant(for: modelId)
+        let repo = modelRepo(for: modelId)
+        let downloadBase = modelManager.downloadBase
+        
+        modelManager.isDownloading[modelId] = true
+        modelManager.downloadProgress[modelId] = 0
+        
         do {
-            try await initialize(modelId: modelName)
-            print("✅ WhisperKitService.loadModel: Model loaded successfully")
+            let modelFolder = try await WhisperKit.download(
+                variant: variant,
+                downloadBase: downloadBase,
+                from: repo,
+                progressCallback: { progress in
+                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
+                    let speed = progress.userInfo[.throughputKey] as? Double
+                    Task { @MainActor in
+                        modelManager.downloadProgress[modelId] = fraction
+                        if let speed {
+                            modelManager.downloadSpeed[modelId] = speed
+                        }
+                    }
+                }
+            )
+            
+            modelManager.isDownloading[modelId] = false
+            modelManager.downloadProgress[modelId] = 1.0
+            modelManager.downloadSpeed.removeValue(forKey: modelId)
+            modelManager.saveModelFolderPath(modelFolder.path, for: modelId)
         } catch {
-            print("❌ Failed to load WhisperKit model: \(error)")
-            print("  - Model requested: \(modelName)")
+            modelManager.isDownloading[modelId] = false
+            modelManager.downloadProgress.removeValue(forKey: modelId)
+            modelManager.downloadSpeed.removeValue(forKey: modelId)
+            throw error
         }
+    }
+    
+    func loadModel(_ modelName: String) async throws {
+        try await initialize(modelId: modelName)
+    }
+    
+    func unloadModel() {
+        whisperKit = nil
+        currentModelId = nil
     }
     
     func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in
-            Task {
-                print("🎤 WhisperKitService.transcribe started")
-                print("  - File: \(fileURL.lastPathComponent)")
-                print("  - Model: \(modelId)")
-                print("  - Language: \(language ?? "auto")")
-                print("  - Current whisperKit: \(whisperKit != nil ? "Exists" : "Nil")")
-                print("  - Current model: \(currentModelId ?? "None")")
-                
+            Task { @MainActor in
                 do {
                     // Initialize WhisperKit if needed or if model changed
-                    if whisperKit == nil || currentModelId != modelId {
-                        print("🔄 WhisperKit needs initialization:")
-                        print("  - whisperKit is nil: \(whisperKit == nil)")
-                        print("  - Model changed: \(currentModelId != modelId) (current: \(currentModelId ?? "nil"), requested: \(modelId))")
+                    let needsInit = (self.whisperKit == nil || self.currentModelId != modelId)
+                    if needsInit {
+                        // Show appropriate status: "loading" if cached, "downloading" if not
+                        let isCached = ModelManager.shared.cachedModelFolder(for: modelId) != nil
+                        let isAlreadyDownloading = ModelManager.shared.isDownloading[modelId] == true
+                        let statusMessage: String
+                        if isCached {
+                            statusMessage = String(format: NSLocalizedString("preparing_model_first_use", comment: ""), ModelManager.shared.displayName(for: modelId))
+                        } else if isAlreadyDownloading {
+                            statusMessage = String(format: NSLocalizedString("downloading_model", comment: ""), ModelManager.shared.displayName(for: modelId))
+                        } else {
+                            statusMessage = NSLocalizedString("downloading_whisperkit_model", comment: "")
+                        }
                         
                         continuation.yield(TranscriptionUpdate(
-                            text: NSLocalizedString("downloading_whisperkit_model", comment: ""),
+                            text: statusMessage,
                             progress: 0.01,
                             segments: [],
                             isComplete: false
                         ))
                         
-                        do {
-                            print("🔧 Calling initialize with modelId: \(modelId)")
-                            try await initialize(modelId: modelId)
-                            print("✅ WhisperKit initialized successfully")
-                        } catch {
-                            print("❌ Failed to initialize WhisperKit: \(error)")
-                            print("  - Will fall back to mock transcription")
-                            // Fall back to mock transcription
-                            await provideMockTranscription(fileURL: fileURL, continuation: continuation)
-                            return
-                        }
-                    } else {
-                        print("✅ Using existing WhisperKit instance for model: \(currentModelId ?? "unknown")")
+                        try await self.initialize(modelId: modelId)
                     }
                     
-                    guard let whisperKit = whisperKit else {
-                        await provideMockTranscription(fileURL: fileURL, continuation: continuation)
-                        return
+                    guard let whisperKit = self.whisperKit else {
+                        throw TranscriptionError.modelNotFound
                     }
                     
                     // Initial progress
@@ -240,152 +270,46 @@ class WhisperKitService {
                         wordTimestamps: wordTimestamps
                     )
                     
-                    // Variables to track progress and accumulate text
-                    var lastUpdateTime = Date()
-                    let updateInterval: TimeInterval = 0.2 // Update every 0.2 seconds for smooth streaming
-                    
-                    // Keep track of all unique text segments we've seen
-                    var completedSegments: [Int: String] = [:] // windowId -> final text for that window
-                    var currentWindowId = -1
-                    var currentWindowText = ""
-                    var lastDisplayedText = ""
-                    let startTime = Date()
-                    var maxWindowId = 0
-                    
-                    // Create streaming callback
-                    let streamingCallback: TranscriptionCallback = { progress in
-                        let now = Date()
-                        
-                        // Debug: Log callback invocation
-                        if progress.windowId % 10 == 0 {  // Log every 10th window to avoid spam
-                            print("📝 Streaming callback: window \(progress.windowId), text length: \(progress.text.count)")
-                        }
-                        
-                        // Always process updates, even with empty text
-                        // Track the current window's text
-                        if true {  // Changed from !progress.text.isEmpty to always process
-                            if progress.windowId != currentWindowId {
-                                // New window started - save the previous window's text if we have it
-                                if currentWindowId >= 0 && !currentWindowText.isEmpty {
-                                    completedSegments[currentWindowId] = currentWindowText
-                                }
-                                currentWindowId = progress.windowId
-                            }
-                            currentWindowText = progress.text
-                            maxWindowId = max(maxWindowId, progress.windowId)
-                            
-                            // Build the complete text from all segments
-                            var fullText = ""
-                            
-                            // Add all completed segments in order
-                            let sortedWindows = completedSegments.keys.sorted()
-                            for windowId in sortedWindows {
-                                if let segmentText = completedSegments[windowId] {
-                                    if !fullText.isEmpty {
-                                        fullText += " "
-                                    }
-                                    fullText += segmentText
-                                }
-                            }
-                            
-                            // Add current window's progress
-                            if !fullText.isEmpty && !currentWindowText.isEmpty {
-                                fullText += " " + currentWindowText
-                            } else if fullText.isEmpty {
-                                fullText = currentWindowText
-                            }
-                            
-                            // Only send update if text changed or enough time passed
-                            let textChanged = fullText != lastDisplayedText
-                            let timeElapsed = now.timeIntervalSince(lastUpdateTime) >= updateInterval
-                            
-                            if textChanged || timeElapsed {  // Changed from && to || to send more updates
-                                lastUpdateTime = now
-                                lastDisplayedText = fullText
-                                
-                                // Calculate progress more dynamically
-                                let elapsedTime = now.timeIntervalSince(startTime)
-                                let segmentCount = Double(completedSegments.count + 1)
-                                
-                                // Use a combination of time-based and segment-based progress
-                                // Assume average transcription takes 10-30 seconds
-                                let timeProgress = min(elapsedTime / 20.0, 0.9) // Time-based: 0-90% over 20 seconds
-                                
-                                // Segment-based progress (assuming typical audio has 5-50 segments)
-                                let segmentProgress = min(segmentCount / 10.0, 0.9) // 0-90% for up to 10 segments
-                                
-                                // Take the maximum of both progress indicators, starting from 30%
-                                let estimatedProgress = min(0.3 + max(timeProgress, segmentProgress) * 0.65, 0.95)
-                                
-                                // Send streaming update directly without Task wrapper
-                                continuation.yield(TranscriptionUpdate(
-                                    text: fullText.isEmpty ? "Transkriberar..." : fullText,
-                                    progress: estimatedProgress,
-                                    segments: [],
-                                    isComplete: false
-                                ))
-                                
-                                print("🔄 UI Update sent: progress=\(estimatedProgress), text length=\(fullText.count)")
-                            }
-                        }
-                        
-                        // Return true to continue transcription
-                        return true
-                    }
+                    // Wrap mutable callback state in a Sendable container
+                    // This is safe because the callback is only invoked synchronously
+                    // within WhisperKit's transcription loop on a single thread.
+                    let callbackState = StreamingCallbackState(continuation: continuation)
                     
                     // Transcribe with streaming callback
-                    print("🎯 Starting WhisperKit transcription with model: \(currentModelId ?? "unknown")")
-                    print("  - Audio file: \(fileURL.lastPathComponent)")
-                    print("  - Language: \(languageCode)")
-                    
+                    let callback: @Sendable (TranscriptionProgress) -> Bool? = { progress in
+                        callbackState.handleProgress(progress)
+                    }
                     let results = try await whisperKit.transcribe(
                         audioPath: fileURL.path,
                         decodeOptions: decodeOptions,
-                        callback: streamingCallback
+                        callback: callback
                     )
                     
-                    print("✅ WhisperKit transcription completed")
-                    
-                    // Make sure to save the last window's text
-                    if currentWindowId >= 0 && !currentWindowText.isEmpty {
-                        completedSegments[currentWindowId] = currentWindowText
-                    }
+                    // Finalize the callback state (saves last window text)
+                    callbackState.finalize()
                     
                     // Process final result
-                    print("🔍 Processing final results...")
-                    print("  - Results count: \(results.count)")
-                    
                     if let firstResult = results.first {
-                        print("  - Segments count: \(firstResult.segments.count)")
+                        let fullText = firstResult.segments.map { $0.text.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
                         
-                        // Extract final text from all segments
-                        let fullText = firstResult.segments.map { $0.text }.joined(separator: " ")
-                        print("  - Total text length: \(fullText.count) characters")
-                        
-                        // Convert final segments to our format with word timestamps if available
                         let finalSegments = firstResult.segments.map { segment in
                             TranscriptionSegmentData(
                                 start: Double(segment.start),
                                 end: Double(segment.end),
                                 text: segment.text,
-                                words: nil // Word-level timestamps need investigation in WhisperKit API
+                                words: nil
                             )
                         }
                         
-                        print("📤 Sending final transcription result to UI")
-                        // Send final result
                         continuation.yield(TranscriptionUpdate(
                             text: fullText,
                             progress: 1.0,
                             segments: finalSegments,
                             isComplete: true
                         ))
-                        print("✅ Final result sent successfully")
                     } else {
-                        print("⚠️ No transcription results returned")
-                        // No results
                         continuation.yield(TranscriptionUpdate(
-                            text: "No transcription results",
+                            text: "",
                             progress: 1.0,
                             segments: [],
                             isComplete: true
@@ -395,64 +319,94 @@ class WhisperKitService {
                     continuation.finish()
                     
                 } catch {
-                    print("Transcription error: \(error)")
-                    // Provide mock transcription as fallback
-                    await provideMockTranscription(fileURL: fileURL, continuation: continuation)
+                    // Propagate the error instead of silently substituting mock output
+                    continuation.finish(throwing: error)
                 }
             }
         }
     }
+}
+
+// Wraps mutable streaming state so it can be captured by a @Sendable callback.
+// All access is serialized by WhisperKit's transcription loop, so this is safe.
+private final class StreamingCallbackState: @unchecked Sendable {
+    private let continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
+    private var lastUpdateTime = Date()
+    private let updateInterval: TimeInterval = 0.2
+    private var completedSegments: [Int: String] = [:]
+    private var currentWindowId = -1
+    private var currentWindowText = ""
+    private var lastDisplayedText = ""
+    private let startTime = Date()
+    private var maxWindowId = 0
     
-    private func provideMockTranscription(fileURL: URL, continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) async {
-        // Provide a mock transcription when WhisperKit fails
-        continuation.yield(TranscriptionUpdate(
-            text: """
-            ⚠️ WhisperKit is still initializing or downloading models.
+    init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
+        self.continuation = continuation
+    }
+    
+    func handleProgress(_ progress: TranscriptionProgress) -> Bool {
+        let now = Date()
+        
+        if progress.windowId != currentWindowId {
+            if currentWindowId >= 0 && !currentWindowText.isEmpty {
+                completedSegments[currentWindowId] = currentWindowText.trimmingCharacters(in: .whitespaces)
+            }
+            currentWindowId = progress.windowId
+        }
+        currentWindowText = progress.text.trimmingCharacters(in: .whitespaces)
+        maxWindowId = max(maxWindowId, progress.windowId)
+        
+        // Build the complete text from all segments
+        var fullText = ""
+        
+        let sortedWindows = completedSegments.keys.sorted()
+        for windowId in sortedWindows {
+            if let segmentText = completedSegments[windowId] {
+                if !fullText.isEmpty {
+                    fullText += " "
+                }
+                fullText += segmentText
+            }
+        }
+        
+        if !fullText.isEmpty && !currentWindowText.isEmpty {
+            fullText += " " + currentWindowText
+        } else if fullText.isEmpty {
+            fullText = currentWindowText
+        }
+        
+        let textChanged = fullText != lastDisplayedText
+        let timeElapsed = now.timeIntervalSince(lastUpdateTime) >= updateInterval
+        
+        if textChanged || timeElapsed {
+            lastUpdateTime = now
+            lastDisplayedText = fullText
             
-            This is a placeholder transcription while the system prepares.
+            let elapsedTime = now.timeIntervalSince(startTime)
+            let segmentCount = Double(completedSegments.count + 1)
             
-            File: \(fileURL.lastPathComponent)
+            let timeProgress = min(elapsedTime / 20.0, 0.9)
+            let segmentProgress = min(segmentCount / 10.0, 0.9)
+            let estimatedProgress = min(0.3 + max(timeProgress, segmentProgress) * 0.65, 0.95)
             
-            Please try again in a moment, or check:
-            1. Internet connection for model download
-            2. Available disk space (models are ~40-150MB)
-            3. Console logs for specific errors
-            
-            The transcription will work once WhisperKit finishes setup.
-            """,
-            progress: 1.0,
-            segments: [],
-            isComplete: true
-        ))
-        continuation.finish()
+            continuation.yield(TranscriptionUpdate(
+                text: fullText.isEmpty ? "Transkriberar..." : fullText,
+                progress: estimatedProgress,
+                segments: [],
+                isComplete: false
+            ))
+        }
+        
+        return true
+    }
+    
+    func finalize() {
+        if currentWindowId >= 0 && !currentWindowText.isEmpty {
+            completedSegments[currentWindowId] = currentWindowText
+        }
     }
 }
 
 extension TranscriptionError {
-    static let timeout = TranscriptionError.modelNotFound // Reuse for now
-}
-
-extension WhisperKitService {
-    private func mapModelIdToWhisperKitModel(_ modelId: String) -> String {
-        switch modelId {
-        case "openai_whisper-base":
-            return "openai_whisper-base"
-        case "openai_whisper-small":
-            return "openai_whisper-small"
-        case "openai_whisper-medium":
-            return "openai_whisper-medium"
-        case "openai_whisper-large-v2":
-            return "openai_whisper-large-v2"
-        case "openai_whisper-large-v3":
-            return "openai_whisper-large-v3"
-        case "kb_whisper-base-coreml":
-            // Try without the path separator - WhisperKit might add it
-            return "mickekringai/kb-whisper-coreml_base"
-        case "kb_whisper-small-coreml":
-            // Try without the path separator - WhisperKit might add it
-            return "mickekringai/kb-whisper-coreml_small"
-        default:
-            return "openai_whisper-base" // Default to base model
-        }
-    }
+    static let initializationTimeout = TranscriptionError.modelNotFound
 }

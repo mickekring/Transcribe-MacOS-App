@@ -7,22 +7,17 @@ struct ContentView: View {
     @StateObject private var localizationManager = LocalizationManager.shared
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var modelManager = ModelManager.shared
-    @State private var searchText = ""
-    @State private var selectedHistoryItem: SearchHistoryItem?
     @State private var isDraggingFile = false
-    @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb-whisper-small"
-    @AppStorage("bergetTranscriptionEnabled") private var bergetTranscriptionEnabled = false
-    @State private var showAllLanguages = false
+    @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
+    @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
     @State private var showLanguagePopover = false
     @State private var showModelPopover = false
     @State private var showFileImporter = false
     @State private var showYouTubeView = false
+    private let whisperKitService = WhisperKitService()
     
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 320)
-        } detail: {
+        Group {
             if appState.showRecordingView {
                 RecordingView()
             } else if appState.showTranscriptionView, let url = appState.currentTranscriptionURL {
@@ -31,19 +26,35 @@ struct ContentView: View {
                 mainContent
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.surfaceBackground)
         .navigationTitle("")
+        .toolbar(removing: .title)
+        .toolbar(removing: .sidebarToggle)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                HStack(spacing: 8) {
-                    languageDropdown
-                    modelDropdown
-                    settingsButton
-                }
-                .padding(.top, 16)
-                .padding(.trailing, 12)
+            ToolbarSpacer(.flexible)
+
+            ToolbarItem {
+                languageDropdown
             }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarItem {
+                modelDropdown
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarItem {
+                themeToggle
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarItem {
+                settingsButton
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
-        .toolbarBackground(.hidden, for: .windowToolbar)
         .onDrop(of: [.fileURL], isTargeted: $isDraggingFile) { providers in
             handleFileDrop(providers)
         }
@@ -57,8 +68,8 @@ struct ContentView: View {
                 if let url = urls.first {
                     appState.openFileForTranscription(url)
                 }
-            case .failure(let error):
-                print("File import error: \(error)")
+            case .failure:
+                break
             }
         }
         .sheet(isPresented: $showYouTubeView) {
@@ -70,105 +81,32 @@ struct ContentView: View {
                 appState.openFileForTranscription(fileURL)
             }
         }
-    }
-    
-    var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Image(systemName: "sparkles")
-                        .font(.title2)
-                        .foregroundStyle(LinearGradient.accentGradient)
-                    Text("Transcribe")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                    Spacer()
-                }
-                .padding(.top, 20)
-                
-                searchBar
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 16)
-            
-            Divider()
-                .foregroundColor(.borderLight)
-            
-            historyList
-        }
-        .background(Color.white)
-    }
-    
-    var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundColor(.textTertiary)
-            TextField(localized("search_history"), text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.borderLight, lineWidth: 1)
-        )
-        .cornerRadius(10)
-    }
-    
-    var historyList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(localized("older"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.textTertiary)
-                    .textCase(.uppercase)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
-                
-                VStack(spacing: 2) {
-                    ForEach(appState.searchHistory) { item in
-                        HistoryItemRow(item: item)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(selectedHistoryItem?.id == item.id ? Color.hoverBackground : Color.clear)
-                            )
-                            .onTapGesture {
-                                selectedHistoryItem = item
-                            }
-                    }
-                }
-                .padding(.horizontal, 12)
+        .task {
+            // Auto-download default model on first launch if no models are downloaded
+            let defaultModelId = "kb_whisper-small-coreml"
+            if modelManager.downloadedModels.isEmpty && modelManager.isDownloading[defaultModelId] != true {
+                selectedModel = defaultModelId
+                await downloadModel(defaultModelId)
             }
         }
-        .scrollIndicators(.hidden)
     }
     
     var mainContent: some View {
         ZStack {
-            // Background layers
-            ZStack {
-                // Background image with very low opacity
-                GeometryReader { geometry in
-                    Image("background-image2")  // Your image from Assets
-                        .resizable()
-                        .scaledToFill()  // Ensures image fills entire space
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()  // Clips any overflow
-                        .ignoresSafeArea()
-                        .opacity(0.12)  // 8% opacity - adjust to taste (0.05-0.15)
-                        .blur(radius: 1)  // Slight blur for subtlety
-                }
+            // Subtle green radial glow on dark surface
+            Color.surfaceBackground
                 .ignoresSafeArea()
-                
-                // Purple gradient overlay
-                LinearGradient.primaryGradient
-                    .ignoresSafeArea()
-                    .opacity(0.92)  // 92% opacity to let image subtly show through
-            }
+            
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    Color.primaryAccent.opacity(0.06),
+                    Color.clear
+                ]),
+                center: .top,
+                startRadius: 100,
+                endRadius: 600
+            )
+            .ignoresSafeArea()
             
             if isDraggingFile {
                 dragOverlay
@@ -212,7 +150,9 @@ struct ContentView: View {
                 .foregroundColor(.textSecondary)
             
             Button(action: {
-                // TODO: Show support view
+                if let url = URL(string: "https://github.com/mickekring/Transcribe-MacOS-App") {
+                    NSWorkspace.shared.open(url)
+                }
             }) {
                 Text(localizationManager.currentLanguage == "sv" ? "Hjälp / Support" : "Help / Support")
                     .font(.system(size: 12))
@@ -258,15 +198,19 @@ struct ContentView: View {
     
     var dragOverlay: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Color.white.opacity(0.98))
-                .shadow(color: Color.primaryAccent.opacity(0.2), radius: 30, y: 10)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.primaryAccent.opacity(0.4), lineWidth: 1.5)
+                )
+                .shadow(color: Color.primaryAccent.opacity(0.15), radius: 30, y: 10)
                 .padding(40)
             
             VStack(spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(LinearGradient.primaryGradient)
+                        .fill(Color.primaryAccent.opacity(0.15))
                         .frame(width: 100, height: 100)
                     
                     Image(systemName: "arrow.down.doc.fill")
@@ -287,26 +231,41 @@ struct ContentView: View {
         }
     }
     
-    var settingsButton: some View {
-        SettingsLink {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(LinearGradient.accentGradient)
-                .frame(width: 40, height: 40)
+    var themeToggle: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                appColorScheme = appColorScheme == "dark" ? "light" : "dark"
+            }
+        }) {
+            Image(systemName: appColorScheme == "dark" ? "moon.fill" : "sun.max.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.textSecondary)
+                .frame(width: 36, height: 36)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.elevatedSurface)
                 )
         }
         .buttonStyle(.plain)
+        .help(appColorScheme == "dark" ? localized("switch_to_light") : localized("switch_to_dark"))
+    }
+
+    var settingsButton: some View {
+        SettingsLink {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.textSecondary)
+                .frame(width: 36, height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.elevatedSurface)
+                )
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 20)
     }
     
     // MARK: - Actions
-    
-    func handleSearch() {
-        // Implement search functionality
-    }
     
     func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
@@ -337,15 +296,11 @@ struct ContentView: View {
         appState.showRecordingView = true
     }
     
-    func batchTranscription() {
-        // TODO: Implement batch transcription
-        print("Batch transcription not yet implemented")
-    }
-    
-    func showSupport() {
-        // Show support
-        if let url = URL(string: "https://transcribe.app/support") {
-            NSWorkspace.shared.open(url)
+    func downloadModel(_ modelId: String) async {
+        do {
+            try await whisperKitService.downloadOnly(modelId: modelId)
+        } catch {
+            // Model download failed
         }
     }
     
@@ -367,20 +322,19 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("language"))
                         .font(.system(size: 10))
-                        .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
+                        .foregroundColor(.textTertiary)
                     Text(languageManager.selectedLanguage.localizedName)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color.black)
+                        .foregroundColor(.textPrimary)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .frame(minHeight: 40)
+            .frame(minHeight: 36)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white)
-                    .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.elevatedSurface)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -474,179 +428,143 @@ struct ContentView: View {
             showModelPopover.toggle()
         }) {
             HStack(spacing: 6) {
-                Image(systemName: getModelIcon(selectedModel))
-                    .font(.system(size: 18))
-                    .foregroundStyle(LinearGradient.accentGradient)
+                if modelManager.isDownloading.values.contains(true) {
+                    AccentSpinner(size: 18, lineWidth: 2)
+                } else {
+                    Image(systemName: getModelIcon(selectedModel))
+                        .font(.system(size: 18))
+                        .foregroundStyle(LinearGradient.accentGradient)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("model"))
                         .font(.system(size: 10))
-                        .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
-                    Text(selectedModel.isEmpty ? localized("select_model") : getModelDisplayName(selectedModel))
+                        .foregroundColor(.textTertiary)
+                    Text(selectedModel.isEmpty ? localized("select_model") : modelManager.displayName(for: selectedModel))
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(selectedModel.isEmpty ? Color(red: 0.6, green: 0.6, blue: 0.6) : Color.black)
+                        .foregroundColor(selectedModel.isEmpty ? .textTertiary : .textPrimary)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .frame(minHeight: 40)
+            .frame(minHeight: 36)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white)
-                    .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.elevatedSurface)
             )
         }
         .buttonStyle(PlainButtonStyle())
         .popover(isPresented: $showModelPopover) {
             VStack(alignment: .leading, spacing: 0) {
-                // Local models section
-                if !modelManager.downloadedModels.isEmpty {
-                    Text(localized("local_models"))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                    
-                    // KB Whisper CoreML models
-                    let kbModels = modelManager.downloadedModels.filter { 
-                        $0.starts(with: "kb_whisper-")
-                    }.sorted()
-                    if !kbModels.isEmpty {
-                        ForEach(kbModels, id: \.self) { modelId in
-                            Button(action: {
-                                selectedModel = modelId
-                                showModelPopover = false
-                            }) {
-                                HStack {
-                                    Image(systemName: "laptopcomputer")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                    Text(getModelDisplayName(modelId))
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    if selectedModel == modelId {
-                                        Image(systemName: "checkmark")
-                                            .foregroundColor(.accentColor)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .onHover { isHovered in
-                                if isHovered {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                        }
-                    }
-                    
-                    // OpenAI Whisper models
-                    let whisperModels = modelManager.downloadedModels.filter { $0.starts(with: "openai_whisper-") }.sorted()
-                    if !whisperModels.isEmpty {
-                        if !kbModels.isEmpty {
-                            Divider().padding(.horizontal, 12)
-                        }
-                        
-                        ForEach(whisperModels, id: \.self) { modelId in
-                            Button(action: {
-                                selectedModel = modelId
-                                showModelPopover = false
-                            }) {
-                                HStack {
-                                    Image(systemName: "laptopcomputer")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                    Text(getModelDisplayName(modelId))
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    if selectedModel == modelId {
-                                        Image(systemName: "checkmark")
-                                            .foregroundColor(.accentColor)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .onHover { isHovered in
-                                if isHovered {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                        }
-                    }
-                    
-                    Divider()
-                        .padding(.vertical, 4)
+                // KB Whisper models
+                Text("KB Whisper")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                
+                ForEach(ModelManager.kbModels, id: \.self) { modelId in
+                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
                 }
                 
-                // Cloud models section
-                if bergetTranscriptionEnabled {
+                Divider().padding(.horizontal, 12).padding(.vertical, 4)
+                
+                // OpenAI Whisper models
+                Text("Whisper")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                
+                ForEach(ModelManager.openAIModels, id: \.self) { modelId in
+                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
+                }
+                
+                // Cloud models — only if Berget API key is configured
+                if !settingsManager.bergetKey.isEmpty {
+                    Divider().padding(.horizontal, 12).padding(.vertical, 4)
+                    
                     Text(localized("cloud_models"))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 12)
-                        .padding(.top, 4)
                         .padding(.bottom, 4)
                     
-                    if bergetTranscriptionEnabled && !settingsManager.bergetKey.isEmpty {
-                        Button(action: {
-                            selectedModel = "berget-kb-whisper-large"
-                            showModelPopover = false
-                        }) {
-                            HStack {
-                                Image(systemName: "cloud")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                Text("KB Whisper Large (Berget)")
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if selectedModel == "berget-kb-whisper-large" {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .onHover { isHovered in
-                            if isHovered {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                    }
+                    modelDropdownRow(modelId: "berget-kb-whisper-large", icon: "cloud")
                 }
             }
             .padding(.vertical, 8)
-            .frame(width: 220)
+            .frame(width: 260)
         }
     }
     
-    func getModelDisplayName(_ modelId: String) -> String {
-        switch modelId {
-        case "kb_whisper-base-coreml": return "KB Whisper Base"
-        case "kb_whisper-small-coreml": return "KB Whisper Small"
-        case "kb_whisper-medium-coreml": return "KB Whisper Medium"
-        case "kb_whisper-large-coreml": return "KB Whisper Large"
-        case "openai_whisper-base": return "Whisper Base"
-        case "openai_whisper-small": return "Whisper Small"
-        case "openai_whisper-medium": return "Whisper Medium"
-        case "openai_whisper-large-v2": return "Whisper Large v2"
-        case "openai_whisper-large-v3": return "Whisper Large v3"
-        case "berget-kb-whisper-large": return "KB Whisper Large (Berget)"
-        default: return modelId // Return the modelId itself as fallback
+    @ViewBuilder
+    func modelDropdownRow(modelId: String, icon: String) -> some View {
+        let isDownloaded = modelManager.isModelDownloaded(modelId)
+        let isCloud = modelId.starts(with: "berget-")
+        let isDownloading = modelManager.isDownloading[modelId] == true
+        let progress = modelManager.downloadProgress[modelId] ?? 0
+        
+        Button(action: {
+            selectedModel = modelId
+            showModelPopover = false
+            
+            // If the model isn't downloaded yet, start downloading immediately
+            if !isDownloaded && !isCloud && !isDownloading {
+                Task {
+                    await downloadModel(modelId)
+                }
+            }
+        }) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                
+                Text(modelManager.displayName(for: modelId))
+                    .foregroundColor(isDownloaded || isCloud ? .primary : .secondary)
+                
+                if isDownloading {
+                    Spacer()
+                    AccentSpinner(size: 12, lineWidth: 1.5)
+                    Text("\(Int(progress * 100))%")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.primaryAccent)
+                        .monospacedDigit()
+                } else if !isDownloaded && !isCloud {
+                    Text(modelManager.getModelSizeString(modelId))
+                        .font(.system(size: 11))
+                        .foregroundColor(.textTertiary)
+                    Spacer()
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(.textTertiary)
+                } else {
+                    Spacer()
+                }
+                
+                if selectedModel == modelId {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(.primaryAccent)
+                        .font(.system(size: 12, weight: .semibold))
+                } else if isDownloaded || isCloud {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.textTertiary)
+                        .font(.system(size: 12))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onHover { isHovered in
+            if isHovered {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
     
@@ -690,45 +608,6 @@ struct ContentView: View {
     }
 }
 
-struct HistoryItemRow: View {
-    let item: SearchHistoryItem
-    @State private var isHovered = false
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(LinearGradient.primaryGradient)
-                    .frame(width: 36, height: 36)
-                
-                Text(String(item.query.prefix(1)).uppercased())
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundColor(.primaryAccent)
-            }
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.query)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.textPrimary)
-                    .lineLimit(1)
-                Text(item.date, style: .relative)
-                    .font(.system(size: 11))
-                    .foregroundColor(.textTertiary)
-            }
-            
-            Spacer()
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
 struct FeatureCard: View {
     let icon: String
     let title: String
@@ -742,7 +621,7 @@ struct FeatureCard: View {
             VStack(spacing: 20) {
                 ZStack {
                     Circle()
-                        .fill(Color.primaryAccent.opacity(0.15))
+                        .fill(Color.primaryAccent.opacity(0.12))
                         .frame(width: 80, height: 80)
                         .scaleEffect(isHovered ? 1.1 : 1.0)
                     
@@ -759,19 +638,13 @@ struct FeatureCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: 160, height: 160)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.white)
-                    .shadow(color: isHovered ? Color.primaryAccent.opacity(0.2) : .shadowColor, 
-                           radius: isHovered ? 20 : 10, 
-                           y: isHovered ? 8 : 4)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.primaryAccent.opacity(isHovered ? 0.3 : 0), lineWidth: 1)
-            )
+            .glassCard()
         }
         .buttonStyle(.plain)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primaryAccent.opacity(isHovered ? 0.3 : 0), lineWidth: 1)
+        )
         .onHover { hovering in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 isHovered = hovering
@@ -780,54 +653,4 @@ struct FeatureCard: View {
     }
 }
 
-struct SecondaryFeatureCard: View {
-    let icon: String
-    let title: String
-    let action: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 20) {
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient.primaryGradient)
-                        .frame(width: 80, height: 80)
-                        .scaleEffect(isHovered ? 1.1 : 1.0)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 36))
-                        .foregroundStyle(LinearGradient(
-                            colors: [Color.textSecondary, Color.textTertiary],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
-                }
-                
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(width: 160, height: 160)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.white.opacity(0.6))
-                    .shadow(color: isHovered ? Color.shadowColor.opacity(0.15) : .shadowColor, 
-                           radius: isHovered ? 20 : 10, 
-                           y: isHovered ? 8 : 4)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.borderLight.opacity(isHovered ? 1 : 0.5), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
+

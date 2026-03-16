@@ -50,8 +50,8 @@ struct SettingsView: View {
                             .padding(.top, 16)
                         
                         SettingsMenuItem(
-                            icon: "laptopcomputer",
-                            title: localized("local_models"),
+                            icon: "internaldrive",
+                            title: localized("downloaded_models"),
                             isSelected: selectedSection == "local_models",
                             action: { selectedSection = "local_models" }
                         )
@@ -80,19 +80,30 @@ struct SettingsView: View {
                             isSelected: selectedSection == "llm_cloud",
                             action: { selectedSection = "llm_cloud" }
                         )
+                        
+                        // Process Text Section
+                        SectionHeader(title: localized("process_text").uppercased())
+                            .padding(.top, 16)
+                        
+                        SettingsMenuItem(
+                            icon: "text.bubble",
+                            title: localized("prompts"),
+                            isSelected: selectedSection == "prompts",
+                            action: { selectedSection = "prompts" }
+                        )
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 16)
                 }
             }
-            .background(Color.white)
+            .background(Color.surfaceBackground)
             .navigationSplitViewColumnWidth(min: 320, ideal: 340, max: 380)
             .toolbar(removing: .sidebarToggle)
             
         } detail: {
             // Detail view based on selection
             ZStack {
-                LinearGradient.primaryGradient
+                Color.surfaceBackground
                     .ignoresSafeArea()
                 
                 ScrollView {
@@ -109,6 +120,8 @@ struct SettingsView: View {
                         LLMLocalModelsView()
                     case "llm_cloud":
                         LLMCloudModelsView()
+                    case "prompts":
+                        TextProcessingPromptsView()
                     default:
                         GeneralSettingsView()
                     }
@@ -117,7 +130,7 @@ struct SettingsView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbarBackground(.hidden, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .navigationTitle("")
         .frame(width: 1040, height: 640)
     }
@@ -181,18 +194,21 @@ struct GeneralSettingsView: View {
 }
 
 struct LocalModelsView: View {
-    @EnvironmentObject var settingsManager: SettingsManager
     @StateObject private var modelManager = ModelManager.shared
-    @State private var selectedModel = ""
+    @State private var modelToDelete: String?
+    
+    private var downloadedModelsSorted: [String] {
+        modelManager.downloadedModels.sorted()
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "laptopcomputer")
+                Image(systemName: "internaldrive")
                     .font(.system(size: 32))
                     .foregroundStyle(LinearGradient.accentGradient)
-                Text(localized("local_models"))
+                Text(localized("downloaded_models"))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundColor(.textPrimary)
             }
@@ -200,141 +216,99 @@ struct LocalModelsView: View {
             .padding(.top, 30)
             .padding(.bottom, 40)
             
-            VStack(alignment: .leading, spacing: 20) {
-                // KB Whisper Models Card
-                SettingsCard {
-                    VStack(alignment: .leading, spacing: 15) {
-                        Label {
-                            Text("KB Whisper")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.textPrimary)
-                        } icon: {
-                            Image(systemName: "flag.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.blue)
-                        }
-                        
-                        Text("Finjusterade av Kungliga Biblioteket för svenska (laddas ner vid första användning)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.textSecondary)
-                        
-                        VStack(spacing: 10) {
-                            WhisperKitModelRow(
-                                modelId: "kb_whisper-base-coreml",
-                                name: "KB Whisper Base",
-                                size: modelManager.getModelSizeString("kb_whisper-base-coreml"),
-                                description: localized("balanced_speed_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("kb_whisper-base-coreml"),
-                                onToggle: { modelManager.toggleWhisperKitModel("kb_whisper-base-coreml") }
-                            )
+            if downloadedModelsSorted.isEmpty {
+                // Empty state
+                VStack(spacing: 16) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 48))
+                        .foregroundColor(.textTertiary)
+                    
+                    Text(localized("no_models_downloaded"))
+                        .font(.system(size: 14))
+                        .foregroundColor(.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+            } else {
+                VStack(alignment: .leading, spacing: 20) {
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 15) {
+                            Label {
+                                Text(localized("downloaded_models"))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                            } icon: {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.primaryAccent)
+                            }
                             
-                            WhisperKitModelRow(
-                                modelId: "kb_whisper-small-coreml",
-                                name: "KB Whisper Small",
-                                size: modelManager.getModelSizeString("kb_whisper-small-coreml"),
-                                description: localized("good_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("kb_whisper-small-coreml"),
-                                onToggle: { modelManager.toggleWhisperKitModel("kb_whisper-small-coreml") }
-                            )
+                            Text(localized("downloaded_models_description"))
+                                .font(.system(size: 12))
+                                .foregroundColor(.textSecondary)
                             
-                            WhisperKitModelRow(
-                                modelId: "kb_whisper-medium-coreml",
-                                name: "KB Whisper Medium",
-                                size: modelManager.getModelSizeString("kb_whisper-medium-coreml"),
-                                description: localized("high_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("kb_whisper-medium-coreml"),
-                                onToggle: { modelManager.toggleWhisperKitModel("kb_whisper-medium-coreml") }
-                            )
-                            
-                            WhisperKitModelRow(
-                                modelId: "kb_whisper-large-coreml",
-                                name: "KB Whisper Large",
-                                size: modelManager.getModelSizeString("kb_whisper-large-coreml"),
-                                description: localized("highest_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("kb_whisper-large-coreml"),
-                                onToggle: { modelManager.toggleWhisperKitModel("kb_whisper-large-coreml") }
-                            )
+                            VStack(spacing: 10) {
+                                ForEach(downloadedModelsSorted, id: \.self) { modelId in
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(modelManager.displayName(for: modelId))
+                                                .font(.system(size: 13, weight: .medium))
+                                            Text(modelManager.getModelSizeString(modelId))
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.textSecondary)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        Button(action: {
+                                            modelToDelete = modelId
+                                        }) {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 13))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .help(localized("delete_model"))
+                                    }
+                                    .padding(12)
+                                    .background(Color.elevatedSurface)
+                                    .cornerRadius(8)
+                                }
+                            }
                         }
                     }
                 }
-                
-                // OpenAI Whisper Models Card
-                SettingsCard {
-                    VStack(alignment: .leading, spacing: 15) {
-                        Label {
-                            Text("Whisper")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.textPrimary)
-                        } icon: {
-                            Image(systemName: "globe")
-                                .font(.system(size: 18))
-                                .foregroundColor(.green)
-                        }
-                        
-                        Text("OpenAI:s flerspråkiga modeller (laddas ner vid första användning)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.textSecondary)
-                        
-                        VStack(spacing: 10) {
-                            WhisperKitModelRow(
-                                modelId: "openai_whisper-base",
-                                name: "Whisper Base",
-                                size: modelManager.getModelSizeString("openai_whisper-base"),
-                                description: localized("balanced_speed_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("openai_whisper-base"),
-                                onToggle: { modelManager.toggleWhisperKitModel("openai_whisper-base") }
-                            )
-                            
-                            WhisperKitModelRow(
-                                modelId: "openai_whisper-small",
-                                name: "Whisper Small",
-                                size: modelManager.getModelSizeString("openai_whisper-small"),
-                                description: localized("good_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("openai_whisper-small"),
-                                onToggle: { modelManager.toggleWhisperKitModel("openai_whisper-small") }
-                            )
-                            
-                            WhisperKitModelRow(
-                                modelId: "openai_whisper-medium",
-                                name: "Whisper Medium",
-                                size: modelManager.getModelSizeString("openai_whisper-medium"),
-                                description: localized("high_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("openai_whisper-medium"),
-                                onToggle: { modelManager.toggleWhisperKitModel("openai_whisper-medium") }
-                            )
-                            
-                            WhisperKitModelRow(
-                                modelId: "openai_whisper-large-v2",
-                                name: "Whisper Large v2",
-                                size: modelManager.getModelSizeString("openai_whisper-large-v2"),
-                                description: localized("high_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("openai_whisper-large-v2"),
-                                onToggle: { modelManager.toggleWhisperKitModel("openai_whisper-large-v2") }
-                            )
-                            
-                            WhisperKitModelRow(
-                                modelId: "openai_whisper-large-v3",
-                                name: "Whisper Large v3",
-                                size: modelManager.getModelSizeString("openai_whisper-large-v3"),
-                                description: localized("best_accuracy"),
-                                isEnabled: modelManager.isWhisperKitModelEnabled("openai_whisper-large-v3"),
-                                onToggle: { modelManager.toggleWhisperKitModel("openai_whisper-large-v3") }
-                            )
-                        }
-                    }
-                }
+                .padding(.horizontal, 40)
             }
-            .padding(.horizontal, 40)
             
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .alert(localized("delete_model"), isPresented: Binding(
+            get: { modelToDelete != nil },
+            set: { if !$0 { modelToDelete = nil } }
+        )) {
+            Button(localized("remove"), role: .destructive) {
+                if let modelId = modelToDelete {
+                    modelManager.deleteModel(modelId)
+                }
+                modelToDelete = nil
+            }
+            Button(localized("cancel"), role: .cancel) {
+                modelToDelete = nil
+            }
+        } message: {
+            if let modelId = modelToDelete {
+                Text("\(modelManager.displayName(for: modelId)) (\(modelManager.getModelSizeString(modelId)))")
+            }
+        }
     }
 }
 
 struct CloudModelsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
-    @AppStorage("bergetTranscriptionEnabled") private var bergetEnabled = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -351,112 +325,72 @@ struct CloudModelsView: View {
             .padding(.top, 30)
             .padding(.bottom, 40)
             
-            ScrollView {
-                VStack(alignment: .leading, spacing: 25) {
-                    // Berget (First - GDPR safe)
-                    SettingsCard {
-                        VStack(alignment: .leading, spacing: 15) {
-                            Label {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(Color.green)
-                                        .frame(width: 8, height: 8)
-                                    Text("Berget 🇸🇪")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundColor(.textPrimary)
-                                }
-                            } icon: {
-                                Image(systemName: "cloud")
-                                    .font(.system(size: 18))
-                                    .foregroundStyle(LinearGradient.accentGradient)
+            VStack(alignment: .leading, spacing: 25) {
+                SettingsCard {
+                    VStack(alignment: .leading, spacing: 15) {
+                        Label {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(settingsManager.bergetKey.isEmpty ? Color.orange : Color.green)
+                                    .frame(width: 8, height: 8)
+                                Text("Berget")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
                             }
-                            
-                            Text("GDPR-säker - All data stannar i Sverige")
-                                .font(.system(size: 13))
-                                .foregroundColor(.textPrimary)
-                            
-                            if settingsManager.bergetKey.isEmpty {
-                                Text(localized("api_key_required"))
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.orange)
-                            }
-                            
-                            Divider()
-                            
-                            // KB Whisper Large model
+                        } icon: {
+                            Image(systemName: "cloud")
+                                .font(.system(size: 18))
+                                .foregroundStyle(LinearGradient.accentGradient)
+                        }
+                        
+                        Text(localized("cloud_transcription_description"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.textSecondary)
+                        
+                        Divider()
+                        
+                        if !settingsManager.bergetKey.isEmpty {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("KB Whisper Large")
                                         .font(.system(size: 13, weight: .medium))
-                                    Text("Svensk optimerad transkribering")
+                                    Text(localized("cloud_transcription_model_subtitle"))
                                         .font(.system(size: 11))
                                         .foregroundColor(.textSecondary)
                                 }
                                 
                                 Spacer()
                                 
-                                Toggle("", isOn: $bergetEnabled)
-                                    .toggleStyle(.switch)
-                                    .controlSize(.small)
-                                    .disabled(settingsManager.bergetKey.isEmpty)
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 6, height: 6)
+                                    Text(localized("available"))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.primaryAccent)
+                                }
                             }
                             .padding(12)
-                            .background(Color.gray.opacity(0.05))
+                            .background(Color.elevatedSurface)
                             .cornerRadius(8)
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "key")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.orange)
+                                Text(localized("api_key_required"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
                 }
             }
             .padding(.horizontal, 40)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-struct WhisperKitModelRow: View {
-    let modelId: String
-    let name: String
-    let size: String
-    let description: String
-    let isEnabled: Bool
-    let onToggle: () -> Void
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(name)
-                        .font(.system(size: 13, weight: .medium))
-                    
-                    if isEnabled {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                    }
-                }
-                
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
             
             Spacer()
-            
-            Text(size)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(width: 60, alignment: .trailing)
-            
-            Toggle("", isOn: Binding(
-                get: { isEnabled },
-                set: { _ in onToggle() }
-            ))
-            .toggleStyle(.switch)
-            .controlSize(.small)
         }
-        .padding(12)
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -525,7 +459,7 @@ struct ModelRow: View {
             }
         }
         .padding(12)
-        .background(Color.gray.opacity(0.05))
+        .background(Color.elevatedSurface)
         .cornerRadius(8)
     }
 }
@@ -553,7 +487,7 @@ struct CloudModelRow: View {
                 .foregroundColor(status == "Available" ? .green : .orange)
         }
         .padding(12)
-        .background(Color.gray.opacity(0.05))
+        .background(Color.elevatedSurface)
         .cornerRadius(8)
     }
 }
@@ -593,7 +527,7 @@ struct APIKeysView: View {
                                 .foregroundStyle(LinearGradient.accentGradient)
                         }
                         
-                        Text("Svensk GDPR-säker molntjänst för transkribering")
+                        Text(localized("berget_cloud_service_description"))
                             .font(.system(size: 12))
                             .foregroundColor(.textSecondary)
                         
@@ -713,7 +647,6 @@ struct APIKeysView: View {
 
 struct LLMLocalModelsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
-    @State private var enabledModels: Set<String> = []
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -744,7 +677,7 @@ struct LLMLocalModelsView: View {
                                     .foregroundStyle(LinearGradient.accentGradient)
                             }
                             
-                            Text(localized("ollama_description"))
+                            Text(localized("ollama_llm_description"))
                                 .font(.system(size: 12))
                                 .foregroundColor(.textSecondary)
                             
@@ -780,30 +713,30 @@ struct LLMLocalModelsView: View {
                                             VStack(alignment: .leading, spacing: 4) {
                                                 Text(model)
                                                     .font(.system(size: 13, weight: .medium))
-                                                Text("Local language model")
+                                                Text(localized("local_language_model"))
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.textSecondary)
                                             }
                                             
                                             Spacer()
                                             
-                                            Toggle("", isOn: Binding(
-                                                get: { enabledModels.contains(model) },
-                                                set: { enabled in
-                                                    if enabled {
-                                                        enabledModels.insert(model)
-                                                    } else {
-                                                        enabledModels.remove(model)
-                                                    }
-                                                }
-                                            ))
-                                            .toggleStyle(.switch)
-                                            .controlSize(.small)
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundColor(.green)
+                                                .font(.system(size: 16))
                                         }
                                         .padding(12)
-                                        .background(Color.gray.opacity(0.05))
+                                        .background(Color.elevatedSurface)
                                         .cornerRadius(8)
                                     }
+                                }
+                            } else if settingsManager.ollamaModels.isEmpty && !settingsManager.ollamaConnectionStatus.isEmpty && !settingsManager.ollamaConnectionStatus.contains("Connected") {
+                                HStack(spacing: 4) {
+                                    Text(localized("ollama_not_installed"))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                    Link("ollama.com", destination: URL(string: "https://ollama.com")!)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.primaryAccent)
                                 }
                             }
                         }
@@ -821,14 +754,21 @@ struct LLMLocalModelsView: View {
     }
 }
 
+struct BergetLLMModel: Identifiable {
+    let id: String        // API model ID
+    let displayName: String
+    let size: String      // e.g. "70B"
+}
+
 struct LLMCloudModelsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
-    @State private var enabledBergetModels: Set<String> = []
     
-    let bergetModels = [
-        "Llama 3.3 70B Instruct",
-        "Mistral Small 3.1 24B Instruct",
-        "GPT-OSS-120B"
+    static let bergetLLMModels: [BergetLLMModel] = [
+        BergetLLMModel(id: "meta-llama/Llama-3.3-70B-Instruct", displayName: "Llama 3.3 70B Instruct", size: "70B"),
+        BergetLLMModel(id: "meta-llama/Llama-3.1-8B-Instruct", displayName: "Llama 3.1 8B Instruct", size: "8B"),
+        BergetLLMModel(id: "mistralai/Mistral-Small-3.2-24B-Instruct-2506", displayName: "Mistral Small 3.2 24B", size: "24B"),
+        BergetLLMModel(id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B", size: "120B"),
+        BergetLLMModel(id: "zai-org/GLM-4.7", displayName: "GLM 4.7", size: ""),
     ]
     
     var body: some View {
@@ -847,15 +787,15 @@ struct LLMCloudModelsView: View {
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
-                    // Berget Models (First - GDPR safe)
+                    // Berget Models (GDPR safe)
                     SettingsCard {
                         VStack(alignment: .leading, spacing: 15) {
                             Label {
                                 HStack(spacing: 6) {
                                     Circle()
-                                        .fill(Color.green)
+                                        .fill(settingsManager.bergetKey.isEmpty ? Color.gray : Color.green)
                                         .frame(width: 8, height: 8)
-                                    Text("Berget 🇸🇪")
+                                    Text("Berget AI")
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundColor(.textPrimary)
                                 }
@@ -865,9 +805,9 @@ struct LLMCloudModelsView: View {
                                     .foregroundStyle(LinearGradient.accentGradient)
                             }
                             
-                            Text("GDPR-säker - All data stannar i Sverige")
+                            Text(localized("berget_llm_description"))
                                 .font(.system(size: 13))
-                                .foregroundColor(.textPrimary)
+                                .foregroundColor(.textSecondary)
                             
                             if settingsManager.bergetKey.isEmpty {
                                 Text(localized("api_key_required"))
@@ -878,34 +818,26 @@ struct LLMCloudModelsView: View {
                             Divider()
                             
                             VStack(spacing: 8) {
-                                ForEach(bergetModels, id: \.self) { model in
+                                ForEach(Self.bergetLLMModels) { model in
                                     HStack {
                                         VStack(alignment: .leading, spacing: 4) {
-                                            Text(model)
+                                            Text(model.displayName)
                                                 .font(.system(size: 13, weight: .medium))
-                                            Text("Svensk värdlösning")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.textSecondary)
+                                            if !model.size.isEmpty {
+                                                Text(model.size)
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.textSecondary)
+                                            }
                                         }
                                         
                                         Spacer()
                                         
-                                        Toggle("", isOn: Binding(
-                                            get: { enabledBergetModels.contains(model) },
-                                            set: { enabled in
-                                                if enabled {
-                                                    enabledBergetModels.insert(model)
-                                                } else {
-                                                    enabledBergetModels.remove(model)
-                                                }
-                                            }
-                                        ))
-                                        .toggleStyle(.switch)
-                                        .controlSize(.small)
-                                        .disabled(settingsManager.bergetKey.isEmpty)
+                                        Circle()
+                                            .fill(settingsManager.bergetKey.isEmpty ? Color.gray.opacity(0.5) : Color.green)
+                                            .frame(width: 8, height: 8)
                                     }
                                     .padding(12)
-                                    .background(Color.gray.opacity(0.05))
+                                    .background(Color.elevatedSurface)
                                     .cornerRadius(8)
                                 }
                             }
@@ -919,22 +851,237 @@ struct LLMCloudModelsView: View {
     }
 }
 
-struct PromptRow: View {
-    let title: String
-    @State var prompt: String
+struct TextProcessingPromptsView: View {
+    @EnvironmentObject var settingsManager: SettingsManager
+    @State private var expandedPromptId: UUID?
+    @State private var editingName: String = ""
+    @State private var editingPromptText: String = ""
+    @State private var promptToDelete: TextProcessingPrompt?
+    @State private var isAddingNew = false
+    @State private var newName: String = ""
+    @State private var newPromptText: String = ""
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 32))
+                    .foregroundStyle(LinearGradient.accentGradient)
+                Text(localized("process_text"))
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundColor(.textPrimary)
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 30)
+            .padding(.bottom, 40)
             
-            TextEditor(text: $prompt)
-                .font(.caption)
-                .frame(height: 60)
-                .padding(4)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 25) {
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label {
+                                Text(localized("prompts"))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                            } icon: {
+                                Image(systemName: "list.bullet.rectangle")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(LinearGradient.accentGradient)
+                            }
+                            
+                            Text(localized("prompts_settings_description"))
+                                .font(.system(size: 12))
+                                .foregroundColor(.textSecondary)
+                            
+                            Divider()
+                            
+                            // Prompt list
+                            VStack(spacing: 10) {
+                                ForEach(settingsManager.textProcessingPrompts) { prompt in
+                                    promptRow(for: prompt)
+                                }
+                            }
+                            
+                            // Add button
+                            if isAddingNew {
+                                newPromptEditor
+                            } else {
+                                Button(action: { isAddingNew = true }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 14))
+                                        Text(localized("add_prompt"))
+                                            .font(.system(size: 13, weight: .medium))
+                                    }
+                                    .foregroundColor(.primaryAccent)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, 4)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 40)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .alert(localized("delete_prompt"), isPresented: Binding(
+            get: { promptToDelete != nil },
+            set: { if !$0 { promptToDelete = nil } }
+        )) {
+            Button(localized("remove"), role: .destructive) {
+                if let prompt = promptToDelete {
+                    settingsManager.deletePrompt(prompt)
+                }
+                promptToDelete = nil
+            }
+            Button(localized("cancel"), role: .cancel) {
+                promptToDelete = nil
+            }
+        } message: {
+            if let prompt = promptToDelete {
+                Text(prompt.name)
+            }
+        }
+    }
+    
+    // MARK: - Prompt Row
+    
+    @ViewBuilder
+    private func promptRow(for prompt: TextProcessingPrompt) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(prompt.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.textPrimary)
+                    
+                    if expandedPromptId != prompt.id {
+                        Text(prompt.prompt)
+                            .font(.system(size: 11))
+                            .foregroundColor(.textSecondary)
+                            .lineLimit(2)
+                    }
+                }
+                
+                Spacer()
+                
+                if expandedPromptId != prompt.id {
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                editingName = prompt.name
+                                editingPromptText = prompt.prompt
+                                expandedPromptId = prompt.id
+                            }
+                        }) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 13))
+                                .foregroundColor(.textSecondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(localized("edit_prompt"))
+                        
+                        Button(action: { promptToDelete = prompt }) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13))
+                                .foregroundColor(.textSecondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(localized("delete_prompt"))
+                    }
+                }
+            }
+            
+            // Expanded editor
+            if expandedPromptId == prompt.id {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField(localized("prompt_name"), text: $editingName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                    
+                    TextEditor(text: $editingPromptText)
+                        .font(.system(size: 12))
+                        .frame(height: 100)
+                        .padding(4)
+                        .background(Color.surfaceBackground)
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.borderLight, lineWidth: 0.5)
+                        )
+                    
+                    HStack {
+                        Button(localized("cancel")) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                expandedPromptId = nil
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button(localized("save")) {
+                            var updated = prompt
+                            updated.name = editingName
+                            updated.prompt = editingPromptText
+                            settingsManager.updatePrompt(updated)
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                expandedPromptId = nil
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(editingName.isEmpty || editingPromptText.isEmpty)
+                    }
+                }
+                .padding(.top, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(12)
+        .background(Color.elevatedSurface)
+        .cornerRadius(8)
+    }
+    
+    // MARK: - New Prompt Editor
+    
+    private var newPromptEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(localized("prompt_name"), text: $newName)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+            
+            TextEditor(text: $newPromptText)
+                .font(.system(size: 12))
+                .frame(height: 100)
+                .padding(4)
+                .background(Color.surfaceBackground)
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.borderLight, lineWidth: 0.5)
+                )
+            
+            HStack {
+                Button(localized("cancel")) {
+                    isAddingNew = false
+                    newName = ""
+                    newPromptText = ""
+                }
+                .buttonStyle(.bordered)
+                
+                Button(localized("save")) {
+                    let prompt = TextProcessingPrompt(name: newName, prompt: newPromptText)
+                    settingsManager.addPrompt(prompt)
+                    isAddingNew = false
+                    newName = ""
+                    newPromptText = ""
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(newName.isEmpty || newPromptText.isEmpty)
+            }
+        }
+        .padding(12)
+        .background(Color.elevatedSurface)
+        .cornerRadius(8)
     }
 }
 
@@ -952,13 +1099,12 @@ struct SettingsCard<Content: View>: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: .shadowColor, radius: 8, y: 4)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.cardBackground)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.borderLight, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.borderLight, lineWidth: 0.5)
         )
     }
 }

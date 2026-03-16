@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 
-class BergetTranscriptionService {
+final class BergetTranscriptionService: Sendable {
     private let apiKey: String
     private let baseURL = "https://api.berget.ai/v1"
     private let model = "KBLab/kb-whisper-large"
@@ -13,8 +13,8 @@ class BergetTranscriptionService {
     func transcribe(
         audioURL: URL,
         language: String? = nil,
-        onProgress: ((String) -> Void)? = nil,
-        completion: @escaping (Result<TranscriptionResult, Error>) -> Void
+        onProgress: (@Sendable (String) -> Void)? = nil,
+        completion: @Sendable @escaping (Result<TranscriptionResult, Error>) -> Void
     ) {
         Task {
             do {
@@ -55,12 +55,25 @@ class BergetTranscriptionService {
         let boundary = UUID().uuidString
         
         // Create multipart form data
+        // Berget API only accepts: file (required) and model (optional)
         var body = Data()
+        
+        // Map file extension to proper MIME type
+        let mimeType: String
+        switch audioURL.pathExtension.lowercased() {
+        case "mp3", "mpga":  mimeType = "audio/mpeg"
+        case "mp4", "m4a":   mimeType = "audio/mp4"
+        case "wav":          mimeType = "audio/wav"
+        case "webm":         mimeType = "audio/webm"
+        case "ogg":          mimeType = "audio/ogg"
+        case "flac":         mimeType = "audio/flac"
+        default:             mimeType = "application/octet-stream"
+        }
         
         // Add file
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(audioURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/\(audioURL.pathExtension)\r\n\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(try Data(contentsOf: audioURL))
         body.append("\r\n".data(using: .utf8)!)
         
@@ -68,18 +81,6 @@ class BergetTranscriptionService {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(model)\r\n".data(using: .utf8)!)
-        
-        // Add language if specified
-        if let language = language, language != "auto" {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(language)\r\n".data(using: .utf8)!)
-        }
-        
-        // Add response format (for potential segments/timestamps)
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-        body.append("verbose_json\r\n".data(using: .utf8)!)
         
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
@@ -107,18 +108,14 @@ class BergetTranscriptionService {
             throw CloudTranscriptionError.httpError(httpResponse.statusCode)
         }
         
-        // Parse response
+        // Parse response — Berget returns {"text": "...", "usage": {...}}
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         
-        // Check if we got verbose JSON with segments
-        if let segments = json?["segments"] as? [[String: Any]] {
-            return parseVerboseResponse(json: json!, audioURL: audioURL)
-        } else if let text = json?["text"] as? String {
-            // Simple text response
+        if let text = json?["text"] as? String {
             return TranscriptionResult(
                 text: text,
                 segments: [],
-                language: json?["language"] as? String ?? "unknown",
+                language: language ?? "unknown",
                 duration: getAudioDuration(url: audioURL) ?? 0,
                 timestamp: Date(),
                 modelUsed: model
@@ -131,8 +128,8 @@ class BergetTranscriptionService {
     private func transcribeWithStreaming(
         audioURL: URL,
         language: String? = nil,
-        onProgress: ((String) -> Void)? = nil,
-        completion: @escaping (Result<TranscriptionResult, Error>) -> Void
+        onProgress: (@Sendable (String) -> Void)? = nil,
+        completion: @Sendable @escaping (Result<TranscriptionResult, Error>) -> Void
     ) async throws {
         // For now, we'll implement this as a TODO since Berget might not support streaming yet
         // We'll fall back to regular transcription
@@ -146,38 +143,6 @@ class BergetTranscriptionService {
         // Check if Berget supports streaming
         // For now, return false as they likely don't support it yet
         return false
-    }
-    
-    private func parseVerboseResponse(json: [String: Any], audioURL: URL) -> TranscriptionResult {
-        var segments: [TranscriptionSegment] = []
-        
-        if let jsonSegments = json["segments"] as? [[String: Any]] {
-            for segment in jsonSegments {
-                if let text = segment["text"] as? String,
-                   let start = segment["start"] as? Double,
-                   let end = segment["end"] as? Double {
-                    segments.append(TranscriptionSegment(
-                        id: segments.count,
-                        start: start,
-                        end: end,
-                        text: text,
-                        confidence: nil,
-                        speaker: nil
-                    ))
-                }
-            }
-        }
-        
-        let fullText = json["text"] as? String ?? segments.map { $0.text }.joined(separator: " ")
-        
-        return TranscriptionResult(
-            text: fullText,
-            segments: segments,
-            language: json["language"] as? String ?? "unknown",
-            duration: json["duration"] as? Double ?? getAudioDuration(url: audioURL) ?? 0,
-            timestamp: Date(),
-            modelUsed: model
-        )
     }
     
     private func getAudioDuration(url: URL) -> Double? {

@@ -1,0 +1,9 @@
+// Transcribe project build configuration
+//
+// KNOWN ISSUE: Xcode 26 bug - ___llvm_profile_runtime linker error
+// CLANG_COVERAGE_MAPPING defaults to YES in Xcode 26. Pure C SPM package
+// targets (yyjson, a transitive dep of WhisperKit) get coverage instrumentation
+// but their linker misses -fprofile-instr-generate, leaving the symbol undefined.
+// This xcconfig setting applies to project targets but NOT to SPM package targets.
+// Build from command line with: xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
+CLANG_COVERAGE_MAPPING = NO

@@ -1,7 +1,7 @@
 import SwiftUI
 
 class LocalizationManager: ObservableObject {
-    static let shared = LocalizationManager()
+    nonisolated(unsafe) static let shared = LocalizationManager()
     
     @AppStorage("appLanguage") var appLanguage: String = "en" {
         didSet {
@@ -27,8 +27,11 @@ class LocalizationManager: ObservableObject {
     }
     
     private func languageBundle() -> Bundle {
-        let path = Bundle.main.path(forResource: currentLanguage, ofType: "lproj")
-        return path != nil ? Bundle(path: path!) ?? Bundle.main : Bundle.main
+        if let path = Bundle.main.path(forResource: currentLanguage, ofType: "lproj"),
+           let bundle = Bundle(path: path) {
+            return bundle
+        }
+        return Bundle.main
     }
 }
 
@@ -37,9 +40,3 @@ func localized(_ key: String) -> String {
     LocalizationManager.shared.localizedString(key)
 }
 
-// SwiftUI View Extension for easier localization
-extension Text {
-    init(localizedKey: String) {
-        self.init(localized(localizedKey))
-    }
-}

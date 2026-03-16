@@ -6,16 +6,28 @@ struct TranscribeApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var transcriptionManager = TranscriptionManager()
     @StateObject private var settingsManager = SettingsManager()
-    
+    @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
+
+    private var preferredScheme: ColorScheme? {
+        switch appColorScheme {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(transcriptionManager)
                 .environmentObject(settingsManager)
-                .frame(minWidth: 1100, minHeight: 700)
-                .frame(idealWidth: 1400, idealHeight: 850)
-                .preferredColorScheme(.light)
+                .frame(minWidth: 900, minHeight: 700)
+                .frame(idealWidth: 1200, idealHeight: 850)
+                .preferredColorScheme(preferredScheme)
+                .onAppear {
+                    appDelegate.settingsManager = settingsManager
+                }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
@@ -38,6 +50,7 @@ struct TranscribeApp: App {
             SettingsView()
                 .environmentObject(settingsManager)
                 .navigationTitle("")
+                .preferredColorScheme(preferredScheme)
         }
     }
 }

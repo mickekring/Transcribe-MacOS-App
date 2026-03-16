@@ -14,6 +14,7 @@
 "general" = "Allmänt";
 "transcription" = "Transkribering";
 "local_models" = "Lokala modeller";
+"downloaded_models" = "Nedladdade modeller";
 "cloud_models" = "Molnmodeller";
 "api_keys" = "API-nycklar";
 "services" = "Tjänster";
@@ -51,6 +52,22 @@
 "remove" = "Ta bort";
 "api_key_required" = "API-nyckel krävs";
 "available" = "Tillgänglig";
+"not_downloaded" = "Ej nedladdad";
+"no_models_downloaded" = "Inga modeller nedladdade ännu. Välj en modell i verktygsfältet — den laddas ner automatiskt vid första användning.";
+"delete_model" = "Ta bort modell";
+"delete_model_confirm" = "Är du säker på att du vill ta bort denna modell? Du kan ladda ner den igen senare.";
+"downloading_model" = "Laddar ner %@...";
+"download_progress" = "%@ av %@";
+
+/* Settings - Model Info */
+"downloaded_models_description" = "Dessa modeller körs helt på din enhet. Ditt ljud och dina transkriberingar lämnar aldrig din dator.";
+"cloud_transcription_description" = "GDPR-säker — All data stannar i Sverige";
+"cloud_transcription_model_subtitle" = "Svensk optimerad transkribering";
+"berget_llm_description" = "GDPR-säker — All data stannar i Sverige";
+"berget_cloud_service_description" = "Svensk GDPR-säker molntjänst för transkribering";
+"ollama_llm_description" = "Ollama kör språkmodeller lokalt på din dator. Din data lämnar aldrig din maskin.";
+"ollama_not_installed" = "Ollama körs inte. Ladda ner från";
+"local_language_model" = "Lokal språkmodell";
 
 /* Settings - API Keys */
 "api_keys" = "API-nycklar";
@@ -76,6 +93,15 @@
 "summary" = "Sammanfattning";
 "action_items" = "Åtgärdspunkter";
 "key_points" = "Nyckelpunkter";
+
+/* Settings - Bearbeta text */
+"process_text" = "Bearbeta text";
+"prompts" = "Prompter";
+"prompts_settings_description" = "Skapa prompter för bearbetning av transkriberad text med språkmodeller. Varje prompt blir en systemprompt.";
+"add_prompt" = "Lägg till prompt";
+"edit_prompt" = "Redigera";
+"delete_prompt" = "Ta bort prompt";
+"prompt_name" = "Promptnamn";
 
 /* Dropdown menus */
 "language" = "Språk";
@@ -122,18 +148,34 @@
 "duration" = "Längd";
 "transcription_time" = "Transkriberad tid";
 "words" = "Ord";
+"tokens" = "Tokens";
 "transcribing" = "Transkriberar...";
 "speed" = "Hastighet";
 "format" = "Format";
 "export_text" = "Text (.txt)";
 "export_srt" = "Undertexter (.srt)";
 "export_vtt" = "WebVTT (.vtt)";
+"export_transcription_txt" = "Transkribering - Text (.txt)";
+"export_transcription_md" = "Transkribering - Markdown (.md)";
+"export_processed_txt" = "Bearbetad text - Text (.txt)";
+"export_processed_md" = "Bearbetad text - Markdown (.md)";
 "options" = "Val";
 "font_size" = "Textstorlek";
 "show_timestamps" = "Visa tidsmarkering";
+"retranscribe" = "Transkribera igen";
+"process_transcription" = "Bearbeta transkribering";
+"select_prompt" = "Välj prompt";
+"add_information" = "Lägg till information";
+"edit_information" = "Redigera information";
+"additional_information" = "Ytterligare information";
+"additional_info_description" = "Lägg till kontext för språkmodellen, t.ex. talarnamn, mötesämne eller andra relevanta detaljer.";
+"process" = "Bearbeta";
+"processing_with_llm" = "Bearbetar...";
+"clear" = "Rensa";
 
 /* WhisperKit Messages */
 "downloading_whisperkit_model" = "Laddar ner WhisperKit-modell (endast första gången, detta kan ta en stund)...";
+"preparing_model_first_use" = "Förbereder %@ för användning. Detta behöver bara göras en gång...";
 "initializing_whisperkit" = "Initierar WhisperKit...";
 "loading_audio_file" = "Laddar ljudfil...";
 
@@ -148,3 +190,32 @@
 "processing_chunk" = "Bearbetar del %d av %d...";
 "merging_results" = "Sammanfogar transkriptionsresultat...";
 "chunk_of" = "Del %d av %d";
+
+/* Unsaved changes */
+"unsaved_transcription" = "Osparad transkribering";
+"unsaved_transcription_message" = "Du har en transkribering som inte har sparats. Vill du kopiera den till urklipp innan du lämnar?";
+"copy_and_go_back" = "Kopiera & gå tillbaka";
+"go_back_without_saving" = "Gå tillbaka utan att spara";
+"cancel" = "Avbryt";
+"export_error" = "Export misslyckades";
+
+/* Recording View */
+"back" = "Tillbaka";
+"recording_in_progress" = "Spelar in...";
+"recording_complete" = "Inspelning klar";
+"tap_to_record" = "Tryck för att börja spela in";
+"pause" = "Pausa";
+"play" = "Spela upp";
+"start_over" = "Börja om";
+"mic_permission_required" = "Mikrofontillstånd krävs";
+"mic_permission_message" = "För att spela in ljud behöver Transcribe tillgång till din mikrofon. Gå till Systeminställningar > Säkerhet & Integritet > Mikrofon och aktivera Transcribe.";
+"leave_recording" = "Avsluta inspelning?";
+"stay" = "Stanna kvar";
+"leave" = "Lämna";
+"recording_in_progress_leave" = "En inspelning pågår. Om du lämnar kommer inspelningen att förloras.";
+"untranscribed_recording_leave" = "Du har en inspelning som inte har transkriberats. Om du lämnar kommer den att förloras.";
+"audio_input_device" = "Ljudingång";
+
+/* Theme */
+"switch_to_light" = "Byt till ljust läge";
+"switch_to_dark" = "Byt till mörkt läge";

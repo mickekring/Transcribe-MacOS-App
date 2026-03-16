@@ -1,29 +1,41 @@
 import SwiftUI
 import AVFoundation
+import CoreAudio
 import AppKit
+
+struct AudioInputDevice: Identifiable, Hashable {
+    let id: AudioDeviceID
+    let name: String
+}
 
 struct RecordingView: View {
     @StateObject private var audioRecorder = AudioRecorderManager()
     @EnvironmentObject var appState: AppState
     @State private var showingTranscription = false
     @State private var recordingTime: TimeInterval = 0
+    @State private var recordingStartDate: Date?
     @State private var timer: Timer?
     @State private var isPlaying = false
     @State private var playbackTime: TimeInterval = 0
     @State private var audioPlayer: AVAudioPlayer?
     @State private var showPermissionAlert = false
+    @State private var showLeaveConfirmation = false
     
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
                 Button(action: {
-                    appState.showRecordingView = false
+                    if audioRecorder.isRecording || audioRecorder.hasRecording {
+                        showLeaveConfirmation = true
+                    } else {
+                        appState.showRecordingView = false
+                    }
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 14))
-                        Text("Tillbaka")
+                        Text(localized("back"))
                             .font(.system(size: 14))
                     }
                     .foregroundColor(.primaryAccent)
@@ -32,7 +44,7 @@ struct RecordingView: View {
                 
                 Spacer()
                 
-                Text("Ny inspelning")
+                Text(localized("new_recording"))
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.textPrimary)
                 
@@ -41,13 +53,13 @@ struct RecordingView: View {
                 // Placeholder for balance
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
-                    Text("Tillbaka")
+                    Text(localized("back"))
                 }
                 .opacity(0)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
-            .background(Color.white)
+            .background(Color.surfaceBackground)
             .overlay(
                 Rectangle()
                     .fill(Color.borderLight)
@@ -58,6 +70,37 @@ struct RecordingView: View {
             // Main content
             VStack(spacing: 40) {
                 Spacer()
+                
+                // Audio input device selector
+                if audioRecorder.inputDevices.count > 1 && !audioRecorder.isRecording {
+                    VStack(spacing: 12) {
+                        Picker(localized("audio_input_device"), selection: $audioRecorder.selectedDeviceID) {
+                            ForEach(audioRecorder.inputDevices) { device in
+                                Text(device.name).tag(Optional(device.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 300)
+                        .onChange(of: audioRecorder.selectedDeviceID) { _, newValue in
+                            if let deviceID = newValue {
+                                audioRecorder.setInputDevice(deviceID)
+                                // Restart input monitor to pick up new device
+                                audioRecorder.restartInputMonitor()
+                            }
+                        }
+                        
+                        // Audio level meter (pre-recording input monitor)
+                        HStack(spacing: 2) {
+                            ForEach(0..<20, id: \.self) { index in
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(Float(index) / 20.0 < audioRecorder.audioLevel ? Color.primaryAccent : Color.borderLight)
+                                    .frame(width: 8, height: 12)
+                            }
+                        }
+                        .animation(.linear(duration: 0.05), value: audioRecorder.audioLevel)
+                        .frame(width: 200)
+                    }
+                }
                 
                 // Recording visualization
                 ZStack {
@@ -107,11 +150,24 @@ struct RecordingView: View {
                             .font(.system(size: 32, weight: .medium, design: .monospaced))
                             .foregroundColor(.textPrimary)
                         
-                        Text(audioRecorder.isRecording ? "Spelar in..." : "Inspelning klar")
+                        Text(audioRecorder.isRecording ? localized("recording_in_progress") : localized("recording_complete"))
                             .font(.system(size: 14))
                             .foregroundColor(.textSecondary)
+                        
+                        // Audio level meter (shown during recording)
+                        if audioRecorder.isRecording {
+                            HStack(spacing: 2) {
+                                ForEach(0..<20, id: \.self) { index in
+                                    RoundedRectangle(cornerRadius: 1.5)
+                                        .fill(Float(index) / 20.0 < audioRecorder.audioLevel ? Color.primaryAccent : Color.borderLight)
+                                        .frame(width: 8, height: 12)
+                                }
+                            }
+                            .animation(.linear(duration: 0.05), value: audioRecorder.audioLevel)
+                            .frame(width: 200)
+                        }
                     } else {
-                        Text("Tryck för att börja spela in")
+                        Text(localized("tap_to_record"))
                             .font(.system(size: 16))
                             .foregroundColor(.textSecondary)
                     }
@@ -124,18 +180,18 @@ struct RecordingView: View {
                         Button(action: togglePlayback) {
                             HStack(spacing: 8) {
                                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                Text(isPlaying ? "Pausa" : "Spela upp")
+                                Text(isPlaying ? localized("pause") : localized("play"))
                             }
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.textPrimary)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
                             .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.white)
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.cardBackground)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color.borderLight, lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(Color.borderLight, lineWidth: 0.5)
                                     )
                             )
                         }
@@ -148,18 +204,18 @@ struct RecordingView: View {
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "arrow.counterclockwise")
-                                Text("Börja om")
+                                Text(localized("start_over"))
                             }
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.textPrimary)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
                             .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.white)
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.cardBackground)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color.borderLight, lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(Color.borderLight, lineWidth: 0.5)
                                     )
                             )
                         }
@@ -176,7 +232,7 @@ struct RecordingView: View {
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "waveform")
-                            Text("Transkribera")
+                            Text(localized("transcribe"))
                         }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
@@ -197,39 +253,51 @@ struct RecordingView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.white)
+            .background(Color.surfaceBackground)
+        }
+        .onAppear {
+            audioRecorder.startInputMonitor()
         }
         .onDisappear {
             timer?.invalidate()
             audioPlayer?.stop()
+            audioRecorder.stopInputMonitor()
         }
-        .alert("Mikrofontillstånd krävs", isPresented: $showPermissionAlert) {
+        .alert(localized("mic_permission_required"), isPresented: $showPermissionAlert) {
             Button("OK") { }
         } message: {
-            Text("För att spela in ljud behöver Transcribe tillgång till din mikrofon. Gå till Systeminställningar > Säkerhet & Integritet > Mikrofon och aktivera Transcribe.")
+            Text(localized("mic_permission_message"))
+        }
+        .alert(localized("leave_recording"), isPresented: $showLeaveConfirmation) {
+            Button(localized("stay"), role: .cancel) { }
+            Button(localized("leave"), role: .destructive) {
+                audioRecorder.stopInputMonitor()
+                if audioRecorder.isRecording {
+                    audioRecorder.stopRecording()
+                    timer?.invalidate()
+                    timer = nil
+                }
+                audioRecorder.deleteRecording()
+                appState.showRecordingView = false
+            }
+        } message: {
+            Text(audioRecorder.isRecording
+                 ? localized("recording_in_progress_leave")
+                 : localized("untranscribed_recording_leave"))
         }
     }
     
     private func startRecording() {
-        // Check permission first
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            audioRecorder.startRecording()
-            recordingTime = 0
-            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                recordingTime += 0.1
-            }
-        case .denied, .restricted:
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            beginRecording()
+        case .denied:
             showPermissionAlert = true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
+        case .undetermined:
+            AVAudioApplication.requestRecordPermission { granted in
                 DispatchQueue.main.async {
                     if granted {
-                        self.audioRecorder.startRecording()
-                        self.recordingTime = 0
-                        self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                            self.recordingTime += 0.1
-                        }
+                        self.beginRecording()
                     } else {
                         self.showPermissionAlert = true
                     }
@@ -240,25 +308,39 @@ struct RecordingView: View {
         }
     }
     
+    private func beginRecording() {
+        audioRecorder.startRecording()
+        recordingTime = 0
+        recordingStartDate = Date()
+        // Use Date-based calculation to avoid timer drift
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
+            if let startDate = recordingStartDate {
+                recordingTime = Date().timeIntervalSince(startDate)
+            }
+        }
+    }
+    
     private func stopRecording() {
         audioRecorder.stopRecording()
         timer?.invalidate()
         timer = nil
+        // Restart input monitor so user can still see levels
+        audioRecorder.startInputMonitor()
     }
     
     private func togglePlayback() {
         if isPlaying {
             audioPlayer?.pause()
+            timer?.invalidate()
+            timer = nil
             isPlaying = false
         } else {
-            guard let url = audioRecorder.recordingURL else { 
-                print("No recording URL available")
-                return 
+            guard let url = audioRecorder.recordingURL else {
+                return
             }
             
             // Check if file exists
             if !FileManager.default.fileExists(atPath: url.path) {
-                print("Recording file doesn't exist at: \(url.path)")
                 return
             }
             
@@ -268,17 +350,20 @@ struct RecordingView: View {
                 
                 if audioPlayer?.play() == true {
                     isPlaying = true
-                    print("Playing recording from: \(url)")
                     
-                    // Stop playback when finished
-                    DispatchQueue.main.asyncAfter(deadline: .now() + (audioPlayer?.duration ?? 0)) {
-                        self.isPlaying = false
+                    // Poll for playback completion instead of using fixed asyncAfter
+                    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
+                        if audioPlayer?.isPlaying == false {
+                            isPlaying = false
+                            timer?.invalidate()
+                            timer = nil
+                        }
                     }
                 } else {
-                    print("Failed to start playback")
+                    // Playback failed to start
                 }
             } catch {
-                print("Failed to create audio player: \(error)")
+                // Audio player creation failed
             }
         }
     }
@@ -292,47 +377,317 @@ struct RecordingView: View {
 }
 
 // Audio Recorder Manager
-class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate {
+class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate, @unchecked Sendable {
     @Published var isRecording = false
     @Published var hasRecording = false
     @Published var recordingDuration: TimeInterval = 0
     @Published var recordingURL: URL?
+    @Published var audioLevel: Float = 0
+    @Published var inputDevices: [AudioInputDevice] = []
+    @Published var selectedDeviceID: AudioDeviceID?
     
     private var audioRecorder: AVAudioRecorder?
+    private var meteringTimer: Timer?
+    private var originalDefaultDevice: AudioDeviceID?
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     
     override init() {
         super.init()
         checkMicrophonePermission()
+        refreshInputDevices()
+        observeDeviceChanges()
+    }
+    
+    deinit {
+        // Stop audio engine synchronously if still running
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        meteringTimer?.invalidate()
+        restoreOriginalDevice()
+        removeDeviceObserver()
     }
     
     private func checkMicrophonePermission() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
             break
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                if !granted {
-                    print("Microphone permission denied")
-                }
+        case .undetermined:
+            AVAudioApplication.requestRecordPermission { _ in
             }
-        case .denied, .restricted:
-            print("Microphone permission denied or restricted")
+        case .denied:
+            break
         @unknown default:
             break
         }
     }
     
+    // MARK: - Audio Input Device Management
+    
+    func refreshInputDevices() {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            &dataSize
+        )
+        guard status == noErr else { return }
+        
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        
+        status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            &dataSize,
+            &deviceIDs
+        )
+        guard status == noErr else { return }
+        
+        var devices: [AudioInputDevice] = []
+        for deviceID in deviceIDs {
+            // Check if device has input streams
+            var inputStreamAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioObjectPropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var streamSize: UInt32 = 0
+            let streamStatus = AudioObjectGetPropertyDataSize(
+                deviceID,
+                &inputStreamAddress,
+                0, nil,
+                &streamSize
+            )
+            
+            guard streamStatus == noErr, streamSize > 0 else { continue }
+            
+            // Get device name
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioObjectPropertyName,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var cfName: Unmanaged<CFString>?
+            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            let nameStatus = AudioObjectGetPropertyData(
+                deviceID,
+                &nameAddress,
+                0, nil,
+                &nameSize,
+                &cfName
+            )
+            
+            if nameStatus == noErr, let cfStr = cfName?.takeRetainedValue() {
+                let name = cfStr as String
+                devices.append(AudioInputDevice(id: deviceID, name: name))
+            }
+        }
+        
+        DispatchQueue.main.async {
+            self.inputDevices = devices
+            // Set selected device to current default if not set
+            if self.selectedDeviceID == nil {
+                self.selectedDeviceID = self.getCurrentDefaultInputDevice()
+            }
+        }
+    }
+    
+    private func getCurrentDefaultInputDevice() -> AudioDeviceID? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var deviceID: AudioDeviceID = 0
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            &dataSize,
+            &deviceID
+        )
+        
+        return status == noErr ? deviceID : nil
+    }
+    
+    func setInputDevice(_ deviceID: AudioDeviceID) {
+        // Store original default so we can restore later
+        if originalDefaultDevice == nil {
+            originalDefaultDevice = getCurrentDefaultInputDevice()
+        }
+        
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var mutableDeviceID = deviceID
+        let dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        
+        AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            dataSize,
+            &mutableDeviceID
+        )
+    }
+    
+    private func restoreOriginalDevice() {
+        guard let originalDevice = originalDefaultDevice else { return }
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var mutableDeviceID = originalDevice
+        let dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        
+        AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            dataSize,
+            &mutableDeviceID
+        )
+        originalDefaultDevice = nil
+    }
+    
+    private func observeDeviceChanges() {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.refreshInputDevices()
+        }
+        deviceListenerBlock = block
+        
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            DispatchQueue.main,
+            block
+        )
+    }
+    
+    private func removeDeviceObserver() {
+        guard let block = deviceListenerBlock else { return }
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            DispatchQueue.main,
+            block
+        )
+        deviceListenerBlock = nil
+    }
+    
+    // MARK: - Audio Metering
+    
+    private func startMetering() {
+        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let recorder = self.audioRecorder, recorder.isRecording else { return }
+            recorder.updateMeters()
+            let power = recorder.averagePower(forChannel: 0)
+            // Normalize: -60dB..0dB → 0..1
+            let normalized = max(0, min(1, (power + 60) / 60))
+            DispatchQueue.main.async {
+                self.audioLevel = normalized
+            }
+        }
+    }
+    
+    private func stopMetering() {
+        meteringTimer?.invalidate()
+        meteringTimer = nil
+        DispatchQueue.main.async {
+            self.audioLevel = 0
+        }
+    }
+    
+    // MARK: - Input Level Monitor (pre-recording)
+    
+    private var audioEngine: AVAudioEngine?
+    
+    func startInputMonitor() {
+        guard !isRecording else { return }
+        stopInputMonitor()
+        
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        
+        guard format.sampleRate > 0 else { return }
+        
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            let frameLength = Int(buffer.frameLength)
+            
+            // Calculate RMS
+            var sum: Float = 0
+            for i in 0..<frameLength {
+                sum += channelData[i] * channelData[i]
+            }
+            let rms = sqrtf(sum / Float(frameLength))
+            // Convert to dB-like scale: map 0..1 range
+            let level = max(0, min(1, (20 * log10f(max(rms, 1e-6)) + 60) / 60))
+            
+            DispatchQueue.main.async {
+                self?.audioLevel = level
+            }
+        }
+        
+        do {
+            try engine.start()
+            audioEngine = engine
+        } catch {
+            // Audio input monitor failed to start
+        }
+    }
+    
+    func stopInputMonitor() {
+        if let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            audioEngine = nil
+        }
+        audioLevel = 0
+    }
+    
+    func restartInputMonitor() {
+        stopInputMonitor()
+        // Small delay to allow the system default device to update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.startInputMonitor()
+        }
+    }
+    
     func startRecording() {
         let audioFilename = getTemporaryDirectory().appendingPathComponent("recording_\(Date().timeIntervalSince1970).m4a")
-        
-        // Debug logging
-        print("\n🎤 ========== RECORDING STORAGE DEBUG ==========")
-        print("📁 Storage Type: TEMPORARY (auto-cleanup on app quit)")
-        print("📍 Full Path: \(audioFilename.path)")
-        print("📂 Directory: \(audioFilename.deletingLastPathComponent().path)")
-        print("🗑️ Auto-cleanup: YES - File will be deleted when app quits")
-        print("⏰ Started at: \(Date())")
-        print("===============================================\n")
         
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -345,49 +700,38 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
         do {
             audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
             audioRecorder?.delegate = self
+            audioRecorder?.isMeteringEnabled = true
             audioRecorder?.prepareToRecord()
+            
+            stopInputMonitor()
             
             if audioRecorder?.record() == true {
                 recordingURL = audioFilename
                 isRecording = true
                 hasRecording = false
-                print("✅ Recording started successfully")
-            } else {
-                print("❌ Failed to start recording")
+                startMetering()
             }
         } catch {
-            print("Failed to create audio recorder: \(error)")
+            // Audio recorder creation failed
         }
     }
     
     func stopRecording() {
         guard let recorder = audioRecorder else {
-            print("No audio recorder available")
             return
         }
         
+        stopMetering()
         recordingDuration = recorder.currentTime
         recorder.stop()
         isRecording = false
+        restoreOriginalDevice()
         
         // Verify the file was created
         if let url = recordingURL, FileManager.default.fileExists(atPath: url.path) {
             hasRecording = true
-            
-            // Get file size for debugging
-            if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileSize = attributes[.size] as? Int64 {
-                let sizeMB = Double(fileSize) / (1024 * 1024)
-                print("\n✅ ========== RECORDING SAVED ==========")
-                print("📍 Location: \(url.path)")
-                print("📊 File size: \(String(format: "%.2f MB", sizeMB)) (\(fileSize) bytes)")
-                print("⏱️ Duration: \(String(format: "%.1f seconds", recordingDuration))")
-                print("🗑️ Will auto-delete: YES (on app quit)")
-                print("=======================================\n")
-            }
         } else {
             hasRecording = false
-            print("Recording file not found after stopping")
         }
     }
     
@@ -412,13 +756,8 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
         return tempDir
     }
     
-    private func getDocumentsDirectory() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
-    
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         if !flag {
-            print("Recording failed")
             hasRecording = false
         }
     }
