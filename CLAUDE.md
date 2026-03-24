@@ -38,7 +38,7 @@ xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
 - `TranscriptionService.swift` - Lightweight streaming wrapper around WhisperKitService
 
 **Audio Processing:**
-- `Services/AudioPreprocessor.swift` - Audio format conversion and preprocessing
+- `Services/AudioPreprocessor.swift` - Audio format conversion and preprocessing. Automatically extracts audio from video containers (`.mp4`, `.mov`, etc.) and converts non-native formats to 16kHz mono WAV using `AVAssetReader`/`AVAssetWriter`. Used by both local (WhisperKit) and cloud (Berget) transcription paths.
 
 **LLM Integration:**
 - `Services/LLMService.swift` - Text processing via Berget AI or Ollama LLM APIs (summarization, action points, etc.)
@@ -90,6 +90,12 @@ for try await update in whisperKitService.transcribe(fileURL:modelId:language:) 
     // update.text, update.progress, update.segments, update.isComplete
 }
 ```
+
+### Audio Preprocessing
+`TranscriptionService` automatically preprocesses files before passing them to WhisperKit:
+- **Native formats** (`.wav`, `.mp3`, `.m4a`, `.flac`, `.aac`, `.aif`, `.aiff`, `.caf`) are passed directly
+- **Video containers** (`.mp4`, `.mov`, `.mkv`, etc.) and other formats have their audio extracted to 16kHz mono WAV via `AVAssetReader`/`AVAssetWriter`
+- Temporary files are cleaned up after transcription completes
 
 ### Recording
 `RecordingView` contains `AudioRecorderManager` which handles:

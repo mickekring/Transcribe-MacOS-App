@@ -12,7 +12,7 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 
 ## Features
 
-- **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded.
+- **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded. Supports audio files (WAV, MP3, M4A, FLAC, AAC) and video files (MP4, MOV) -- audio is extracted automatically.
 - **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/KBLab), fine-tuned for Swedish speech.
 - **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
 - **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance.

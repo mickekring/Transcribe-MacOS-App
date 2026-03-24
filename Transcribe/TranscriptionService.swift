@@ -65,11 +65,34 @@ class TranscriptionService {
             throw TranscriptionError.modelNotFound
         }
         
+        // If the file is a video container or non-native audio format,
+        // extract the audio track to a temporary .m4a first.
+        let preprocessor = AudioPreprocessor.shared
+        let needsConversion = preprocessor.needsConversionForWhisperKit(url: fileURL)
+        var audioURL = fileURL
+        
+        if needsConversion {
+            continuation.yield(TranscriptionUpdate(
+                text: NSLocalizedString("converting_audio_format", comment: ""),
+                progress: 0.02,
+                segments: [],
+                isComplete: false
+            ))
+            audioURL = try await preprocessor.extractAudioForWhisperKit(url: fileURL)
+        }
+        
+        defer {
+            // Clean up the temporary file if we created one
+            if needsConversion {
+                try? FileManager.default.removeItem(at: audioURL)
+            }
+        }
+        
         // Get the selected language
         let selectedLanguage = languageManager.selectedLanguage.code
         
         // Stream transcription updates with model and language
-        for try await update in service.transcribe(fileURL: fileURL, modelId: modelId, language: selectedLanguage) {
+        for try await update in service.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage) {
             continuation.yield(update)
             
             if update.isComplete {

@@ -42,11 +42,16 @@ There are multiple service layers. The primary flow used by the app:
 ```
 TranscriptionView / ContentView
   └── TranscriptionService (routing layer)
+        ├── AudioPreprocessor (converts video/non-native formats to WAV)
         └── WhisperKitService (primary engine)
               ├── initialize(modelId:) — offline-first model loading
               ├── transcribe(fileURL:modelId:language:) — AsyncThrowingStream
               └── StreamingCallbackState — accumulates window text for UI
 ```
+
+### Audio Preprocessing
+
+`TranscriptionService.transcribeWithWhisperKit()` checks `AudioPreprocessor.needsConversionForWhisperKit(url:)` before passing the file to WhisperKit. Native audio formats (WAV, MP3, M4A, FLAC, AAC, AIF, AIFF, CAF) are passed directly. Video containers (MP4, MOV, MKV, etc.) and other formats are extracted to 16kHz mono WAV via `AVAssetReader`/`AVAssetWriter`. The temporary file is cleaned up after transcription.
 
 ### WhisperKitService.initialize() Flow
 

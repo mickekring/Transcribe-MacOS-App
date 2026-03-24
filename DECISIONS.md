@@ -4,6 +4,26 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 ---
 
+## 2026-03-24: Audio Preprocessing for Video Files and Non-Native Formats
+
+**Problem**: Dropping an `.mp4` video file on the app caused a `ExtAudioFileRead` error (CoreAudio code -50). WhisperKit uses `ExtAudioFile` APIs internally, which only support audio containers (WAV, MP3, M4A, etc.) -- not video containers like MP4 or MOV. The local WhisperKit transcription path passed the file directly to WhisperKit without any preprocessing, while the Berget cloud path already used `AudioPreprocessor`.
+
+A user also reported a similar error (-54) with an iPhone Voice Memo (`.m4a`) transferred via iCloud, likely caused by the same underlying issue -- file permissions or iCloud placeholders that `ExtAudioFileRead` couldn't handle.
+
+**Decision**: Add audio preprocessing to the local WhisperKit path in `TranscriptionService.transcribeWithWhisperKit()`:
+1. Check `AudioPreprocessor.needsConversionForWhisperKit(url:)` -- returns true for any file extension not in the native audio set (`wav`, `mp3`, `m4a`, `flac`, `aac`, `aif`, `aiff`, `caf`).
+2. If conversion needed, call `AudioPreprocessor.extractAudioForWhisperKit(url:)` which extracts the audio track to a temporary 16kHz mono WAV file.
+3. Pass the WAV file to WhisperKit instead of the original.
+4. Clean up the temporary file after transcription completes.
+
+**Why AVAssetReader/Writer instead of AVAssetExportSession**: The initial fix used `AVAssetExportSession` with `AVAssetExportPresetAppleM4A`, but this preset failed on video containers with a generic "operation could not be completed" error. `AVAssetReader`/`AVAssetWriter` gives full control over reading individual tracks from any container format and writing them in the exact format WhisperKit expects (16kHz, mono, 16-bit PCM).
+
+**Why WAV over M4A**: WhisperKit internally converts all audio to 16kHz mono PCM anyway. Writing WAV directly avoids an unnecessary encode/decode round-trip through AAC and produces exactly the format WhisperKit will use.
+
+**Files changed**: `AudioPreprocessor.swift` (added `needsConversionForWhisperKit()`, `extractAudioForWhisperKit()`, `nativeAudioExtensions`), `TranscriptionService.swift` (added preprocessing step in `transcribeWithWhisperKit()`).
+
+---
+
 ## 2026-03-15: Berget Cloud Transcription — API Fixes and Known Server Issue
 
 **Problem**: Berget cloud transcription (`berget-kb-whisper-large`) failed with "API error: Invalid URL" when uploading audio files.

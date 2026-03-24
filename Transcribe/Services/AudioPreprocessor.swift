@@ -83,17 +83,107 @@ class AudioPreprocessor {
         )
     }
     
+    /// Audio-only formats that WhisperKit/ExtAudioFile can read directly.
+    private static let nativeAudioExtensions: Set<String> = [
+        "wav", "mp3", "m4a", "flac", "aac", "aif", "aiff", "caf"
+    ]
+    
+    /// Returns true when the file is already in a format WhisperKit can consume
+    /// without conversion **and** its size is within the Berget upload limit.
     private func isOptimalFormat(url: URL) -> Bool {
-        let pathExtension = url.pathExtension.lowercased()
-        // Check if it's already in a good format and check file size
-        if pathExtension == "mp3" || pathExtension == "m4a" {
-            // Check if file size is reasonable
-            let fileAttributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-            let fileSize = fileAttributes?[.size] as? Int64 ?? 0
-            // If it's already optimal format and under 25MB, keep it
-            return fileSize < maxFileSize
+        let ext = url.pathExtension.lowercased()
+        guard Self.nativeAudioExtensions.contains(ext) else { return false }
+        let fileAttributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let fileSize = fileAttributes?[.size] as? Int64 ?? 0
+        return fileSize < maxFileSize
+    }
+    
+    /// Returns true when the file needs to be converted before WhisperKit can
+    /// read it (e.g. video containers like .mp4/.mov, or non-native audio).
+    func needsConversionForWhisperKit(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return !Self.nativeAudioExtensions.contains(ext)
+    }
+    
+    /// Extracts audio from any AVAsset-compatible file (including video) and
+    /// returns a .m4a URL that WhisperKit can read. Caller must delete the
+    /// returned file when done.
+    func extractAudioForWhisperKit(url: URL) async throws -> URL {
+        let asset = AVURLAsset(url: url)
+        
+        // Try AVAssetExportSession first (works for audio-only files)
+        // Fall back to AVAssetReader/Writer for video containers
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard let audioTrack = audioTracks.first else {
+            throw AudioProcessingError.exportFailed("No audio track found in file")
         }
-        return false
+        
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        
+        // Use AVAssetReader + AVAssetWriter for reliable extraction from any container
+        let reader = try AVAssetReader(asset: asset)
+        
+        let readerOutputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
+        
+        let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: readerOutputSettings)
+        guard reader.canAdd(readerOutput) else {
+            throw AudioProcessingError.exportFailed("Cannot read audio track")
+        }
+        reader.add(readerOutput)
+        
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .wav)
+        
+        let writerInputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
+        
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerInputSettings)
+        guard writer.canAdd(writerInput) else {
+            throw AudioProcessingError.exportFailed("Cannot configure audio writer")
+        }
+        writer.add(writerInput)
+        
+        reader.startReading()
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        
+        await withCheckedContinuation { continuation in
+            writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "audio.extraction")) {
+                while writerInput.isReadyForMoreMediaData {
+                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                        writerInput.append(sampleBuffer)
+                    } else {
+                        writerInput.markAsFinished()
+                        continuation.resume()
+                        return
+                    }
+                }
+            }
+        }
+        
+        await writer.finishWriting()
+        
+        guard writer.status == .completed else {
+            throw AudioProcessingError.exportFailed(writer.error?.localizedDescription ?? "Audio extraction failed")
+        }
+        
+        return outputURL
     }
     
     private func convertToOptimalFormat(url: URL) async throws -> URL {
