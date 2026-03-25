@@ -21,10 +21,11 @@ All three state objects are injected as `@EnvironmentObject` from `TranscribeApp
 
 ```
 ContentView (no sidebar — single-pane layout)
-  ├── Main content (feature cards: Open Files, Recording, YouTube)
+  ├── Main content (feature cards: Open Files, Recording, System Audio, YouTube)
   ├── TranscriptionView (active transcription + audio player)
   │     └── AutoScrollingTextView (NSViewRepresentable: NSScrollView + NSTextView, auto-scrolls during streaming)
   ├── RecordingView (mic recording)
+  ├── SystemAudioRecordingView (system audio + optional mic mixing)
   └── YouTubeTranscriptionView (URL input + download + transcribe)
 ```
 
@@ -260,6 +261,7 @@ Transcribe/
 ├── ContentView.swift            — Main view (no sidebar) + toolbar
 ├── TranscriptionView.swift      — Active transcription display + audio player
 ├── RecordingView.swift          — Mic recording UI
+├── SystemAudioRecordingView.swift — System audio capture + mic mixing UI
 ├── YouTubeTranscriptionView.swift — YouTube URL transcription
 ├── QuickTranscribeView.swift    — Floating quick-transcribe window
 ├── SettingsView.swift           — Preferences UI
@@ -268,23 +270,22 @@ Transcribe/
 ├── WhisperKitService.swift      — Primary transcription engine (offline-first)
 ├── TranscriptionService.swift   — Routing layer (model type → service)
 ├── UnifiedTranscriptionService.swift — Protocol-based wrapper
-├── KBWhisperTranscriptionService.swift — Legacy KB-specific path
-├── TranscriptionIntegrationHelper.swift — UI integration templates
 │
 ├── ModelManager.swift           — Model storage, path tracking, validation
 ├── LanguageManager.swift        — Transcription language + TranscriptionLanguage type
 ├── LocalizationManager.swift    — UI language (en/sv)
 ├── SimplifiedManagers.swift     — SettingsManager, TranscriptionManager, KeychainHelper
 │
-├── TranscriptionModels.swift    — Data types (TranscriptionResult, TextProcessingPrompt, etc.)
+├── TranscriptionModels.swift    — Data types (TranscriptionResult, TextProcessingPrompt, AudioInputDevice)
 ├── ColorExtensions.swift        — Adaptive dark/light colors, glass card modifier
 │
 ├── Services/
+│   ├── SystemAudioCaptureService.swift — ScreenCaptureKit system audio + mic mixing
+│   ├── AudioRingBuffer.swift    — Thread-safe ring buffer for mic/system audio mixing
+│   ├── AudioPreprocessor.swift  — Audio format conversion (video → WAV, resampling)
 │   ├── BergetTranscriptionService.swift — Cloud transcription API
-│   └── AudioPreprocessor.swift  — Audio preprocessing utilities
+│   └── LLMService.swift         — LLM text processing (Berget AI, Ollama)
 │
-├── CoreMLWhisperService.swift   — (legacy/unused)
-├── SimpleWhisperService.swift   — (legacy/unused)
 ├── YouTubeDownloadService.swift — YouTube audio extraction
 │
 └── Resources/
