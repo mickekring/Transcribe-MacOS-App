@@ -1,4 +1,5 @@
 import Foundation
+import CoreAudio
 
 struct TranscriptionResult: Identifiable, Codable {
     let id: UUID
@@ -22,6 +23,11 @@ struct TranscriptionResult: Identifiable, Codable {
     var formattedText: String {
         segments.map { $0.text }.joined(separator: " ")
     }
+}
+
+struct AudioInputDevice: Identifiable, Hashable {
+    let id: AudioDeviceID
+    let name: String
 }
 
 struct TranscriptionSegment: Codable {

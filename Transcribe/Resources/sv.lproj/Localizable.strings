@@ -216,6 +216,17 @@
 "untranscribed_recording_leave" = "Du har en inspelning som inte har transkriberats. Om du lämnar kommer den att förloras.";
 "audio_input_device" = "Ljudingång";
 
+/* System Audio Recording */
+"system_audio" = "Systemljud";
+"system_audio_description" = "Spela in allt systemljud";
+"tap_to_record_system" = "Tryck för att börja spela in systemljud";
+"system_audio_recording_in_progress" = "Spelar in systemljud...";
+"system_audio_recording_complete" = "Inspelning klar";
+"system_audio_error" = "Systemljudfel";
+"system_audio_permission_info" = "Spelar in allt ljud som spelas upp på din Mac — möten, media, notiser. macOS frågar om tillåtelse vid första användningen.";
+"include_microphone" = "Inkludera mikrofon";
+"mic_and_system_audio_info" = "Mixa din mikrofon med systemljud för att fånga båda sidor av ett samtal.";
+
 /* Theme */
 "switch_to_light" = "Byt till ljust läge";
 "switch_to_dark" = "Byt till mörkt läge";

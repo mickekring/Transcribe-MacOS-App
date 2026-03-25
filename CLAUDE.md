@@ -40,6 +40,10 @@ xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
 **Audio Processing:**
 - `Services/AudioPreprocessor.swift` - Audio format conversion and preprocessing. Automatically extracts audio from video containers (`.mp4`, `.mov`, etc.) and converts non-native formats to 16kHz mono WAV using `AVAssetReader`/`AVAssetWriter`. Used by both local (WhisperKit) and cloud (Berget) transcription paths.
 
+**System Audio Capture:**
+- `Services/SystemAudioCaptureService.swift` - Captures system audio output using ScreenCaptureKit with optional microphone mixing. Two-phase architecture: monitoring (level meter, permission prompt) and recording (48kHz stereo float32 WAV). Supports mixing mic input via `AVAudioEngine` + `AudioRingBuffer` for meeting recording (both sides of a conversation). Includes CoreAudio device enumeration and selection for mic input.
+- `Services/AudioRingBuffer.swift` - Thread-safe SPSC ring buffer using `os_unfair_lock`. Decouples mic capture (AVAudioEngine thread) from system audio capture (SCStream callback thread) during mixed recording.
+
 **LLM Integration:**
 - `Services/LLMService.swift` - Text processing via Berget AI or Ollama LLM APIs (summarization, action points, etc.)
 
@@ -60,12 +64,13 @@ KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. D
 - `ContentView.swift` - Main window with toolbar (file picker, recording, YouTube, settings)
 - `TranscriptionView.swift` - Transcription display with audio player, export, and text processing
 - `RecordingView.swift` - Built-in audio recording with live level meter, device selector, and playback
+- `SystemAudioRecordingView.swift` - System audio capture with live level meter, record/stop, playback, and transcription
 - `YouTubeTranscriptionView.swift` - YouTube URL transcription workflow
 - `SettingsView.swift` - Preferences with model management, text processing prompts, LLM settings
 
 ### Data Models
-- `TranscriptionModels.swift` - `TranscriptionResult`, `TranscriptionSegment`, `TextProcessingPrompt`
-- `AppState.swift` - Navigation state (`currentTranscriptionURL`, `showTranscriptionView`, `showRecordingView`)
+- `TranscriptionModels.swift` - `TranscriptionResult`, `TranscriptionSegment`, `TextProcessingPrompt`, `AudioInputDevice`
+- `AppState.swift` - Navigation state (`currentTranscriptionURL`, `showTranscriptionView`, `showRecordingView`, `showSystemAudioView`)
 
 ### File Storage & Security
 All temporary files auto-cleanup on app quit and on startup (handles force-quit scenarios):
@@ -103,6 +108,17 @@ for try await update in whisperKitService.transcribe(fileURL:modelId:language:) 
 - Live audio level metering via `AVAudioEngine` input tap (pre-recording) and `AVAudioRecorder` metering (during recording)
 - Audio input device selection via CoreAudio (`AudioObjectGetPropertyData`)
 - Proper lifecycle management — engine taps removed before deallocation, no async self capture in `deinit`
+
+### System Audio Recording
+`SystemAudioRecordingView` uses `SystemAudioCaptureService` which wraps ScreenCaptureKit:
+- **Permission**: `SCShareableContent.excludingDesktopWindows()` triggers the macOS "Screen & System Audio Recording" prompt on first use. Requires app restart after granting permission.
+- **Monitoring**: `SCStream` with `capturesAudio = true` and minimal video (2x2px, 1fps) provides live audio level metering before recording starts.
+- **Recording**: Audio buffers from `SCStreamOutput` callbacks written to WAV via `AVAudioFile`. Format: 48kHz stereo float32 non-interleaved (native ScreenCaptureKit output).
+- **Mic mixing**: Optional "Include Microphone" toggle mixes mic input with system audio for meeting recording. `AVAudioEngine` captures mic, `AVAudioConverter` resamples to 48kHz stereo, `AudioRingBuffer` decouples the two threads. SCStream callback reads from ring buffer and mixes (sample addition + clamping). Dual level meters show system and mic levels separately.
+- **Device selection**: When mic is enabled, CoreAudio device enumeration lets users pick their mic input. Same pattern as `RecordingView`'s `AudioRecorderManager`.
+- **Transcription**: Recorded WAV passed to the same pipeline as microphone recordings — `AudioPreprocessor` converts to 16kHz mono for WhisperKit.
+- **Entitlements**: Uses `com.apple.security.device.audio-input` (shared with microphone). `NSAudioCaptureUsageDescription` in Info.plist.
+- **Temp files**: `~/tmp/Transcribe/SystemAudio/` — cleaned up by existing `AppDelegate.cleanupTemporaryFiles()`.
 
 ### Color System
 Adaptive dark/light colors defined in `ColorExtensions.swift` using `NSColor(name:dynamicProvider:)`:

@@ -4,6 +4,58 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 ---
 
+## 2026-03-25: Microphone Mixing in System Audio Recording — Ring Buffer Approach
+
+**Problem**: System audio capture (ScreenCaptureKit) only records audio output — remote meeting participants, media, notifications. It does not capture the user's microphone input, which goes directly to the meeting application's network stream. For meeting transcription (Teams, Zoom), users need both sides of the conversation in a single recording.
+
+**Approaches considered**:
+1. **AVAudioEngine mixer node**: Route both SCStream audio and mic audio through an AVAudioEngine mixer. Rejected — clock domain conflict between ScreenCaptureKit's callback thread and the hardware audio clock. Scheduling small SCStream buffers on a player node creates timing gaps.
+2. **Post-recording merge**: Record system audio and mic to separate files, merge after stopping. Rejected — adds delay after stopping, can't show combined level meter during recording, and startup sync between two independent recordings is fragile.
+3. **Manual mixing via ring buffer**: Each source runs independently on its own thread. A thread-safe ring buffer decouples them. The SCStream callback reads mic samples from the ring buffer, mixes with system audio samples, and writes the combined result. **Selected.**
+
+**Decision**: Use a ring buffer to mix mic input into the system audio recording in real-time.
+
+**Architecture**:
+- `AudioRingBuffer` — SPSC (single-producer, single-consumer) ring buffer with `os_unfair_lock`. Capacity: ~2 seconds at 48kHz stereo (192,000 floats). Non-interleaved layout `[L0..LN][R0..RN]` matching SCStream format.
+- **Mic capture**: `AVAudioEngine` input tap on the default input device. `AVAudioConverter` resamples from mic native format (e.g. 44.1kHz mono) to 48kHz stereo float32 non-interleaved to match SCStream. Converted samples written to ring buffer.
+- **Mixing**: In `processAudioBuffer` (SCStream callback), after extracting system audio samples, read matching frame count from ring buffer. Mix via sample-wise addition with clamping to [-1.0, 1.0]. If ring buffer has fewer frames than needed (startup delay, momentary underruns), pad mic with silence.
+- **Level meters**: Dual RMS meters — `systemAudioLevel` (green, `.primaryAccent`) and `micLevel` (blue, `.secondaryAccent`) displayed as separate 20-bar meters.
+- **Device selection**: CoreAudio device enumeration ported from `RecordingView`'s `AudioRecorderManager`. Users can pick their mic input when mixing is enabled.
+
+**UI**: "Include Microphone" toggle in `SystemAudioRecordingView`, shown before recording starts. When enabled, a mic device picker appears (if multiple inputs available) and dual level meters replace the single meter.
+
+**Files added**: `AudioRingBuffer.swift`
+**Files modified**: `SystemAudioCaptureService.swift` (mic engine, converter, ring buffer, mixing in processAudioBuffer, device management), `SystemAudioRecordingView.swift` (toggle, device picker, dual meters, permission handling), `TranscriptionModels.swift` (+`AudioInputDevice` moved from RecordingView), `RecordingView.swift` (removed `AudioInputDevice` definition), localization strings (en + sv)
+
+---
+
+## 2026-03-25: System Audio Capture — ScreenCaptureKit over Core Audio Taps
+
+**Problem**: Users want to transcribe meetings (Teams, Zoom), media playback, and other system audio without routing through a virtual audio device or third-party loopback tool.
+
+**Approaches tried**:
+1. **Core Audio Taps API** (macOS 14.2+): `CATapDescription(stereoMixdownOfProcesses: [])` + `AudioHardwareCreateProcessTap()` + aggregate device with tap list. On macOS 26 Tahoe, this approach failed — the macOS permission prompt never appeared, and IO callbacks either delivered all-zero samples or didn't fire at all. Two different wiring approaches were tested (AVAudioEngine input tap, and direct AudioDeviceIOProc), both with the same result.
+2. **ScreenCaptureKit** (macOS 13+): `SCStream` with `capturesAudio = true` and minimal video (2x2px, 1fps). This reliably triggered the macOS "Screen & System Audio Recording" permission prompt and delivered real audio data.
+
+**Decision**: Use ScreenCaptureKit for system audio capture.
+
+**Architecture — two-phase capture**:
+1. **Monitoring phase** (`startMonitoring()`): Creates `SCStream` on view appear. `SCShareableContent.excludingDesktopWindows()` triggers the permission prompt on first use. Audio callbacks calculate RMS for a live level meter. No file I/O.
+2. **Recording phase** (`startCapture()`/`stopCapture()`): Opens an `AVAudioFile` for writing. The same audio callback now also writes buffers to the WAV file.
+
+This separation lets users see the level meter and verify audio is flowing before they start recording.
+
+**Audio format**: ScreenCaptureKit delivers 48kHz stereo float32 non-interleaved audio via `CMSampleBuffer`. Raw data extracted via `CMBlockBufferGetDataPointer` (not `CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer`, which failed for multi-buffer audio). The WAV is recorded at native format; `AudioPreprocessor` converts to 16kHz mono for WhisperKit at transcription time.
+
+**Permission quirk**: macOS requires the app to quit and relaunch after the user grants "Screen & System Audio Recording" permission. This is standard ScreenCaptureKit behavior.
+
+**Why not Core Audio Taps**: The API is designed for audio-only capture without the screen recording overhead, but on macOS 26 Tahoe it failed to trigger the permission prompt and delivered no usable audio. ScreenCaptureKit's permission flow is well-established and works reliably. The minimal video configuration (2x2px, 1fps) keeps CPU/memory overhead negligible.
+
+**Files added**: `SystemAudioCaptureService.swift`, `SystemAudioRecordingView.swift`
+**Files modified**: `AppState.swift` (+`showSystemAudioView`), `ContentView.swift` (navigation + feature card), `Info.plist` (+`NSAudioCaptureUsageDescription`), localization strings (en + sv)
+
+---
+
 ## 2026-03-24: Audio Preprocessing for Video Files and Non-Native Formats
 
 **Problem**: Dropping an `.mp4` video file on the app caused a `ExtAudioFileRead` error (CoreAudio code -50). WhisperKit uses `ExtAudioFile` APIs internally, which only support audio containers (WAV, MP3, M4A, etc.) -- not video containers like MP4 or MOV. The local WhisperKit transcription path passed the file directly to WhisperKit without any preprocessing, while the Berget cloud path already used `AudioPreprocessor`.

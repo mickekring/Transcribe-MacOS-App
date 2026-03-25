@@ -3,11 +3,6 @@ import AVFoundation
 import CoreAudio
 import AppKit
 
-struct AudioInputDevice: Identifiable, Hashable {
-    let id: AudioDeviceID
-    let name: String
-}
-
 struct RecordingView: View {
     @StateObject private var audioRecorder = AudioRecorderManager()
     @EnvironmentObject var appState: AppState

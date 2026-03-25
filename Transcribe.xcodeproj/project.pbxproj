@@ -10,6 +10,7 @@
 		4039A38C2F65BF7900E33982 /* Transcribe.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */; };
 		4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 404291392E793C6C00DB2587 /* YouTubeKit */; };
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
+		40B0A7BF2F73CF9700DA7381 /* SystemAudioRecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B0A7BE2F73CF9700DA7381 /* SystemAudioRecordingView.swift */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
 		40DACEB82E75F6ED00E0B532 /* whisperkit-cli in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB72E75F6ED00E0B532 /* whisperkit-cli */; };
 /* End PBXBuildFile section */
@@ -37,6 +38,7 @@
 		4087E8D62E769BBC00C23FC9 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		4087E8D82E769BC600C23FC9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		4087E8DA2E769BE100C23FC9 /* MetalPerformanceShaders.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShaders.framework; path = System/Library/Frameworks/MetalPerformanceShaders.framework; sourceTree = SDKROOT; };
+		40B0A7BE2F73CF9700DA7381 /* SystemAudioRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioRecordingView.swift; sourceTree = "<group>"; };
 		40DACE4D2E75861E00E0B532 /* Transcribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Transcribe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		40DACE5B2E75861F00E0B532 /* TranscribeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TranscribeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		40DACE652E75861F00E0B532 /* TranscribeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TranscribeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -98,6 +100,7 @@
 				40DACEB32E75F6A000E0B532 /* Frameworks */,
 				40DACE4E2E75861E00E0B532 /* Products */,
 				4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */,
+				40B0A7BE2F73CF9700DA7381 /* SystemAudioRecordingView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -276,6 +279,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				40B0A7BF2F73CF9700DA7381 /* SystemAudioRecordingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -482,7 +486,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 2.1;
+				MARKETING_VERSION = 2.2;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.Transcribe;
@@ -522,7 +526,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 2.1;
+				MARKETING_VERSION = 2.2;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.Transcribe;

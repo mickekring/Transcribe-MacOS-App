@@ -20,6 +20,8 @@ struct ContentView: View {
         Group {
             if appState.showRecordingView {
                 RecordingView()
+            } else if appState.showSystemAudioView {
+                SystemAudioRecordingView()
             } else if appState.showTranscriptionView, let url = appState.currentTranscriptionURL {
                 TranscriptionView(fileURL: url)
             } else {
@@ -183,6 +185,12 @@ struct ContentView: View {
                 icon: "mic.circle.fill",
                 title: localized("new_recording"),
                 action: newRecording
+            )
+            
+            FeatureCard(
+                icon: "speaker.wave.3.fill",
+                title: localized("system_audio"),
+                action: { appState.showSystemAudioView = true }
             )
             
             FeatureCard(

@@ -216,6 +216,17 @@
 "untranscribed_recording_leave" = "You have a recording that hasn't been transcribed. If you leave, it will be lost.";
 "audio_input_device" = "Audio Input";
 
+/* System Audio Recording */
+"system_audio" = "System Audio";
+"system_audio_description" = "Record all system audio output";
+"tap_to_record_system" = "Press to start capturing system audio";
+"system_audio_recording_in_progress" = "Capturing system audio...";
+"system_audio_recording_complete" = "Recording complete";
+"system_audio_error" = "System Audio Error";
+"system_audio_permission_info" = "Captures all audio playing on your Mac — meetings, media, notifications. macOS will ask for permission on first use.";
+"include_microphone" = "Include Microphone";
+"mic_and_system_audio_info" = "Mix your microphone with system audio to capture both sides of a conversation.";
+
 /* Theme */
 "switch_to_light" = "Switch to Light Mode";
 "switch_to_dark" = "Switch to Dark Mode";
