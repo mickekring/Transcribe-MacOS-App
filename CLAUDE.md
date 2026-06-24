@@ -49,10 +49,11 @@ xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
 
 **Model Support:**
 - KB Whisper models (Swedish-optimized): `kb_whisper-base/small/medium/large-coreml`
+- NB Whisper models (Norwegian-optimized): `nb_whisper-tiny/base/small/large-coreml`
 - OpenAI Whisper models: `openai_whisper-base/small/medium/large-v2/large-v3`
 - Cloud: Berget KB Whisper Large (requires API key)
 
-KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch.
+KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. NB Whisper models load from `digtek/whisperkit-nb-coreml` HuggingFace repo. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch.
 
 ### Key Managers
 - `ModelManager.swift` - Model downloads, availability checking, and storage management

@@ -471,20 +471,33 @@ struct ContentView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
-                
+
                 ForEach(ModelManager.kbModels, id: \.self) { modelId in
                     modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
                 }
-                
+
                 Divider().padding(.horizontal, 12).padding(.vertical, 4)
-                
+
+                // NB Whisper models (Norwegian)
+                Text("NB Whisper")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+
+                ForEach(ModelManager.nbModels, id: \.self) { modelId in
+                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
+                }
+
+                Divider().padding(.horizontal, 12).padding(.vertical, 4)
+
                 // OpenAI Whisper models
                 Text("Whisper")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 4)
-                
+
                 ForEach(ModelManager.openAIModels, id: \.self) { modelId in
                     modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
                 }
@@ -604,7 +617,7 @@ struct ContentView: View {
     }
     
     func getModelIcon(_ modelId: String) -> String {
-        if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "openai_whisper-") {
+        if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "nb_whisper-") || modelId.starts(with: "openai_whisper-") {
             return "laptopcomputer"
         } else if modelId == "berget-kb-whisper-large" {
             return "cloud"

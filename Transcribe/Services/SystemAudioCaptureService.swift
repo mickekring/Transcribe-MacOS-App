@@ -25,6 +25,7 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     @Published var systemAudioLevel: Float = 0
     @Published var micLevel: Float = 0
     @Published var errorMessage: String?
+    @Published var isPausedForSleep = false
     
     // Mic device management
     @Published var micEnabled = false
@@ -47,26 +48,53 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     private var micMixingActive = false  // flag read on audio callback queue
     private var originalDefaultDevice: AudioDeviceID?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
-    
+
     // Target format for mic resampling (matches SCStream output)
     private let targetSampleRate: Double = 48000
     private let targetChannelCount: AVAudioChannelCount = 2
-    
+
+    // MARK: - Sleep/Wake State
+
+    private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+    private var wasCapturingBeforeSleep = false
+    private var wasMicMonitoringBeforeSleep = false
+    private var wasMicMixingBeforeSleep = false
+
+    override init() {
+        super.init()
+        registerForSleepNotifications()
+    }
+
     // MARK: - Phase 1: Monitoring (pre-recording level meter)
-    
+
     func startMonitoring() async throws {
         guard !isMonitoring else { return }
-        
+
+        let (newStream, output) = try await createStream()
+        try await newStream.startCapture()
+
+        self.stream = newStream
+        self.streamOutput = output
+
+        await MainActor.run {
+            self.isMonitoring = true
+        }
+    }
+
+    /// Builds a fresh SCStream + output for system audio capture.
+    /// Shared between initial `startMonitoring()` and the post-sleep restart.
+    private func createStream() async throws -> (SCStream, AudioStreamOutput) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        
+
         guard let display = content.displays.first else {
             throw SystemAudioError.noDisplayFound
         }
-        
+
         let selfApp = content.applications.first { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
         let excludedApps = selfApp.map { [$0] } ?? []
         let filter = SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])
-        
+
         let config = SCStreamConfiguration()
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = true
@@ -75,40 +103,124 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         config.width = 2
         config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-        
+
         let output = AudioStreamOutput(service: self)
         let newStream = SCStream(filter: filter, configuration: config, delegate: output)
         try newStream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(label: "com.transcribe.systemAudioCapture", qos: .userInteractive))
-        
-        try await newStream.startCapture()
-        
-        self.stream = newStream
-        self.streamOutput = output
-        
-        await MainActor.run {
-            self.isMonitoring = true
+
+        return (newStream, output)
+    }
+
+    // MARK: - Sleep/Wake Handling
+
+    private func registerForSleepNotifications() {
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemWillSleep()
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemDidWake()
+        }
+    }
+
+    private func removeSleepNotifications() {
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        sleepObserver = nil
+        wakeObserver = nil
+    }
+
+    /// Called just before the system sleeps. The OS is about to kill the SCStream
+    /// out from under us regardless, so we tear it down ourselves first — but unlike
+    /// `stopMonitoring()`/`stopCapture()`, we keep the audio file, recording URL, and
+    /// `isCapturing` state intact so the recording resumes (instead of disappearing)
+    /// once `handleSystemDidWake()` rebuilds the stream.
+    private func handleSystemWillSleep() {
+        guard isMonitoring else { return }
+
+        wasCapturingBeforeSleep = isCapturing
+        wasMicMonitoringBeforeSleep = micEngine != nil
+        wasMicMixingBeforeSleep = micMixingActive
+        isPausedForSleep = true
+
+        micEngine?.pause()
+
+        let streamToStop = stream
+        stream = nil
+        streamOutput = nil
+        isMonitoring = false
+        systemAudioLevel = 0
+        micLevel = 0
+
+        if let streamToStop {
+            Task.detached {
+                try? await streamToStop.stopCapture()
+            }
+        }
+    }
+
+    private func handleSystemDidWake() {
+        guard isPausedForSleep else { return }
+
+        Task { @MainActor in
+            do {
+                let (newStream, output) = try await self.createStream()
+                try await newStream.startCapture()
+
+                self.stream = newStream
+                self.streamOutput = output
+                self.isMonitoring = true
+                self.isPausedForSleep = false
+
+                if self.wasMicMonitoringBeforeSleep {
+                    if let engine = self.micEngine {
+                        try? engine.start()
+                    } else {
+                        self.startMicMonitoring()
+                    }
+                }
+                self.micMixingActive = self.wasMicMixingBeforeSleep
+            } catch {
+                // Couldn't restart capture after wake — surface as a real error
+                // since the recording can no longer continue.
+                self.isPausedForSleep = false
+                self.errorMessage = error.localizedDescription
+                self.isCapturing = false
+            }
         }
     }
     
     func stopMonitoring() {
         guard !isStoppingStream else { return }
         isStoppingStream = true
-        
+        isPausedForSleep = false
+
         let streamToStop = self.stream
         self.stream = nil
         self.streamOutput = nil
         self.audioFile = nil
         self.audioFormat = nil
-        
+
         // Stop mic monitoring too
         stopMicMonitoringInternal()
-        
+
         if let streamToStop {
             Task.detached {
                 try? await streamToStop.stopCapture()
             }
         }
-        
+
         DispatchQueue.main.async {
             self.isMonitoring = false
             self.systemAudioLevel = 0
@@ -587,6 +699,7 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         micEngine?.stop()
         restoreOriginalDevice()
         removeDeviceObserver()
+        removeSleepNotifications()
         stream = nil
         streamOutput = nil
         audioFile = nil
@@ -609,11 +722,16 @@ private class AudioStreamOutput: NSObject, SCStreamOutput, SCStreamDelegate {
     
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async {
-            self.service?.errorMessage = error.localizedDescription
-            self.service?.isMonitoring = false
-            self.service?.isCapturing = false
-            self.service?.systemAudioLevel = 0
-            self.service?.micLevel = 0
+            guard let service = self.service else { return }
+            // If we're paused for sleep, we tore this stream down ourselves —
+            // this callback is expected and `handleSystemDidWake()` will rebuild
+            // the stream, so don't surface it as a failure or drop the recording.
+            guard !service.isPausedForSleep else { return }
+            service.errorMessage = error.localizedDescription
+            service.isMonitoring = false
+            service.isCapturing = false
+            service.systemAudioLevel = 0
+            service.micLevel = 0
         }
     }
 }

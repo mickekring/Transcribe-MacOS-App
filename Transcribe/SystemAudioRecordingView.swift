@@ -14,6 +14,8 @@ struct SystemAudioRecordingView: View {
     @State private var errorMessage = ""
     @State private var micMixingEnabled = false
     @State private var showPermissionAlert = false
+    @State private var pausedAccumulated: TimeInterval = 0
+    @State private var pauseStartDate: Date?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -157,10 +159,16 @@ struct SystemAudioRecordingView: View {
                         Text(formatTime(captureService.isCapturing ? recordingTime : captureService.recordingDuration))
                             .font(.system(size: 32, weight: .medium, design: .monospaced))
                             .foregroundColor(.textPrimary)
-                        
-                        Text(captureService.isCapturing ? localized("system_audio_recording_in_progress") : localized("system_audio_recording_complete"))
-                            .font(.system(size: 14))
-                            .foregroundColor(.textSecondary)
+
+                        if captureService.isPausedForSleep {
+                            Text(localized("system_audio_recording_paused"))
+                                .font(.system(size: 14))
+                                .foregroundColor(.textSecondary)
+                        } else {
+                            Text(captureService.isCapturing ? localized("system_audio_recording_in_progress") : localized("system_audio_recording_complete"))
+                                .font(.system(size: 14))
+                                .foregroundColor(.textSecondary)
+                        }
                     } else {
                         Text(localized("tap_to_record_system"))
                             .font(.system(size: 16))
@@ -339,8 +347,11 @@ struct SystemAudioRecordingView: View {
         } message: {
             Text(localized("mic_permission_message"))
         }
+        .onChange(of: captureService.isPausedForSleep) { _, isPaused in
+            handlePauseStateChange(isPaused: isPaused)
+        }
     }
-    
+
     // MARK: - Mic Permission
     
     private func enableMicMixing() {
@@ -374,22 +385,35 @@ struct SystemAudioRecordingView: View {
         do {
             try captureService.startCapture(withMicrophone: micMixingEnabled)
             recordingTime = 0
+            pausedAccumulated = 0
+            pauseStartDate = nil
             recordingStartDate = Date()
             timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-                if let startDate = recordingStartDate {
-                    recordingTime = Date().timeIntervalSince(startDate)
-                }
+                guard let startDate = recordingStartDate else { return }
+                let pausedSoFar = pausedAccumulated + (pauseStartDate.map { Date().timeIntervalSince($0) } ?? 0)
+                recordingTime = Date().timeIntervalSince(startDate) - pausedSoFar
             }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
         }
     }
-    
+
     private func stopCapture() {
         captureService.stopCapture()
         timer?.invalidate()
         timer = nil
+    }
+
+    /// Excludes sleep time from the displayed recording duration so it tracks
+    /// the actual audio captured rather than wall-clock time.
+    private func handlePauseStateChange(isPaused: Bool) {
+        if isPaused {
+            pauseStartDate = Date()
+        } else if let pauseStart = pauseStartDate {
+            pausedAccumulated += Date().timeIntervalSince(pauseStart)
+            pauseStartDate = nil
+        }
     }
     
     private func togglePlayback() {
