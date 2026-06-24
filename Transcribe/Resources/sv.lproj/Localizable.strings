@@ -203,6 +203,7 @@
 "back" = "Tillbaka";
 "recording_in_progress" = "Spelar in...";
 "recording_complete" = "Inspelning klar";
+"recording_paused_sleep" = "Pausad — datorn sover, återupptas automatiskt";
 "tap_to_record" = "Tryck för att börja spela in";
 "pause" = "Pausa";
 "play" = "Spela upp";
@@ -222,6 +223,7 @@
 "tap_to_record_system" = "Tryck för att börja spela in systemljud";
 "system_audio_recording_in_progress" = "Spelar in systemljud...";
 "system_audio_recording_complete" = "Inspelning klar";
+"system_audio_recording_paused" = "Pausad — datorn sover, återupptas automatiskt";
 "system_audio_error" = "Systemljudfel";
 "system_audio_permission_info" = "Spelar in allt ljud som spelas upp på din Mac — möten, media, notiser. macOS frågar om tillåtelse vid första användningen.";
 "include_microphone" = "Inkludera mikrofon";

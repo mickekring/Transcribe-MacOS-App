@@ -15,33 +15,46 @@ class ModelManager: ObservableObject {
         "kb_whisper-small-coreml",
         "kb_whisper-medium-coreml",
         "kb_whisper-large-coreml",
+        "nb_whisper-tiny-coreml",
+        "nb_whisper-base-coreml",
+        "nb_whisper-small-coreml",
+        "nb_whisper-large-coreml",
         "openai_whisper-base",
         "openai_whisper-small",
         "openai_whisper-medium",
         "openai_whisper-large-v2",
         "openai_whisper-large-v3",
     ]
-    
+
     static let kbModels: [String] = allLocalModels.filter { $0.starts(with: "kb_whisper-") }
+    static let nbModels: [String] = allLocalModels.filter { $0.starts(with: "nb_whisper-") }
     static let openAIModels: [String] = allLocalModels.filter { $0.starts(with: "openai_whisper-") }
-    
+
     private let modelSizes: [String: Int64] = [
         "kb_whisper-base-coreml": 145_000_000,
         "kb_whisper-small-coreml": 483_000_000,
         "kb_whisper-medium-coreml": 1_530_000_000,
         "kb_whisper-large-coreml": 3_090_000_000,
+        "nb_whisper-tiny-coreml": 75_000_000,
+        "nb_whisper-base-coreml": 145_000_000,
+        "nb_whisper-small-coreml": 483_000_000,
+        "nb_whisper-large-coreml": 3_090_000_000,
         "openai_whisper-base": 145_000_000,
         "openai_whisper-small": 483_000_000,
         "openai_whisper-medium": 1_530_000_000,
         "openai_whisper-large-v2": 3_090_000_000,
         "openai_whisper-large-v3": 3_090_000_000,
     ]
-    
+
     private static let displayNames: [String: String] = [
         "kb_whisper-base-coreml": "KB Whisper Base",
         "kb_whisper-small-coreml": "KB Whisper Small",
         "kb_whisper-medium-coreml": "KB Whisper Medium",
         "kb_whisper-large-coreml": "KB Whisper Large",
+        "nb_whisper-tiny-coreml": "NB Whisper Tiny",
+        "nb_whisper-base-coreml": "NB Whisper Base",
+        "nb_whisper-small-coreml": "NB Whisper Small",
+        "nb_whisper-large-coreml": "NB Whisper Large",
         "openai_whisper-base": "Whisper Base",
         "openai_whisper-small": "Whisper Small",
         "openai_whisper-medium": "Whisper Medium",

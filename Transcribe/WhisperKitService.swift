@@ -24,9 +24,12 @@ class WhisperKitService {
         if modelId.starts(with: "kb_whisper-") {
             return "mickekringai/kb-whisper-coreml"
         }
+        if modelId.starts(with: "nb_whisper-") {
+            return "digtek/whisperkit-nb-coreml"
+        }
         return "argmaxinc/whisperkit-coreml"
     }
-    
+
     /// Maps a model ID to the WhisperKit variant name used inside the repo.
     private func modelVariant(for modelId: String) -> String {
         switch modelId {
@@ -34,6 +37,10 @@ class WhisperKitService {
         case "kb_whisper-small-coreml": return "small"
         case "kb_whisper-medium-coreml": return "medium"
         case "kb_whisper-large-coreml": return "large"
+        case "nb_whisper-tiny-coreml": return "NbAiLab_nb-whisper-tiny"
+        case "nb_whisper-base-coreml": return "NbAiLab_nb-whisper-base"
+        case "nb_whisper-small-coreml": return "NbAiLab_nb-whisper-small"
+        case "nb_whisper-large-coreml": return "NbAiLab_nb-whisper-large"
         case "openai_whisper-base": return "openai_whisper-base"
         case "openai_whisper-small": return "openai_whisper-small"
         case "openai_whisper-medium": return "openai_whisper-medium"
@@ -204,7 +211,7 @@ class WhisperKitService {
     }
     
     func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(TranscriptionUpdate.self) { continuation in
             Task { @MainActor in
                 do {
                     // Initialize WhisperKit if needed or if model changed
@@ -264,7 +271,6 @@ class WhisperKitService {
                         task: .transcribe,
                         language: languageCode == "auto" ? nil : languageCode,
                         usePrefillPrompt: false,
-                        usePrefillCache: false,
                         skipSpecialTokens: true,
                         withoutTimestamps: !includeTimestamps,
                         wordTimestamps: wordTimestamps

@@ -9,6 +9,8 @@ struct RecordingView: View {
     @State private var showingTranscription = false
     @State private var recordingTime: TimeInterval = 0
     @State private var recordingStartDate: Date?
+    @State private var pausedAccumulated: TimeInterval = 0
+    @State private var pauseStartDate: Date?
     @State private var timer: Timer?
     @State private var isPlaying = false
     @State private var playbackTime: TimeInterval = 0
@@ -145,9 +147,15 @@ struct RecordingView: View {
                             .font(.system(size: 32, weight: .medium, design: .monospaced))
                             .foregroundColor(.textPrimary)
                         
-                        Text(audioRecorder.isRecording ? localized("recording_in_progress") : localized("recording_complete"))
-                            .font(.system(size: 14))
-                            .foregroundColor(.textSecondary)
+                        if audioRecorder.isPausedForSleep {
+                            Text(localized("recording_paused_sleep"))
+                                .font(.system(size: 14))
+                                .foregroundColor(.textSecondary)
+                        } else {
+                            Text(audioRecorder.isRecording ? localized("recording_in_progress") : localized("recording_complete"))
+                                .font(.system(size: 14))
+                                .foregroundColor(.textSecondary)
+                        }
                         
                         // Audio level meter (shown during recording)
                         if audioRecorder.isRecording {
@@ -280,8 +288,11 @@ struct RecordingView: View {
                  ? localized("recording_in_progress_leave")
                  : localized("untranscribed_recording_leave"))
         }
+        .onChange(of: audioRecorder.isPausedForSleep) { _, isPaused in
+            handlePauseStateChange(isPaused: isPaused)
+        }
     }
-    
+
     private func startRecording() {
         switch AVAudioApplication.shared.recordPermission {
         case .granted:
@@ -306,12 +317,26 @@ struct RecordingView: View {
     private func beginRecording() {
         audioRecorder.startRecording()
         recordingTime = 0
+        pausedAccumulated = 0
+        pauseStartDate = nil
         recordingStartDate = Date()
-        // Use Date-based calculation to avoid timer drift
+        // Use Date-based calculation to avoid timer drift, subtracting any time
+        // spent paused (e.g. while the machine was asleep) so the displayed
+        // duration matches the actual recorded audio.
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-            if let startDate = recordingStartDate {
-                recordingTime = Date().timeIntervalSince(startDate)
-            }
+            guard let startDate = recordingStartDate else { return }
+            let pausedSoFar = pausedAccumulated + (pauseStartDate.map { Date().timeIntervalSince($0) } ?? 0)
+            recordingTime = Date().timeIntervalSince(startDate) - pausedSoFar
+        }
+    }
+
+    /// Excludes sleep time from the displayed recording duration.
+    private func handlePauseStateChange(isPaused: Bool) {
+        if isPaused {
+            pauseStartDate = Date()
+        } else if let pauseStart = pauseStartDate {
+            pausedAccumulated += Date().timeIntervalSince(pauseStart)
+            pauseStartDate = nil
         }
     }
     
@@ -380,19 +405,24 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     @Published var audioLevel: Float = 0
     @Published var inputDevices: [AudioInputDevice] = []
     @Published var selectedDeviceID: AudioDeviceID?
-    
+    @Published var isPausedForSleep = false
+
     private var audioRecorder: AVAudioRecorder?
     private var meteringTimer: Timer?
     private var originalDefaultDevice: AudioDeviceID?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
-    
+
+    private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+
     override init() {
         super.init()
         checkMicrophonePermission()
         refreshInputDevices()
         observeDeviceChanges()
+        registerForSleepNotifications()
     }
-    
+
     deinit {
         // Stop audio engine synchronously if still running
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -401,6 +431,55 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         meteringTimer?.invalidate()
         restoreOriginalDevice()
         removeDeviceObserver()
+        removeSleepNotifications()
+    }
+
+    // MARK: - Sleep/Wake Handling
+
+    private func registerForSleepNotifications() {
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemWillSleep()
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemDidWake()
+        }
+    }
+
+    private func removeSleepNotifications() {
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        sleepObserver = nil
+        wakeObserver = nil
+    }
+
+    /// Pause the recorder before the machine sleeps. `AVAudioRecorder.pause()`
+    /// keeps the file open so a later `record()` appends to the same recording.
+    private func handleSystemWillSleep() {
+        guard isRecording, let recorder = audioRecorder, !isPausedForSleep else { return }
+        recorder.pause()
+        stopMetering()
+        isPausedForSleep = true
+    }
+
+    /// Resume recording into the same file after wake.
+    private func handleSystemDidWake() {
+        guard isPausedForSleep, let recorder = audioRecorder else { return }
+        if recorder.record() {
+            startMetering()
+        }
+        isPausedForSleep = false
     }
     
     private func checkMicrophonePermission() {
@@ -720,6 +799,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         recordingDuration = recorder.currentTime
         recorder.stop()
         isRecording = false
+        isPausedForSleep = false
         restoreOriginalDevice()
         
         // Verify the file was created

@@ -203,6 +203,7 @@
 "back" = "Back";
 "recording_in_progress" = "Recording...";
 "recording_complete" = "Recording complete";
+"recording_paused_sleep" = "Paused — system asleep, will resume automatically";
 "tap_to_record" = "Press to start recording";
 "pause" = "Pause";
 "play" = "Play";
@@ -222,6 +223,7 @@
 "tap_to_record_system" = "Press to start capturing system audio";
 "system_audio_recording_in_progress" = "Capturing system audio...";
 "system_audio_recording_complete" = "Recording complete";
+"system_audio_recording_paused" = "Paused — system asleep, will resume automatically";
 "system_audio_error" = "System Audio Error";
 "system_audio_permission_info" = "Captures all audio playing on your Mac — meetings, media, notifications. macOS will ask for permission on first use.";
 "include_microphone" = "Include Microphone";

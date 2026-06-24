@@ -26,6 +26,7 @@ class TranscriptionService {
                     }
                     
                     if selectedModel.starts(with: "kb_whisper-") ||  // KB CoreML models
+                       selectedModel.starts(with: "nb_whisper-") ||  // NB Whisper CoreML models
                        selectedModel.starts(with: "openai_whisper-") {
                         // Use WhisperKit for standard Whisper models and KB CoreML models
                         try await transcribeWithWhisperKit(
