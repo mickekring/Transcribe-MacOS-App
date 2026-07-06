@@ -19,6 +19,8 @@ class AudioPreprocessor {
         let chunks: [AudioChunk]
         let needsCleanup: Bool
         let originalDuration: Double
+        /// The user's original input file — never deleted by cleanup.
+        let originalURL: URL
     }
     
     struct AudioChunk {
@@ -52,34 +54,38 @@ class AudioPreprocessor {
                 url: url,
                 chunks: [AudioChunk(url: url, startTime: 0, endTime: durationInSeconds, index: 0)],
                 needsCleanup: false,
-                originalDuration: durationInSeconds
+                originalDuration: durationInSeconds,
+                originalURL: url
             )
         }
-        
+
         // Convert to optimal format if needed
         var processedURL = url
         var needsCleanup = false
-        
+
         if needsConversion {
             onProgress?(NSLocalizedString("converting_audio_format", comment: ""))
             processedURL = try await convertToOptimalFormat(url: url)
             needsCleanup = true
         }
-        
+
         // Chunk if needed
         var chunks: [AudioChunk] = []
         if needsChunking {
             onProgress?(NSLocalizedString("splitting_audio_chunks", comment: ""))
             chunks = try await createChunks(url: processedURL, duration: durationInSeconds)
+            // Chunks are always temporary files, even when no conversion happened
+            needsCleanup = true
         } else {
             chunks = [AudioChunk(url: processedURL, startTime: 0, endTime: durationInSeconds, index: 0)]
         }
-        
+
         return ProcessedAudio(
             url: processedURL,
             chunks: chunks,
             needsCleanup: needsCleanup,
-            originalDuration: durationInSeconds
+            originalDuration: durationInSeconds,
+            originalURL: url
         )
     }
     
@@ -104,21 +110,30 @@ class AudioPreprocessor {
         let ext = url.pathExtension.lowercased()
         return !Self.nativeAudioExtensions.contains(ext)
     }
+
+    /// Directory for preprocessing temp files. Lives under
+    /// `temporaryDirectory/Transcribe/` so `AppDelegate.cleanupTemporaryFiles()`
+    /// removes force-quit leftovers at next launch.
+    private func preprocessingTempDirectory() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Transcribe")
+            .appendingPathComponent("Preprocessing")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
     
     /// Extracts audio from any AVAsset-compatible file (including video) and
-    /// returns a .m4a URL that WhisperKit can read. Caller must delete the
+    /// returns a .wav URL that WhisperKit can read. Caller must delete the
     /// returned file when done.
     func extractAudioForWhisperKit(url: URL) async throws -> URL {
         let asset = AVURLAsset(url: url)
-        
-        // Try AVAssetExportSession first (works for audio-only files)
-        // Fall back to AVAssetReader/Writer for video containers
+
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard let audioTrack = audioTracks.first else {
             throw AudioProcessingError.exportFailed("No audio track found in file")
         }
-        
-        let outputURL = FileManager.default.temporaryDirectory
+
+        let outputURL = try preprocessingTempDirectory()
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
         
@@ -162,163 +177,214 @@ class AudioPreprocessor {
         reader.startReading()
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
-        
-        await withCheckedContinuation { continuation in
-            writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "audio.extraction")) {
-                while writerInput.isReadyForMoreMediaData {
-                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                        writerInput.append(sampleBuffer)
-                    } else {
-                        writerInput.markAsFinished()
-                        continuation.resume()
-                        return
+
+        try await transferAudio(
+            reader: reader,
+            readerOutput: readerOutput,
+            writer: writer,
+            writerInput: writerInput,
+            outputURL: outputURL
+        )
+
+        return outputURL
+    }
+
+    /// Pumps all sample buffers from `readerOutput` into `writerInput`, then
+    /// finishes writing and validates both reader and writer state. The
+    /// continuation is resumed exactly once on every path (success, writer
+    /// failure mid-stream, or reader failure). Removes any partial output
+    /// file before rethrowing.
+    private func transferAudio(
+        reader: AVAssetReader,
+        readerOutput: AVAssetReaderTrackOutput,
+        writer: AVAssetWriter,
+        writerInput: AVAssetWriterInput,
+        outputURL: URL
+    ) async throws {
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                // Only mutated on the serial queue below, so no lock is needed.
+                var hasResumed = false
+                writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "audio.extraction")) {
+                    guard !hasResumed else { return }
+                    while writerInput.isReadyForMoreMediaData {
+                        guard writer.status != .failed else {
+                            hasResumed = true
+                            continuation.resume(throwing: writer.error
+                                ?? AudioProcessingError.exportFailed("Audio writer failed"))
+                            return
+                        }
+                        if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                            guard writerInput.append(sampleBuffer) else {
+                                hasResumed = true
+                                continuation.resume(throwing: writer.error
+                                    ?? AudioProcessingError.exportFailed("Failed to append audio data"))
+                                return
+                            }
+                        } else {
+                            writerInput.markAsFinished()
+                            hasResumed = true
+                            continuation.resume()
+                            return
+                        }
                     }
                 }
             }
+
+            await writer.finishWriting()
+
+            // A nil sample buffer with a failed reader means the source was
+            // truncated/corrupt mid-decode — not EOF. Don't return partial audio.
+            if reader.status == .failed {
+                throw AudioProcessingError.exportFailed(
+                    reader.error?.localizedDescription ?? "Failed to read source audio")
+            }
+
+            guard writer.status == .completed else {
+                throw AudioProcessingError.exportFailed(
+                    writer.error?.localizedDescription ?? "Audio extraction failed")
+            }
+        } catch {
+            if reader.status == .reading {
+                reader.cancelReading()
+            }
+            if writer.status == .writing {
+                writer.cancelWriting()
+            }
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
-        
-        await writer.finishWriting()
-        
-        guard writer.status == .completed else {
-            throw AudioProcessingError.exportFailed(writer.error?.localizedDescription ?? "Audio extraction failed")
-        }
-        
-        return outputURL
     }
     
     private func convertToOptimalFormat(url: URL) async throws -> URL {
-        let asset = AVAsset(url: url)
-        
-        // Create output URL - use m4a format which is supported by AVAssetExportSession
-        let outputURL = FileManager.default.temporaryDirectory
+        let asset = AVURLAsset(url: url)
+
+        let outputURL = try preprocessingTempDirectory()
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("m4a")
-        
-        // Create export session with appropriate preset
-        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw AudioProcessingError.exportFailed("Failed to create export session")
-        }
-        
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
-        
-        // Set audio settings for mono and lower bitrate
-        if let audioTrack = asset.tracks(withMediaType: .audio).first {
-            let audioMix = createMonoAudioMix(for: asset)
-            if let audioMix = audioMix {
-                exportSession.audioMix = audioMix
-            }
-        }
-        
-        // Export
-        await withCheckedContinuation { continuation in
-            exportSession.exportAsynchronously {
-                continuation.resume()
-            }
-        }
-        
-        switch exportSession.status {
-        case .completed:
-            return outputURL
-        case .failed:
-            throw AudioProcessingError.exportFailed(exportSession.error?.localizedDescription ?? "Export failed")
-        case .cancelled:
-            throw AudioProcessingError.exportFailed("Export was cancelled")
-        default:
-            throw AudioProcessingError.exportFailed("Export failed with status: \(exportSession.status.rawValue)")
-        }
+
+        try await encodeCompactMonoM4A(asset: asset, timeRange: nil, outputURL: outputURL)
+        return outputURL
     }
-    
-    private func createMonoAudioMix(for asset: AVAsset) -> AVAudioMix? {
-        guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
-            return nil
+
+    /// Re-encodes (a time range of) an asset's audio track to mono 16 kHz AAC
+    /// (~32 kbps) so files fit under the Berget upload limit. This performs a
+    /// real downmix and bitrate reduction, unlike the previous AVAudioMix-based
+    /// approach which was a no-op.
+    private func encodeCompactMonoM4A(asset: AVAsset, timeRange: CMTimeRange?, outputURL: URL) async throws {
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard let audioTrack = audioTracks.first else {
+            throw AudioProcessingError.exportFailed("No audio track found in file")
         }
-        
-        let audioMixInputParameters = AVMutableAudioMixInputParameters(track: audioTrack)
-        
-        // Set volume to mix stereo to mono
-        audioMixInputParameters.setVolume(1.0, at: .zero)
-        
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = [audioMixInputParameters]
-        
-        return audioMix
+
+        let reader = try AVAssetReader(asset: asset)
+        if let timeRange {
+            reader.timeRange = timeRange
+        }
+
+        let readerOutputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
+
+        let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: readerOutputSettings)
+        guard reader.canAdd(readerOutput) else {
+            throw AudioProcessingError.exportFailed("Cannot read audio track")
+        }
+        reader.add(readerOutput)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
+
+        let writerInputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32000
+        ]
+
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerInputSettings)
+        guard writer.canAdd(writerInput) else {
+            throw AudioProcessingError.exportFailed("Cannot configure audio writer")
+        }
+        writer.add(writerInput)
+
+        reader.startReading()
+        writer.startWriting()
+        writer.startSession(atSourceTime: timeRange?.start ?? .zero)
+
+        try await transferAudio(
+            reader: reader,
+            readerOutput: readerOutput,
+            writer: writer,
+            writerInput: writerInput,
+            outputURL: outputURL
+        )
     }
-    
+
     private func createChunks(url: URL, duration: Double) async throws -> [AudioChunk] {
         var chunks: [AudioChunk] = []
-        let asset = AVAsset(url: url)
-        
+        let asset = AVURLAsset(url: url)
+
         var currentStart: Double = 0
         var chunkIndex = 0
-        
+
         while currentStart < duration {
             let chunkEnd = min(currentStart + chunkDuration, duration)
-            
+
             // Create chunk URL - use m4a format
-            let chunkURL = FileManager.default.temporaryDirectory
+            let chunkURL = try preprocessingTempDirectory()
                 .appendingPathComponent("chunk_\(chunkIndex)_\(UUID().uuidString)")
                 .appendingPathExtension("m4a")
-            
-            // Export chunk
-            guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-                throw AudioProcessingError.exportFailed("Failed to create export session for chunk")
-            }
-            
+
             let startTime = CMTime(seconds: currentStart, preferredTimescale: 1000)
             let endTime = CMTime(seconds: chunkEnd, preferredTimescale: 1000)
             let timeRange = CMTimeRange(start: startTime, end: endTime)
-            
-            exportSession.outputURL = chunkURL
-            exportSession.outputFileType = .m4a
-            exportSession.timeRange = timeRange
-            
-            if let audioMix = createMonoAudioMix(for: asset) {
-                exportSession.audioMix = audioMix
-            }
-            
-            await withCheckedContinuation { continuation in
-                exportSession.exportAsynchronously {
-                    continuation.resume()
+
+            do {
+                try await encodeCompactMonoM4A(asset: asset, timeRange: timeRange, outputURL: chunkURL)
+            } catch {
+                // Don't leak chunks that were already written
+                for chunk in chunks {
+                    try? FileManager.default.removeItem(at: chunk.url)
                 }
+                throw AudioProcessingError.chunkingFailed(
+                    "Failed to export chunk \(chunkIndex): \(error.localizedDescription)")
             }
-            
-            switch exportSession.status {
-            case .completed:
-                chunks.append(AudioChunk(
-                    url: chunkURL,
-                    startTime: currentStart,
-                    endTime: chunkEnd,
-                    index: chunkIndex
-                ))
-            case .failed:
-                throw AudioProcessingError.exportFailed("Failed to export chunk \(chunkIndex): \(exportSession.error?.localizedDescription ?? "Unknown error")")
-            case .cancelled:
-                throw AudioProcessingError.exportFailed("Export of chunk \(chunkIndex) was cancelled")
-            default:
-                throw AudioProcessingError.exportFailed("Failed to export chunk \(chunkIndex) with status: \(exportSession.status.rawValue)")
-            }
-            
+
+            chunks.append(AudioChunk(
+                url: chunkURL,
+                startTime: currentStart,
+                endTime: chunkEnd,
+                index: chunkIndex
+            ))
+
             // Move to next chunk with overlap
             currentStart = chunkEnd - overlapDuration
             chunkIndex += 1
-            
+
             // Avoid infinite loop for very short files
             if chunkEnd >= duration {
                 break
             }
         }
-        
+
         return chunks
     }
     
     func cleanupProcessedAudio(_ processedAudio: ProcessedAudio) {
         guard processedAudio.needsCleanup else { return }
-        
-        // Delete temporary files
-        try? FileManager.default.removeItem(at: processedAudio.url)
-        
-        for chunk in processedAudio.chunks {
+
+        // Delete temporary files — never the user's original file
+        if processedAudio.url != processedAudio.originalURL {
+            try? FileManager.default.removeItem(at: processedAudio.url)
+        }
+
+        for chunk in processedAudio.chunks where chunk.url != processedAudio.originalURL {
             try? FileManager.default.removeItem(at: chunk.url)
         }
     }

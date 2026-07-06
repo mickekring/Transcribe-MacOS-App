@@ -46,11 +46,14 @@ final class AudioRingBuffer: @unchecked Sendable {
         guard frameCount > 0, sourceChannels == channelCount else { return }
         
         os_unfair_lock_lock(&lock)
-        
+
+        // If a single write exceeds capacity, only the newest `capacity` frames
+        // can survive — skip the older source frames entirely.
         let framesToWrite = min(frameCount, capacity)
-        
+        let sourceFrameOffset = frameCount - framesToWrite
+
         for ch in 0..<channelCount {
-            let sourceOffset = ch * frameCount
+            let sourceOffset = ch * frameCount + sourceFrameOffset
             let destChannelOffset = ch * capacity
             
             let sourcePtr = data.advanced(by: sourceOffset)
@@ -78,8 +81,15 @@ final class AudioRingBuffer: @unchecked Sendable {
         }
         
         writePosition = (writePosition + framesToWrite) % capacity
+
+        // If this write overwrote unread frames, advance the read position past
+        // them so it always points at the oldest valid frame.
+        let overwritten = availableFramesCount + framesToWrite - capacity
+        if overwritten > 0 {
+            readPosition = (readPosition + overwritten) % capacity
+        }
         availableFramesCount = min(availableFramesCount + framesToWrite, capacity)
-        
+
         os_unfair_lock_unlock(&lock)
     }
     

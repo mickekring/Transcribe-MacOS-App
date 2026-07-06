@@ -232,3 +232,14 @@
 /* Theme */
 "switch_to_light" = "Byt till ljust läge";
 "switch_to_dark" = "Byt till mörkt läge";
+
+/* Error Handling (audit fixes) */
+"recording_error" = "Inspelningsfel";
+"recording_resume_failed" = "Inspelningen kunde inte återupptas efter viloläge. Inspelningen har stoppats.";
+"mic_monitor_failed" = "Mikrofonen kunde inte startas. Din röst kommer inte att inkluderas i inspelningen.";
+"keychain_write_failed" = "Kunde inte uppdatera API-nyckeln i nyckelringen. Försök igen.";
+"file_open_error" = "Kunde inte öppna filen";
+"unsupported_file_type" = "Filtypen stöds inte.";
+"model_download_failed_title" = "Modellen kunde inte laddas ner";
+"model_download_retry_hint" = "Kontrollera din internetanslutning och välj modellen igen för att försöka på nytt.";
+"playback_unavailable" = "Ljuduppspelning är inte tillgänglig för den här filen.";

@@ -14,29 +14,23 @@ class TranscriptionService {
     private let modelManager = ModelManager.shared
     private let languageManager = LanguageManager.shared
     private var whisperKitService: WhisperKitService?
-    
+    private var transcriptionTask: Task<Void, Never>?
+
     func transcribe(fileURL: URL) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     // Check if we have a downloaded model
                     guard let selectedModel = UserDefaults.standard.string(forKey: "selectedTranscriptionModel"),
                           !selectedModel.isEmpty else {
                         throw TranscriptionError.noModelSelected
                     }
-                    
+
                     if selectedModel.starts(with: "kb_whisper-") ||  // KB CoreML models
                        selectedModel.starts(with: "nb_whisper-") ||  // NB Whisper CoreML models
                        selectedModel.starts(with: "openai_whisper-") {
                         // Use WhisperKit for standard Whisper models and KB CoreML models
                         try await transcribeWithWhisperKit(
-                            fileURL: fileURL,
-                            modelId: selectedModel,
-                            continuation: continuation
-                        )
-                    } else if selectedModel.starts(with: "cloud-") {
-                        // Use cloud model (OpenAI API)
-                        try await transcribeWithCloudModel(
                             fileURL: fileURL,
                             modelId: selectedModel,
                             continuation: continuation
@@ -47,6 +41,14 @@ class TranscriptionService {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+
+            self.transcriptionTask = task
+
+            // Cancelling this task ends the inner for-await loop, which
+            // terminates the WhisperKitService stream and stops inference.
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }
@@ -106,24 +108,9 @@ class TranscriptionService {
         continuation.finish()
     }
     
-    private func transcribeWithCloudModel(
-        fileURL: URL,
-        modelId: String,
-        continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
-    ) async throws {
-        // Implementation for cloud models (OpenAI, Groq, etc.)
-        // This would use the API keys stored in UserDefaults
-        continuation.yield(TranscriptionUpdate(
-            text: "Cloud transcription not yet implemented",
-            progress: 1.0,
-            segments: [],
-            isComplete: true
-        ))
-        continuation.finish()
-    }
-    
     func cancelTranscription() {
-        // WhisperKit handles cancellation internally
+        transcriptionTask?.cancel()
+        whisperKitService?.cancelTranscription()
     }
 }
 

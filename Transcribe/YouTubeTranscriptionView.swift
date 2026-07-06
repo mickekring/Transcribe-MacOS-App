@@ -8,7 +8,8 @@ struct YouTubeTranscriptionView: View {
     @State private var thumbnailURL: URL?
     @State private var videoDuration: String?
     @State private var downloadComplete = false
-    
+    @State private var processingTask: Task<Void, Never>?
+
     @StateObject private var youtubeService = YouTubeDownloadService()
     @Environment(\.dismiss) private var dismiss
     
@@ -30,6 +31,9 @@ struct YouTubeTranscriptionView: View {
                 }
             }
             .frame(width: 600, height: 500)
+        }
+        .onDisappear {
+            processingTask?.cancel()
         }
     }
     
@@ -119,7 +123,7 @@ struct YouTubeTranscriptionView: View {
             
             // Transcribe Button
             Button(action: {
-                Task {
+                processingTask = Task {
                     await fetchVideoInfo()
                 }
             }) {
@@ -232,11 +236,42 @@ struct YouTubeTranscriptionView: View {
                 }
                 .padding(.horizontal, 60)
             }
-            
+
+            // Download error with retry
+            if !isProcessing, let error = youtubeService.errorMessage {
+                VStack(spacing: 16) {
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 60)
+                        .multilineTextAlignment(.center)
+
+                    Button(action: {
+                        youtubeService.errorMessage = nil
+                        isProcessing = true
+                        processingTask = Task {
+                            await downloadAndTranscribe()
+                        }
+                    }) {
+                        Text("Försök igen")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.textPrimary)
+                            .frame(width: 140, height: 36)
+                            .background(Color.cardBackground)
+                            .cornerRadius(18)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(Color.borderLight, lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
             Spacer()
         }
     }
-    
+
     private func fetchVideoInfo() async {
         isProcessing = true
         youtubeService.errorMessage = nil
@@ -256,13 +291,14 @@ struct YouTubeTranscriptionView: View {
             await downloadAndTranscribe()
             
         } catch {
+            guard !(error is CancellationError) else { return }
             await MainActor.run {
                 youtubeService.errorMessage = error.localizedDescription
                 isProcessing = false
             }
         }
     }
-    
+
     private func downloadAndTranscribe() async {
         do {
             // Download video
@@ -288,6 +324,7 @@ struct YouTubeTranscriptionView: View {
             }
             
         } catch {
+            guard !(error is CancellationError) else { return }
             await MainActor.run {
                 youtubeService.errorMessage = error.localizedDescription
                 isProcessing = false

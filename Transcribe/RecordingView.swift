@@ -17,6 +17,7 @@ struct RecordingView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var showPermissionAlert = false
     @State private var showLeaveConfirmation = false
+    @State private var showRecordingError = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -291,6 +292,21 @@ struct RecordingView: View {
         .onChange(of: audioRecorder.isPausedForSleep) { _, isPaused in
             handlePauseStateChange(isPaused: isPaused)
         }
+        .onChange(of: audioRecorder.errorMessage) { _, newValue in
+            guard newValue != nil else { return }
+            if !audioRecorder.isRecording {
+                timer?.invalidate()
+                timer = nil
+            }
+            showRecordingError = true
+        }
+        .alert(localized("recording_error"), isPresented: $showRecordingError) {
+            Button("OK") {
+                audioRecorder.errorMessage = nil
+            }
+        } message: {
+            Text(audioRecorder.errorMessage ?? "")
+        }
     }
 
     private func startRecording() {
@@ -315,7 +331,11 @@ struct RecordingView: View {
     }
     
     private func beginRecording() {
+        timer?.invalidate()
+        timer = nil
         audioRecorder.startRecording()
+        // Only start the display timer if recording actually started.
+        guard audioRecorder.isRecording else { return }
         recordingTime = 0
         pausedAccumulated = 0
         pauseStartDate = nil
@@ -406,6 +426,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     @Published var inputDevices: [AudioInputDevice] = []
     @Published var selectedDeviceID: AudioDeviceID?
     @Published var isPausedForSleep = false
+    @Published var errorMessage: String?
 
     private var audioRecorder: AVAudioRecorder?
     private var meteringTimer: Timer?
@@ -476,10 +497,15 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     /// Resume recording into the same file after wake.
     private func handleSystemDidWake() {
         guard isPausedForSleep, let recorder = audioRecorder else { return }
+        isPausedForSleep = false
         if recorder.record() {
             startMetering()
+        } else {
+            // Resume failed — stop cleanly so the UI doesn't show an active
+            // recording that captures nothing, and surface the error.
+            stopRecording()
+            errorMessage = localized("recording_resume_failed")
         }
-        isPausedForSleep = false
     }
     
     private func checkMicrophonePermission() {
@@ -706,11 +732,23 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     // MARK: - Input Level Monitor (pre-recording)
     
     private var audioEngine: AVAudioEngine?
-    
+
+    /// Bumped on every stop so a pending delayed restart can be cancelled.
+    private var inputMonitorGeneration = 0
+
+    /// Re-applies the user's selected input device if the system default has
+    /// drifted (e.g. after `restoreOriginalDevice()` at the end of a recording),
+    /// so the device actually used always matches the picker.
+    private func applySelectedDeviceIfNeeded() {
+        guard let deviceID = selectedDeviceID, getCurrentDefaultInputDevice() != deviceID else { return }
+        setInputDevice(deviceID)
+    }
+
     func startInputMonitor() {
         guard !isRecording else { return }
         stopInputMonitor()
-        
+        applySelectedDeviceIfNeeded()
+
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -744,6 +782,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     }
     
     func stopInputMonitor() {
+        inputMonitorGeneration += 1  // cancel any pending delayed restart
         if let engine = audioEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -751,16 +790,22 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
         audioLevel = 0
     }
-    
+
     func restartInputMonitor() {
         stopInputMonitor()
-        // Small delay to allow the system default device to update
+        // Small delay to allow the system default device to update.
+        // The generation check cancels the restart if the monitor was stopped
+        // in the meantime, so a stop isn't followed by a hot mic.
+        let generation = inputMonitorGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.startInputMonitor()
+            guard let self, self.inputMonitorGeneration == generation else { return }
+            self.startInputMonitor()
         }
     }
     
     func startRecording() {
+        applySelectedDeviceIfNeeded()
+
         let audioFilename = getTemporaryDirectory().appendingPathComponent("recording_\(Date().timeIntervalSince1970).m4a")
         
         let settings: [String: Any] = [

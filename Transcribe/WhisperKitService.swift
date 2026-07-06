@@ -6,8 +6,11 @@ import AVFoundation
 class WhisperKitService {
     var whisperKit: WhisperKit?
     private let languageManager = LanguageManager.shared
-    private var isInitializing = false
+    private var initializationTask: Task<Void, Error>?
+    private var initializingModelId: String?
     private var currentModelId: String?
+    private var activeTranscriptionTask: Task<Void, Never>?
+    private var activeCancellationFlag: TranscriptionCancellationFlag?
     
     var currentModel: String? {
         return currentModelId
@@ -53,12 +56,28 @@ class WhisperKitService {
     // MARK: - Initialization
     
     func initialize(modelId: String) async throws {
-        guard !isInitializing else {
-            throw TranscriptionError.modelNotFound
+        // Coalesce concurrent loads instead of misreporting them as
+        // "model not found": await any in-flight initialization.
+        while let task = initializationTask {
+            if initializingModelId == modelId {
+                try await task.value
+                return
+            }
+            // A different model is loading — let it settle, then proceed.
+            _ = try? await task.value
         }
-        isInitializing = true
-        defer { isInitializing = false }
-        
+
+        let task = Task { try await self.performInitialization(modelId: modelId) }
+        initializationTask = task
+        initializingModelId = modelId
+        defer {
+            initializationTask = nil
+            initializingModelId = nil
+        }
+        try await task.value
+    }
+
+    private func performInitialization(modelId: String) async throws {
         let modelManager = ModelManager.shared
         let variant = modelVariant(for: modelId)
         let repo = modelRepo(for: modelId)
@@ -152,8 +171,24 @@ class WhisperKitService {
             modelManager.downloadProgress.removeValue(forKey: modelId)
             modelManager.downloadSpeed.removeValue(forKey: modelId)
             whisperKit = nil
+            cleanupPartialDownload(modelId: modelId)
             throw error
         }
+    }
+
+    /// Removes a partially downloaded model folder after a failed download so
+    /// orphaned multi-gigabyte partials don't accumulate invisibly on disk.
+    private func cleanupPartialDownload(modelId: String) {
+        let modelManager = ModelManager.shared
+        // Never remove a model that was previously recorded as fully downloaded
+        guard modelManager.cachedModelFolder(for: modelId) == nil else { return }
+        // Mirrors the HubApi layout used by WhisperKit.download:
+        // {downloadBase}/models/{repo}/{variant}
+        let folder = modelManager.downloadBase
+            .appendingPathComponent("models")
+            .appendingPathComponent(modelRepo(for: modelId))
+            .appendingPathComponent(modelVariant(for: modelId))
+        try? FileManager.default.removeItem(at: folder)
     }
     
     /// Downloads a model without loading it into memory.
@@ -197,10 +232,11 @@ class WhisperKitService {
             modelManager.isDownloading[modelId] = false
             modelManager.downloadProgress.removeValue(forKey: modelId)
             modelManager.downloadSpeed.removeValue(forKey: modelId)
+            cleanupPartialDownload(modelId: modelId)
             throw error
         }
     }
-    
+
     func loadModel(_ modelName: String) async throws {
         try await initialize(modelId: modelName)
     }
@@ -209,11 +245,22 @@ class WhisperKitService {
         whisperKit = nil
         currentModelId = nil
     }
-    
+
+    /// Cancels the in-flight transcription, if any. WhisperKit inference
+    /// early-stops via the progress callback returning false.
+    func cancelTranscription() {
+        activeCancellationFlag?.cancel()
+        activeTranscriptionTask?.cancel()
+    }
+
     func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
-        AsyncThrowingStream(TranscriptionUpdate.self) { continuation in
-            Task { @MainActor in
+        let cancelFlag = TranscriptionCancellationFlag()
+        activeCancellationFlag = cancelFlag
+
+        return AsyncThrowingStream(TranscriptionUpdate.self) { continuation in
+            let task = Task { @MainActor in
                 do {
+                    try Task.checkCancellation()
                     // Initialize WhisperKit if needed or if model changed
                     let needsInit = (self.whisperKit == nil || self.currentModelId != modelId)
                     if needsInit {
@@ -238,7 +285,9 @@ class WhisperKitService {
                         
                         try await self.initialize(modelId: modelId)
                     }
-                    
+
+                    try Task.checkCancellation()
+
                     guard let whisperKit = self.whisperKit else {
                         throw TranscriptionError.modelNotFound
                     }
@@ -281,16 +330,24 @@ class WhisperKitService {
                     // within WhisperKit's transcription loop on a single thread.
                     let callbackState = StreamingCallbackState(continuation: continuation)
                     
-                    // Transcribe with streaming callback
+                    // Transcribe with streaming callback. Returning false from
+                    // the callback early-stops WhisperKit inference on cancel.
                     let callback: @Sendable (TranscriptionProgress) -> Bool? = { progress in
-                        callbackState.handleProgress(progress)
+                        guard !cancelFlag.isCancelled else { return false }
+                        return callbackState.handleProgress(progress)
                     }
                     let results = try await whisperKit.transcribe(
                         audioPath: fileURL.path,
                         decodeOptions: decodeOptions,
                         callback: callback
                     )
-                    
+
+                    // If cancelled, don't report the partial output as a
+                    // successful, complete transcription.
+                    if cancelFlag.isCancelled || Task.isCancelled {
+                        throw CancellationError()
+                    }
+
                     // Finalize the callback state (saves last window text)
                     callbackState.finalize()
                     
@@ -329,7 +386,36 @@ class WhisperKitService {
                     continuation.finish(throwing: error)
                 }
             }
+
+            self.activeTranscriptionTask = task
+
+            // When the consumer stops iterating (or the stream finishes),
+            // cancel the producer so inference stops promptly.
+            continuation.onTermination = { @Sendable _ in
+                cancelFlag.cancel()
+                task.cancel()
+            }
         }
+    }
+}
+
+// Thread-safe cancellation flag shared between the producer task, the stream's
+// onTermination handler, and WhisperKit's progress callback (which may run
+// outside the producer task's context, where Task.isCancelled is unreliable).
+private final class TranscriptionCancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
     }
 }
 

@@ -26,7 +26,8 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     @Published var micLevel: Float = 0
     @Published var errorMessage: String?
     @Published var isPausedForSleep = false
-    
+    @Published var micSetupFailed = false
+
     // Mic device management
     @Published var micEnabled = false
     @Published var inputDevices: [AudioInputDevice] = []
@@ -39,6 +40,18 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     private var audioFile: AVAudioFile?
     private var audioFormat: AVAudioFormat?
     private var isStoppingStream = false
+
+    /// Protects state shared between the main thread and the SCStream
+    /// sample-handler queue: `audioFile`, `audioFormat`, `micMixingActive`,
+    /// `micRingBuffer`.
+    private let stateLock = NSLock()
+
+    /// Bumped whenever monitoring is stopped so an in-flight async start
+    /// (initial or post-wake) knows to tear down its freshly created stream.
+    private var monitoringGeneration = 0
+
+    /// Bumped on every mic stop/restart so a pending delayed restart can be cancelled.
+    private var micRestartGeneration = 0
     
     // MARK: - Private State (Microphone)
     
@@ -71,14 +84,23 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     func startMonitoring() async throws {
         guard !isMonitoring else { return }
 
+        let generation = await MainActor.run { self.monitoringGeneration }
+
         let (newStream, output) = try await createStream()
         try await newStream.startCapture()
 
-        self.stream = newStream
-        self.streamOutput = output
-
-        await MainActor.run {
+        // If monitoring was stopped while the stream was starting up (e.g. the
+        // user left the view), tear the fresh stream down instead of leaking
+        // a live capture nobody will stop.
+        let installed = await MainActor.run { () -> Bool in
+            guard self.monitoringGeneration == generation else { return false }
+            self.stream = newStream
+            self.streamOutput = output
             self.isMonitoring = true
+            return true
+        }
+        if !installed {
+            try? await newStream.stopCapture()
         }
     }
 
@@ -151,7 +173,9 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
 
         wasCapturingBeforeSleep = isCapturing
         wasMicMonitoringBeforeSleep = micEngine != nil
+        stateLock.lock()
         wasMicMixingBeforeSleep = micMixingActive
+        stateLock.unlock()
         isPausedForSleep = true
 
         micEngine?.pause()
@@ -173,10 +197,19 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     private func handleSystemDidWake() {
         guard isPausedForSleep else { return }
 
+        let generation = monitoringGeneration
+
         Task { @MainActor in
             do {
                 let (newStream, output) = try await self.createStream()
                 try await newStream.startCapture()
+
+                // Monitoring was stopped while the stream was restarting —
+                // don't install a live stream nobody will stop.
+                guard self.monitoringGeneration == generation else {
+                    try? await newStream.stopCapture()
+                    return
+                }
 
                 self.stream = newStream
                 self.streamOutput = output
@@ -190,13 +223,16 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
                         self.startMicMonitoring()
                     }
                 }
-                self.micMixingActive = self.wasMicMixingBeforeSleep
+                self.stateLock.withLock {
+                    self.micMixingActive = self.wasMicMixingBeforeSleep
+                }
             } catch {
                 // Couldn't restart capture after wake — surface as a real error
-                // since the recording can no longer continue.
+                // since the recording can no longer continue. Finalize the
+                // audio file so the already-captured audio isn't lost.
                 self.isPausedForSleep = false
+                self.stopCapture()
                 self.errorMessage = error.localizedDescription
-                self.isCapturing = false
             }
         }
     }
@@ -205,12 +241,15 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         guard !isStoppingStream else { return }
         isStoppingStream = true
         isPausedForSleep = false
+        monitoringGeneration += 1
 
         let streamToStop = self.stream
         self.stream = nil
         self.streamOutput = nil
+        stateLock.lock()
         self.audioFile = nil
         self.audioFormat = nil
+        stateLock.unlock()
 
         // Stop mic monitoring too
         stopMicMonitoringInternal()
@@ -235,8 +274,23 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         guard isMonitoring else {
             throw SystemAudioError.notMonitoring
         }
-        
-        let format = audioFormat ?? AVAudioFormat(
+
+        if withMicrophone {
+            stateLock.lock()
+            let micReady = micRingBuffer != nil
+            stateLock.unlock()
+            guard micReady, micEngine != nil else {
+                // Mic mixing was requested but the mic never started —
+                // refuse to silently record a meeting without the user's voice.
+                throw SystemAudioError.micCaptureFailed
+            }
+        }
+
+        stateLock.lock()
+        let currentFormat = audioFormat
+        stateLock.unlock()
+
+        let format = currentFormat ?? AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 48000,
             channels: 2,
@@ -260,10 +314,15 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
             commonFormat: .pcmFormatFloat32,
             interleaved: format.isInterleaved
         )
+        stateLock.lock()
+        // Discard stale mic audio buffered during monitoring so the mic track
+        // starts in sync with the system audio instead of lagging behind.
+        micRingBuffer?.reset()
         self.audioFile = outputFile
-        self.recordingURL = outputURL
         self.micMixingActive = withMicrophone
-        
+        stateLock.unlock()
+        self.recordingURL = outputURL
+
         DispatchQueue.main.async {
             self.isCapturing = true
             self.hasRecording = false
@@ -274,13 +333,17 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     // MARK: - Stop Capture
     
     func stopCapture() {
+        // Taking the lock waits out any in-flight `write(from:)` on the
+        // sample-handler queue, and releasing the file under the lock
+        // finalizes the WAV before `hasRecording` is published below.
+        stateLock.lock()
         micMixingActive = false
-        
         if let file = audioFile {
             recordingDuration = Double(file.length) / file.fileFormat.sampleRate
         }
         audioFile = nil
-        
+        stateLock.unlock()
+
         DispatchQueue.main.async {
             self.isCapturing = false
             if self.recordingURL != nil {
@@ -305,17 +368,30 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     /// Starts capturing mic input for level metering and (optionally) mixing into recordings.
     func startMicMonitoring() {
         guard micEngine == nil else { return }
-        
+
+        micSetupFailed = false
+
+        // Re-apply the user's selected device — a previous stop may have
+        // restored the original system default behind the picker's back.
+        if let deviceID = selectedMicDeviceID, getCurrentDefaultInputDevice() != deviceID {
+            setInputDevice(deviceID)
+        }
+
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let micFormat = inputNode.outputFormat(forBus: 0)
-        
-        guard micFormat.sampleRate > 0 else { return }
-        
+
+        guard micFormat.sampleRate > 0 else {
+            micSetupFailed = true
+            return
+        }
+
         // Create ring buffer: 2 seconds at 48kHz stereo
         let ringBuffer = AudioRingBuffer(capacity: Int(targetSampleRate) * 2, channelCount: Int(targetChannelCount))
+        stateLock.lock()
         self.micRingBuffer = ringBuffer
-        
+        stateLock.unlock()
+
         // Create converter from mic's native format to 48kHz stereo float32 non-interleaved
         let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -391,8 +467,11 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
             micEngine = engine
         } catch {
             // Mic engine failed to start
+            stateLock.lock()
             micRingBuffer = nil
+            stateLock.unlock()
             micConverter = nil
+            micSetupFailed = true
         }
     }
     
@@ -405,24 +484,50 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     }
     
     private func stopMicMonitoringInternal() {
+        micRestartGeneration += 1  // cancel any pending delayed restart
         if let engine = micEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
         micEngine = nil
         micConverter = nil
+        stateLock.lock()
         micRingBuffer?.reset()
         micRingBuffer = nil
         micMixingActive = false
+        stateLock.unlock()
+        micSetupFailed = false
         restoreOriginalDevice()
         removeDeviceObserver()
     }
     
     /// Restarts mic monitoring after a device change.
+    /// Does NOT restore the original device — the caller has already set the new device.
     func restartMicMonitoring() {
-        stopMicMonitoring()
+        // Stop engine and tap without restoring the original device
+        if let engine = micEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        micEngine = nil
+        micConverter = nil
+        stateLock.lock()
+        micRingBuffer?.reset()
+        micRingBuffer = nil
+        stateLock.unlock()
+
+        DispatchQueue.main.async {
+            self.micLevel = 0
+        }
+
+        // Small delay to allow the system default device to update.
+        // The generation check cancels the restart if the mic was stopped
+        // in the meantime, so a stop isn't followed by a hot mic.
+        micRestartGeneration += 1
+        let generation = micRestartGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.startMicMonitoring()
+            guard let self, self.micRestartGeneration == generation else { return }
+            self.startMicMonitoring()
         }
     }
     
@@ -589,7 +694,14 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         }
         
         let asbd = asbdPointer.pointee
-        
+
+        // Hold the lock for the whole processing pass so the main thread
+        // (start/stop capture, mic toggles) can't mutate `audioFormat`,
+        // `audioFile`, `micMixingActive` or `micRingBuffer` mid-buffer —
+        // in particular, stopCapture() can't close the file during a write.
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
         if audioFormat == nil {
             var mutableASBD = asbd
             audioFormat = AVAudioFormat(streamDescription: &mutableASBD)
@@ -669,9 +781,14 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
                 }
             } else {
                 if let dest = pcmBuffer.floatChannelData?[0] {
-                    // Interleaved: samples are [L R L R ...]
-                    for i in 0..<(framesRead * channelCount) {
-                        dest[i] = max(-1.0, min(1.0, dest[i] + micData[i]))
+                    // Interleaved dest is [L R L R ...], but micData from the
+                    // ring buffer is non-interleaved: [L0..LN][R0..RN].
+                    for frame in 0..<framesRead {
+                        for ch in 0..<channelCount {
+                            let destIndex = frame * channelCount + ch
+                            let micIndex = ch * framesToRead + frame
+                            dest[destIndex] = max(-1.0, min(1.0, dest[destIndex] + micData[micIndex]))
+                        }
                     }
                 }
             }
@@ -700,6 +817,11 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         restoreOriginalDevice()
         removeDeviceObserver()
         removeSleepNotifications()
+        if let streamToStop = stream {
+            Task.detached {
+                try? await streamToStop.stopCapture()
+            }
+        }
         stream = nil
         streamOutput = nil
         audioFile = nil
@@ -727,9 +849,11 @@ private class AudioStreamOutput: NSObject, SCStreamOutput, SCStreamDelegate {
             // this callback is expected and `handleSystemDidWake()` will rebuild
             // the stream, so don't surface it as a failure or drop the recording.
             guard !service.isPausedForSleep else { return }
+            // Finalize any in-progress recording first so the audio captured
+            // up to the failure stays playable and transcribable.
+            service.stopCapture()
             service.errorMessage = error.localizedDescription
             service.isMonitoring = false
-            service.isCapturing = false
             service.systemAudioLevel = 0
             service.micLevel = 0
         }
@@ -743,7 +867,8 @@ enum SystemAudioError: LocalizedError {
     case notMonitoring
     case formatConversionFailed
     case micPermissionDenied
-    
+    case micCaptureFailed
+
     var errorDescription: String? {
         switch self {
         case .noDisplayFound:
@@ -754,6 +879,8 @@ enum SystemAudioError: LocalizedError {
             return "Failed to read audio format."
         case .micPermissionDenied:
             return "Microphone permission is required to include your voice in the recording."
+        case .micCaptureFailed:
+            return "The microphone could not be started, so recording was not started. Turn off the microphone option or try again."
         }
     }
 }

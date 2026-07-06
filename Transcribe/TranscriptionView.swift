@@ -72,8 +72,7 @@ struct TranscriptionView: View {
                     if !viewModel.transcribedText.isEmpty && !viewModel.isTranscribing {
                         showUnsavedChangesAlert = true
                     } else {
-                        appState.showTranscriptionView = false
-                        appState.currentTranscriptionURL = nil
+                        dismissView()
                     }
                 }) {
                     Image(systemName: "chevron.left")
@@ -86,12 +85,10 @@ struct TranscriptionView: View {
         .alert(localized("unsaved_transcription"), isPresented: $showUnsavedChangesAlert) {
             Button(localized("copy_and_go_back"), role: nil) {
                 viewModel.copyToClipboard()
-                appState.showTranscriptionView = false
-                appState.currentTranscriptionURL = nil
+                dismissView()
             }
             Button(localized("go_back_without_saving"), role: nil) {
-                appState.showTranscriptionView = false
-                appState.currentTranscriptionURL = nil
+                dismissView()
             }
             Button(localized("cancel"), role: .cancel) { }
         } message: {
@@ -109,6 +106,18 @@ struct TranscriptionView: View {
                 await settingsManager.checkOllamaConnection()
             }
         }
+        .onDisappear {
+            // Covers window close and view replacement (.id change) as well as back navigation
+            llmTask?.cancel()
+            viewModel.cancelActiveWork()
+        }
+    }
+
+    /// Cancels all in-flight work and navigates back to the main view.
+    private func dismissView() {
+        llmTask?.cancel()
+        viewModel.cancelActiveWork()
+        appState.closeTranscriptionView()
     }
     
     private var transcriptionHeader: some View {
@@ -799,6 +808,36 @@ struct TranscriptionView: View {
     
     var audioPlayerSection: some View {
         VStack(spacing: 8) {
+            if viewModel.duration > 0 {
+                playbackControls
+            } else {
+                // Player setup failed (e.g. video containers) — hide controls instead of
+                // rendering a Slider with an invalid 0...0 range
+                Text(localized("playback_unavailable"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // File info
+            HStack(spacing: 12) {
+                Text(viewModel.fileName)
+                    .font(.system(size: 10))
+                    .foregroundColor(.textTertiary)
+                    .lineLimit(1)
+                Spacer()
+                Text(viewModel.fileFormat)
+                    .font(.system(size: 10))
+                    .foregroundColor(.textTertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.cardBackground)
+    }
+
+    var playbackControls: some View {
+        VStack(spacing: 8) {
             // Playback controls row
             HStack(spacing: 16) {
                 Button(action: { viewModel.skipBackward() }) {
@@ -850,13 +889,14 @@ struct TranscriptionView: View {
             
             // Time slider
             VStack(spacing: 2) {
-                Slider(value: $viewModel.currentTime, in: 0...viewModel.duration) { editing in
+                Slider(value: $viewModel.currentTime, in: 0...max(viewModel.duration, 0.01)) { editing in
+                    viewModel.isScrubbing = editing
                     if !editing {
                         viewModel.seek(to: viewModel.currentTime)
                     }
                 }
                 .tint(.primaryAccent)
-                
+
                 HStack {
                     Text(formatTime(viewModel.currentTime))
                         .font(.system(size: 10))
@@ -867,22 +907,7 @@ struct TranscriptionView: View {
                         .foregroundColor(.textTertiary)
                 }
             }
-            
-            // File info
-            HStack(spacing: 12) {
-                Text(viewModel.fileName)
-                    .font(.system(size: 10))
-                    .foregroundColor(.textTertiary)
-                    .lineLimit(1)
-                Spacer()
-                Text(viewModel.fileFormat)
-                    .font(.system(size: 10))
-                    .foregroundColor(.textTertiary)
-            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.cardBackground)
     }
     
     func formatTime(_ time: Double) -> String {
@@ -1242,7 +1267,7 @@ struct TranscriptionView: View {
 }
 
 @MainActor
-class TranscriptionViewModel: ObservableObject {
+class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var transcribedText = ""
     @Published var isTranscribing = false
     @Published var progress: Double = 0
@@ -1277,6 +1302,9 @@ class TranscriptionViewModel: ObservableObject {
     @Published var showExportError = false
     @Published var exportErrorMessage = ""
     @Published var processedText = ""
+    /// True while the user is dragging the playback slider — the playback timer
+    /// must not overwrite `currentTime` during a scrub.
+    @Published var isScrubbing = false
     
     let fileURL: URL
     var fileName: String {
@@ -1294,6 +1322,7 @@ class TranscriptionViewModel: ObservableObject {
     private var bergetService: BergetTranscriptionService?
     private var transcriptionStartTime: Date?
     private var transcriptionTimer: Timer?
+    private var transcriptionTask: Task<Void, Never>?
     
     // Get selected model from UserDefaults
     @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
@@ -1303,18 +1332,53 @@ class TranscriptionViewModel: ObservableObject {
     
     init(fileURL: URL) {
         self.fileURL = fileURL
+        super.init()
         setupAudioPlayer()
     }
-    
+
+    deinit {
+        timer?.invalidate()
+        transcriptionTimer?.invalidate()
+        audioPlayer?.stop()
+    }
+
     func setupAudioPlayer() {
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: fileURL)
+            audioPlayer?.delegate = self
             audioPlayer?.prepareToPlay()
             audioPlayer?.enableRate = true // Enable rate adjustment
             audioPlayer?.rate = Float(playbackSpeed)
             duration = audioPlayer?.duration ?? 0
         } catch {
-            // Audio player setup failed
+            // Audio player setup failed (e.g. video containers) — the view hides
+            // playback controls when duration == 0
+            duration = 0
+        }
+    }
+
+    /// Cancels any in-flight transcription/LLM work, stops playback, and invalidates timers.
+    /// Called when the view is dismissed or replaced.
+    func cancelActiveWork() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        transcriptionService?.cancelTranscription()
+        transcriptionTimer?.invalidate()
+        transcriptionTimer = nil
+        timer?.invalidate()
+        timer = nil
+        audioPlayer?.stop()
+        isPlaying = false
+        isTranscribing = false
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.isPlaying = false
+            self.timer?.invalidate()
+            self.timer = nil
+            self.currentTime = 0
+            self.audioPlayer?.currentTime = 0
         }
     }
     
@@ -1372,8 +1436,8 @@ class TranscriptionViewModel: ObservableObject {
     private func startWhisperKitTranscription() {
         // Original streaming WhisperKit implementation
         transcriptionService = TranscriptionService()
-        
-        Task {
+
+        transcriptionTask = Task {
             do {
                 // Stream transcription updates
                 for try await update in transcriptionService!.transcribe(fileURL: fileURL) {
@@ -1406,6 +1470,11 @@ class TranscriptionViewModel: ObservableObject {
                         }
                     }
                 }
+            } catch is CancellationError {
+                // User-initiated stop — reset state cleanly, no error UI
+                await MainActor.run {
+                    self.finishTranscription()
+                }
             } catch {
                 await MainActor.run {
                     self.handleTranscriptionError(error)
@@ -1413,7 +1482,7 @@ class TranscriptionViewModel: ObservableObject {
             }
         }
     }
-    
+
     private func startBergetTranscription(language: String?) {
         guard !bergetKey.isEmpty else {
             handleTranscriptionError(CloudTranscriptionError.apiError("Berget API key not configured"))
@@ -1422,8 +1491,8 @@ class TranscriptionViewModel: ObservableObject {
         
         statusMessage = localized("preparing_audio_file")
         bergetService = BergetTranscriptionService(apiKey: bergetKey)
-        
-        Task {
+
+        transcriptionTask = Task {
             do {
                 // Preprocess audio
                 await MainActor.run {
@@ -1454,6 +1523,11 @@ class TranscriptionViewModel: ObservableObject {
                 
                 // Cleanup temporary files
                 AudioPreprocessor.shared.cleanupProcessedAudio(processedAudio)
+            } catch is CancellationError {
+                // User-initiated stop — reset state cleanly, no error UI
+                await MainActor.run {
+                    self.finishTranscription()
+                }
             } catch {
                 await MainActor.run {
                     self.handleTranscriptionError(error)
@@ -1463,6 +1537,8 @@ class TranscriptionViewModel: ObservableObject {
     }
     
     private func transcribeSingleFileWithBerget(url: URL, language: String?) async {
+        guard let bergetService else { return }
+
         await MainActor.run {
             self.statusMessage = localized("sending_audio_berget")
             self.showSingleFileProgress = true
@@ -1483,42 +1559,48 @@ class TranscriptionViewModel: ObservableObject {
             }
         }
         
-        bergetService?.transcribe(
-            audioURL: url,
-            language: language,
-            onProgress: { text in
-                DispatchQueue.main.async {
-                    self.transcribedText = text
-                    self.wordCount = text.split(separator: " ").count
-                    self.statusMessage = localized("transcribing")
-                    self.singleFileProgress = min(self.singleFileProgress, 0.8) // Update progress if we get intermediate results
-                }
-            },
-            completion: { result in
-                timerBox.invalidate()
-                DispatchQueue.main.async {
-                    self.singleFileProgress = 1.0
-                    self.showSingleFileProgress = false
-                    
-                    switch result {
-                    case .success(let transcriptionResult):
-                        self.transcribedText = transcriptionResult.text
-                        self.segments = transcriptionResult.segments.map { segment in
-                            TranscriptionSegmentData(
-                                start: segment.start,
-                                end: segment.end,
-                                text: segment.text,
-                                words: nil
-                            )
+        // Wait for the upload to complete before returning so the caller doesn't
+        // delete the temp file while the request is still reading it
+        await withCheckedContinuation { continuation in
+            bergetService.transcribe(
+                audioURL: url,
+                language: language,
+                onProgress: { text in
+                    DispatchQueue.main.async {
+                        self.transcribedText = text
+                        self.wordCount = text.split(separator: " ").count
+                        self.statusMessage = localized("transcribing")
+                        self.singleFileProgress = min(self.singleFileProgress, 0.8) // Update progress if we get intermediate results
+                    }
+                },
+                completion: { result in
+                    timerBox.invalidate()
+                    DispatchQueue.main.async {
+                        self.singleFileProgress = 1.0
+                        self.showSingleFileProgress = false
+
+                        switch result {
+                        case .success(let transcriptionResult):
+                            self.transcribedText = transcriptionResult.text
+                            self.segments = transcriptionResult.segments.map { segment in
+                                TranscriptionSegmentData(
+                                    start: segment.start,
+                                    end: segment.end,
+                                    text: segment.text,
+                                    words: nil
+                                )
+                            }
+                            self.wordCount = transcriptionResult.text.split(separator: " ").count
+                            self.finishTranscription()
+                        case .failure(let error):
+                            self.handleTranscriptionError(error)
                         }
-                        self.wordCount = transcriptionResult.text.split(separator: " ").count
-                        self.finishTranscription()
-                    case .failure(let error):
-                        self.handleTranscriptionError(error)
+
+                        continuation.resume()
                     }
                 }
-            }
-        )
+            )
+        }
     }
     
     @MainActor
@@ -1704,7 +1786,8 @@ class TranscriptionViewModel: ObservableObject {
     
     func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.currentTime = self?.audioPlayer?.currentTime ?? 0
+            guard let self, !self.isScrubbing else { return }
+            self.currentTime = self.audioPlayer?.currentTime ?? 0
         }
     }
     
@@ -1719,7 +1802,7 @@ class TranscriptionViewModel: ObservableObject {
     }
     
     private var baseName: String {
-        fileName.replacingOccurrences(of: ".\(fileURL.pathExtension)", with: "")
+        fileURL.deletingPathExtension().lastPathComponent
     }
     
     func exportTranscriptionAsText() {

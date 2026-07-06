@@ -101,41 +101,40 @@ class YouTubeDownloadService: ObservableObject {
             }
         }
         
+        // Fetch streams in a nonisolated context to avoid Sendable issues with YouTube type
+        let streams: [YouTubeKit.Stream]
         do {
-            // Fetch streams in a nonisolated context to avoid Sendable issues with YouTube type
-            let streams = try await Self.fetchStreams(videoID: videoID)
-            
-            // Prioritize audio-only streams for fastest download and transcription
-            let targetStream: YouTubeKit.Stream
-            
-            // First try to get audio-only stream (much smaller, faster)
-            let audioStreams = streams.filterAudioOnly()
-            if !audioStreams.isEmpty {
-                // Prefer M4A format for best compatibility
-                if let m4aStream = audioStreams.first(where: { $0.fileExtension == .m4a }) {
-                    targetStream = m4aStream
-                } else {
-                    // Use any audio stream
-                    targetStream = audioStreams.first!
-                }
-            } else {
-                // If no audio-only, get the lowest resolution video
-                // Use the built-in method that finds the lowest resolution
-                if let lowestVideo = streams.lowestResolutionStream() {
-                    targetStream = lowestVideo
-                } else if let anyStream = streams.first {
-                    targetStream = anyStream
-                } else {
-                    throw YouTubeError.noSuitableStream
-                }
-            }
-            
-            return try await downloadStream(targetStream, videoID: videoID)
-            
+            streams = try await Self.fetchStreams(videoID: videoID)
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as URLError {
+            // Network errors should surface with their real description
+            throw error
         } catch {
-            // If YouTubeKit fails, it means YouTube changed their API
+            // YouTubeKit failed to extract streams — YouTube likely changed their API
             throw YouTubeError.noFallbackAllowed
         }
+
+        // Prioritize audio-only streams for fastest download and transcription.
+        // AVFoundation cannot decode WebM/Opus, so only pick formats it can play.
+        let targetStream: YouTubeKit.Stream
+
+        let audioStreams = streams.filterAudioOnly()
+        if let m4aStream = audioStreams.first(where: { $0.fileExtension == .m4a }) {
+            // Prefer M4A format for best compatibility
+            targetStream = m4aStream
+        } else if let compatibleAudio = audioStreams.first(where: { $0.fileExtension != .webm }) {
+            targetStream = compatibleAudio
+        } else if let lowestMP4Video = streams.filter({ $0.fileExtension == .mp4 }).lowestResolutionStream() {
+            // No compatible audio-only stream — use the lowest resolution MP4 video
+            // and extract its audio after download
+            targetStream = lowestMP4Video
+        } else {
+            // Only WebM streams available — fail fast before downloading anything
+            throw YouTubeError.noSuitableStream
+        }
+
+        return try await downloadStream(targetStream, videoID: videoID)
     }
     
     /// Fetch YouTube streams in a nonisolated context to avoid sending non-Sendable YouTube type across actor boundaries
@@ -163,88 +162,143 @@ class YouTubeDownloadService: ObservableObject {
         
         // Use simple URLSession without custom headers that might break YouTube
         let session = URLSession.shared
-        
+
         // First, get the file size with a HEAD request
         var headRequest = URLRequest(url: stream.url)
         headRequest.httpMethod = "HEAD"
-        
+
         let (_, headResponse) = try await session.data(for: headRequest)
-        let totalSize = headResponse.expectedContentLength
-        
-        if totalSize > 0 {
-            // Download in 2MB chunks to avoid throttling, writing each chunk to disk incrementally
-            let chunkSize: Int64 = 2 * 1024 * 1024  // 2MB chunks as recommended in GitHub issue
-            var currentOffset: Int64 = 0
-            
-            // Create the file and open a file handle for incremental writing
-            FileManager.default.createFile(atPath: localURL.path, contents: nil, attributes: nil)
-            guard let fileHandle = try? FileHandle(forWritingTo: localURL) else {
-                throw YouTubeError.downloadFailed
+        let headStatusCode = (headResponse as? HTTPURLResponse)?.statusCode ?? 0
+        // Only trust the reported size if the HEAD request actually succeeded
+        let totalSize = (200...299).contains(headStatusCode) ? headResponse.expectedContentLength : -1
+
+        do {
+            if totalSize > 0 {
+                try await downloadInChunks(from: stream.url, to: localURL, totalSize: totalSize, session: session)
+            } else {
+                // Fallback: stream to disk when the total size is unknown
+                try await downloadStreaming(from: stream.url, to: localURL, session: session)
             }
-            
-            defer {
-                try? fileHandle.close()
-            }
-            
-            while currentOffset < totalSize {
-                let endOffset = min(currentOffset + chunkSize - 1, totalSize - 1)
-                
-                // Create range request
-                var request = URLRequest(url: stream.url)
-                request.setValue("bytes=\(currentOffset)-\(endOffset)", forHTTPHeaderField: "Range")
-                
-                do {
-                    let (chunkData, response) = try await session.data(for: request)
-                    
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          (200...206).contains(httpResponse.statusCode) else {
-                        throw YouTubeError.downloadFailed
-                    }
-                    
-                    // Write chunk directly to disk instead of accumulating in memory
-                    fileHandle.seekToEndOfFile()
-                    fileHandle.write(chunkData)
-                    currentOffset = endOffset + 1
-                    
-                    // Update progress
-                    let progress = Double(currentOffset) / Double(totalSize)
-                    await MainActor.run {
-                        self.downloadProgress = min(progress, 1.0)
-                    }
-                    
-                } catch {
-                    throw error
-                }
-            }
-            
-        } else {
-            // Fallback to simple download if we can't get file size
-            let (data, response) = try await session.data(from: stream.url)
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw YouTubeError.downloadFailed
-            }
-            
-            try data.write(to: localURL)
+        } catch {
+            // Don't leave a partial file behind on failure or cancellation
+            try? FileManager.default.removeItem(at: localURL)
+            throw error
         }
-        
-        // Update progress to 100%
-        await MainActor.run {
-            self.downloadProgress = 1.0
-        }
-        
+
         await MainActor.run {
             downloadedFileURL = localURL
             downloadProgress = 1.0
         }
-        
+
         // Convert to audio format if it's a video file
-        if fileExtension != "webm" && fileExtension != "m4a" && fileExtension != "mp3" {
+        if fileExtension != "m4a" && fileExtension != "mp3" {
             return try await extractAudio(from: localURL, videoID: videoID)
         }
-        
+
         return localURL
+    }
+
+    private func downloadInChunks(from url: URL, to localURL: URL, totalSize: Int64, session: URLSession) async throws {
+        // Download in 2MB chunks to avoid throttling, writing each chunk to disk incrementally
+        let chunkSize: Int64 = 2 * 1024 * 1024  // 2MB chunks as recommended in GitHub issue
+        var currentOffset: Int64 = 0
+
+        // Create the file and open a file handle for incremental writing
+        FileManager.default.createFile(atPath: localURL.path, contents: nil, attributes: nil)
+        guard let fileHandle = try? FileHandle(forWritingTo: localURL) else {
+            throw YouTubeError.downloadFailed
+        }
+
+        defer {
+            try? fileHandle.close()
+        }
+
+        while currentOffset < totalSize {
+            try Task.checkCancellation()
+
+            let endOffset = min(currentOffset + chunkSize - 1, totalSize - 1)
+
+            // Create range request
+            var request = URLRequest(url: url)
+            request.setValue("bytes=\(currentOffset)-\(endOffset)", forHTTPHeaderField: "Range")
+
+            let (chunkData, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw YouTubeError.downloadFailed
+            }
+
+            switch httpResponse.statusCode {
+            case 206:
+                // Partial content — verify the server sent exactly the requested range
+                guard Int64(chunkData.count) == endOffset - currentOffset + 1 else {
+                    throw YouTubeError.downloadFailed
+                }
+                fileHandle.write(chunkData)
+                currentOffset = endOffset + 1
+            case 200 where currentOffset == 0:
+                // Server ignored the Range header and sent the whole file
+                guard Int64(chunkData.count) == totalSize else {
+                    throw YouTubeError.downloadFailed
+                }
+                fileHandle.write(chunkData)
+                currentOffset = totalSize
+            default:
+                throw YouTubeError.downloadFailed
+            }
+
+            // Update progress
+            let progress = Double(currentOffset) / Double(totalSize)
+            await MainActor.run {
+                self.downloadProgress = min(progress, 1.0)
+            }
+        }
+    }
+
+    private func downloadStreaming(from url: URL, to localURL: URL, session: URLSession) async throws {
+        // Stream the response to disk instead of buffering the whole file in memory
+        let (bytes, response) = try await session.bytes(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw YouTubeError.downloadFailed
+        }
+
+        FileManager.default.createFile(atPath: localURL.path, contents: nil, attributes: nil)
+        guard let fileHandle = try? FileHandle(forWritingTo: localURL) else {
+            throw YouTubeError.downloadFailed
+        }
+
+        defer {
+            try? fileHandle.close()
+        }
+
+        let expectedLength = response.expectedContentLength
+        let bufferSize = 512 * 1024
+        var buffer = Data(capacity: bufferSize)
+        var bytesWritten: Int64 = 0
+
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count >= bufferSize {
+                try Task.checkCancellation()
+                fileHandle.write(buffer)
+                bytesWritten += Int64(buffer.count)
+                buffer.removeAll(keepingCapacity: true)
+
+                // Periodic progress when the GET response reports a length
+                if expectedLength > 0 {
+                    let progress = Double(bytesWritten) / Double(expectedLength)
+                    await MainActor.run {
+                        self.downloadProgress = min(progress, 1.0)
+                    }
+                }
+            }
+        }
+
+        if !buffer.isEmpty {
+            fileHandle.write(buffer)
+        }
     }
     
     private func extractAudio(from videoURL: URL, videoID: String) async throws -> URL {
@@ -290,27 +344,34 @@ class YouTubeDownloadService: ObservableObject {
     }
     
     func extractVideoID(from urlString: String) -> String? {
-        guard let url = URL(string: urlString) else { return nil }
-        
+        // Accept scheme-less URLs (e.g. "youtube.com/watch?v=...")
+        var normalizedString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedString.contains("://") {
+            normalizedString = "https://" + normalizedString
+        }
+
+        guard let url = URL(string: normalizedString) else { return nil }
+
         // Handle youtu.be format
         if url.host == "youtu.be" || url.host == "www.youtu.be" {
             return url.pathComponents.last
         }
-        
+
         // Handle youtube.com format
         if url.host == "youtube.com" || url.host == "www.youtube.com" || url.host == "m.youtube.com" {
             if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                let videoID = components.queryItems?.first(where: { $0.name == "v" })?.value {
                 return videoID
             }
-            
-            // Handle embed format
-            if url.pathComponents.contains("embed"),
-               let videoID = url.pathComponents.last {
-                return videoID
+
+            // Handle embed, Shorts and live formats (/embed/<id>, /shorts/<id>, /live/<id>)
+            let pathComponents = url.pathComponents
+            if let markerIndex = pathComponents.firstIndex(where: { ["embed", "shorts", "live"].contains($0) }),
+               markerIndex + 1 < pathComponents.count {
+                return pathComponents[markerIndex + 1]
             }
         }
-        
+
         return nil
     }
     

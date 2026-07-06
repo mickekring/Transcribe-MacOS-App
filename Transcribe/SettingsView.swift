@@ -497,6 +497,7 @@ struct APIKeysView: View {
     @StateObject private var localizationManager = LocalizationManager.shared
     @State private var tempBergetKey = ""
     @State private var showBergetKey = false
+    @State private var bergetKeySaveFailed = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -548,22 +549,37 @@ struct APIKeysView: View {
                             .buttonStyle(.borderless)
                             
                             Button(localized("save")) {
-                                settingsManager.saveAPIKey(tempBergetKey, for: .berget)
+                                bergetKeySaveFailed = !settingsManager.saveAPIKey(tempBergetKey, for: .berget)
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.regular)
                             .disabled(tempBergetKey.isEmpty)
-                            
+
                             if !settingsManager.bergetKey.isEmpty {
                                 Button(localizationManager.currentLanguage == "sv" ? "Ta bort" : "Remove") {
-                                    settingsManager.saveAPIKey("", for: .berget)
-                                    tempBergetKey = ""
+                                    if settingsManager.saveAPIKey("", for: .berget) {
+                                        tempBergetKey = ""
+                                        bergetKeySaveFailed = false
+                                    } else {
+                                        bergetKeySaveFailed = true
+                                    }
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.regular)
                             }
                         }
-                        
+
+                        if bergetKeySaveFailed {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red)
+                                Text(localized("keychain_write_failed"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red)
+                            }
+                        }
+
                         Link(localized("get_api_key_berget"), destination: URL(string: "https://berget.ai")!)
                             .font(.system(size: 12))
                             .foregroundColor(.primaryAccent)

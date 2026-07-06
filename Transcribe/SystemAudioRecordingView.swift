@@ -350,6 +350,30 @@ struct SystemAudioRecordingView: View {
         .onChange(of: captureService.isPausedForSleep) { _, isPaused in
             handlePauseStateChange(isPaused: isPaused)
         }
+        // Surface errors published by the service itself (stream death,
+        // failed restart after wake) — not just errors thrown to this view.
+        .onChange(of: captureService.errorMessage) { _, newValue in
+            if let newValue, !newValue.isEmpty {
+                errorMessage = newValue
+                showError = true
+            }
+        }
+        // Recording can stop from inside the service (stream death, wake
+        // failure) — stop the display timer when that happens.
+        .onChange(of: captureService.isCapturing) { _, capturing in
+            if !capturing {
+                timer?.invalidate()
+                timer = nil
+            }
+        }
+        // Mic monitoring failed to start — warn instead of silently
+        // recording a meeting without the user's voice.
+        .onChange(of: captureService.micSetupFailed) { _, failed in
+            if failed {
+                errorMessage = localized("mic_monitor_failed")
+                showError = true
+            }
+        }
     }
 
     // MARK: - Mic Permission

@@ -4,10 +4,9 @@ import SwiftUI
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var aboutWindow: NSWindow?
-    private var preferencesWindow: NSWindow?
     private var statusBarItem: NSStatusItem?
-    /// Shared settings manager, set by TranscribeApp after launch
-    var settingsManager: SettingsManager?
+    /// The main WindowGroup window, captured by TranscribeApp when its content appears
+    weak var mainWindow: NSWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Clean up any leftover files from previous session (in case of force quit)
@@ -64,14 +63,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func openMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first {
+        // Prefer the tracked main window; fall back to finding the WindowGroup
+        // window by identifier (never the status bar or About windows)
+        if let window = mainWindow ?? NSApp.windows.first(where: { $0.identifier?.rawValue.contains("AppWindow") == true }) {
             window.makeKeyAndOrderFront(nil)
+        } else {
+            // Main window was closed and released — ask SwiftUI to recreate the WindowGroup scene
+            _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false)
         }
     }
-    
+
     @objc func startNewRecording() {
-        NotificationCenter.default.post(name: .startNewRecording, object: nil)
+        // Restore the main window first so ContentView is alive to receive the notification
         openMainWindow()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .startNewRecording, object: nil)
+        }
     }
     
     @objc func quickTranscribe() {
@@ -82,6 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        quickTranscribeWindow.isReleasedWhenClosed = false
         quickTranscribeWindow.title = "Quick Transcribe"
         quickTranscribeWindow.center()
         quickTranscribeWindow.contentView = NSHostingView(rootView: QuickTranscribeView())
@@ -89,26 +97,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func showPreferences() {
-        if preferencesWindow == nil {
-            preferencesWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            preferencesWindow?.title = "Preferences"
-            preferencesWindow?.center()
-            
-            guard let manager = settingsManager else {
-                return
-            }
-            
-            preferencesWindow?.contentView = NSHostingView(
-                rootView: SettingsView()
-                    .environmentObject(manager)
-            )
-        }
-        preferencesWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        // Open the SwiftUI Settings scene (same window as the app menu's Settings item)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
     
     func showAboutWindow() {
@@ -119,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered,
                 defer: false
             )
+            aboutWindow?.isReleasedWhenClosed = false
             aboutWindow?.title = "About Transcribe"
             aboutWindow?.center()
             aboutWindow?.contentView = NSHostingView(rootView: AboutView())

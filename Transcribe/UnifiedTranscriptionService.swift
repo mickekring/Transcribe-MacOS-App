@@ -90,8 +90,8 @@ class UnifiedTranscriptionService: ObservableObject {
     
     /// Check if a model is downloaded
     func isModelDownloaded(_ modelName: String) async -> Bool {
-        // WhisperKit handles its own model management
-        return await whisperKitService.availableModels.contains(modelName)
+        // Check actual on-disk state, not the static model catalog
+        return ModelManager.shared.isModelDownloaded(modelName)
     }
     
     /// Download a model
@@ -145,7 +145,7 @@ class UnifiedTranscriptionService: ObservableObject {
     /// Get list of all available models
     func getAllAvailableModels() async -> [TranscriptionModel] {
         var models: [TranscriptionModel] = []
-        let available = await whisperKitService.availableModels
+        let downloaded = ModelManager.shared.downloadedModels
         
         // KB Whisper CoreML models (WhisperKit)
         let kbCoreMLModels = [
@@ -155,7 +155,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "145 MB",
                 language: "Swedish",
                 type: .whisperKit,
-                downloaded: available.contains("kb_whisper-base-coreml")
+                downloaded: downloaded.contains("kb_whisper-base-coreml")
             ),
             TranscriptionModel(
                 id: "kb_whisper-small-coreml",
@@ -163,7 +163,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "483 MB",
                 language: "Swedish",
                 type: .whisperKit,
-                downloaded: available.contains("kb_whisper-small-coreml")
+                downloaded: downloaded.contains("kb_whisper-small-coreml")
             )
         ]
         
@@ -175,7 +175,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "147 MB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: available.contains("openai_whisper-base")
+                downloaded: downloaded.contains("openai_whisper-base")
             ),
             TranscriptionModel(
                 id: "openai_whisper-small",
@@ -183,7 +183,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "488 MB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: available.contains("openai_whisper-small")
+                downloaded: downloaded.contains("openai_whisper-small")
             ),
             TranscriptionModel(
                 id: "openai_whisper-medium",
@@ -191,7 +191,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "1.5 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: available.contains("openai_whisper-medium")
+                downloaded: downloaded.contains("openai_whisper-medium")
             ),
             TranscriptionModel(
                 id: "openai_whisper-large-v2",
@@ -199,7 +199,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "3.1 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: available.contains("openai_whisper-large-v2")
+                downloaded: downloaded.contains("openai_whisper-large-v2")
             ),
             TranscriptionModel(
                 id: "openai_whisper-large-v3",
@@ -207,7 +207,7 @@ class UnifiedTranscriptionService: ObservableObject {
                 size: "3.1 GB",
                 language: "Multilingual",
                 type: .whisperKit,
-                downloaded: available.contains("openai_whisper-large-v3")
+                downloaded: downloaded.contains("openai_whisper-large-v3")
             )
         ]
         
@@ -260,17 +260,19 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
         var latestText = ""
         var finalSegments: [TranscriptionSegment] = []
         var latestSegments: [TranscriptionSegment] = []
+        var receivedFinal = false
         let currentModelId = await whisperKitService.currentModel
-        
+
         for try await update in whisperKitService.transcribe(
             fileURL: audioURL,
             modelId: currentModelId ?? "openai_whisper-base",
             language: language
         ) {
             progressHandler?(update.progress)
-            
-            // Always capture the latest text to avoid losing partial results
-            if !update.text.isEmpty {
+
+            // Only capture genuine transcription content (updates carrying
+            // segments) as fallback — never status strings like "Laddar ljudfil..."
+            if !update.segments.isEmpty {
                 latestText = update.text
                 latestSegments = update.segments.enumerated().map { index, segment in
                     TranscriptionSegment(
@@ -283,8 +285,9 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
                     )
                 }
             }
-            
+
             if update.isComplete {
+                receivedFinal = true
                 finalText = update.text
                 finalSegments = update.segments.enumerated().map { index, segment in
                     TranscriptionSegment(
@@ -298,10 +301,10 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
                 }
             }
         }
-        
-        // Use final text if available, otherwise use the latest captured text
-        let resultText = finalText.isEmpty ? latestText : finalText
-        let resultSegments = finalSegments.isEmpty ? latestSegments : finalSegments
+
+        // Prefer the final update; a genuinely empty transcription returns ""
+        let resultText = receivedFinal ? finalText : latestText
+        let resultSegments = receivedFinal ? finalSegments : latestSegments
         
         return TranscriptionResult(
             text: resultText,

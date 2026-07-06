@@ -14,6 +14,10 @@ struct ContentView: View {
     @State private var showModelPopover = false
     @State private var showFileImporter = false
     @State private var showYouTubeView = false
+    @State private var showFileError = false
+    @State private var fileErrorMessage = ""
+    @State private var showModelDownloadError = false
+    @State private var modelDownloadErrorMessage = ""
     private let whisperKitService = WhisperKitService()
     
     var body: some View {
@@ -24,6 +28,7 @@ struct ContentView: View {
                 SystemAudioRecordingView()
             } else if appState.showTranscriptionView, let url = appState.currentTranscriptionURL {
                 TranscriptionView(fileURL: url)
+                    .id(url)
             } else {
                 mainContent
             }
@@ -68,11 +73,23 @@ struct ContentView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    appState.openFileForTranscription(url)
+                    // Sandboxed app: keep access to the user-selected file while it's open
+                    appState.openFileForTranscription(url, isSecurityScoped: true)
                 }
-            case .failure:
-                break
+            case .failure(let error):
+                fileErrorMessage = error.localizedDescription
+                showFileError = true
             }
+        }
+        .alert(localized("file_open_error"), isPresented: $showFileError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(fileErrorMessage)
+        }
+        .alert(localized("model_download_failed_title"), isPresented: $showModelDownloadError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(modelDownloadErrorMessage)
         }
         .sheet(isPresented: $showYouTubeView) {
             YouTubeTranscriptionView()
@@ -82,6 +99,9 @@ struct ContentView: View {
                let fileURL = userInfo["fileURL"] as? URL {
                 appState.openFileForTranscription(fileURL)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startNewRecording)) { _ in
+            newRecording()
         }
         .task {
             // Auto-download default model on first launch if no models are downloaded
@@ -276,20 +296,29 @@ struct ContentView: View {
     // MARK: - Actions
     
     func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        
+        guard let provider = providers.first,
+              provider.hasItemConformingToTypeIdentifier("public.file-url") else { return false }
+
         provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { data, error in
             guard let data = data as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
-            }
-            
-            // Check if it's a supported audio/video file
-            let supportedExtensions = ["mp3", "wav", "m4a", "m4b", "mp4", "ogg", "aac", "mov", "flac", "opus", "webm"]
-            if supportedExtensions.contains(url.pathExtension.lowercased()) {
                 DispatchQueue.main.async {
                     self.isDraggingFile = false
+                    self.fileErrorMessage = localized("unsupported_file_type")
+                    self.showFileError = true
+                }
+                return
+            }
+
+            // Check if it's a supported audio/video file
+            let supportedExtensions = ["mp3", "wav", "m4a", "m4b", "mp4", "ogg", "aac", "mov", "flac", "opus", "webm"]
+            DispatchQueue.main.async {
+                self.isDraggingFile = false
+                if supportedExtensions.contains(url.pathExtension.lowercased()) {
                     self.appState.openFileForTranscription(url)
+                } else {
+                    self.fileErrorMessage = localized("unsupported_file_type")
+                    self.showFileError = true
                 }
             }
         }
@@ -308,7 +337,8 @@ struct ContentView: View {
         do {
             try await whisperKitService.downloadOnly(modelId: modelId)
         } catch {
-            // Model download failed
+            modelDownloadErrorMessage = "\(modelManager.displayName(for: modelId)): \(error.localizedDescription)\n\n\(localized("model_download_retry_hint"))"
+            showModelDownloadError = true
         }
     }
     

@@ -99,11 +99,11 @@ final class LLMService: Sendable {
                     
                     guard (200...299).contains(httpResponse.statusCode) else {
                         // Try to read error body
-                        var errorBody = ""
+                        var errorLines: [String] = []
                         for try await line in bytes.lines {
-                            errorBody += line
+                            errorLines.append(line)
                         }
-                        continuation.finish(throwing: LLMError.httpError(httpResponse.statusCode, errorBody))
+                        continuation.finish(throwing: LLMError.httpError(httpResponse.statusCode, errorLines.joined(separator: "\n")))
                         return
                     }
                     

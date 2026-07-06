@@ -25,9 +25,9 @@ struct TranscribeApp: App {
                 .frame(minWidth: 900, minHeight: 700)
                 .frame(idealWidth: 1200, idealHeight: 850)
                 .preferredColorScheme(preferredScheme)
-                .onAppear {
-                    appDelegate.settingsManager = settingsManager
-                }
+                .background(WindowAccessor { window in
+                    appDelegate.mainWindow = window
+                })
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
@@ -37,13 +37,6 @@ struct TranscribeApp: App {
                     appDelegate.showAboutWindow()
                 }
             }
-            
-            CommandGroup(after: .appSettings) {
-                Button("Preferences...") {
-                    appDelegate.showPreferences()
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
         }
         
         Settings {
@@ -51,6 +44,30 @@ struct TranscribeApp: App {
                 .environmentObject(settingsManager)
                 .navigationTitle("")
                 .preferredColorScheme(preferredScheme)
+        }
+    }
+}
+
+/// Captures the hosting NSWindow so AppDelegate can restore the main window
+/// from the status bar menu.
+private struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                onWindow(window)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window {
+                onWindow(window)
+            }
         }
     }
 }

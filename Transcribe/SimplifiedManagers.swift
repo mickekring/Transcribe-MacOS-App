@@ -28,6 +28,8 @@ enum KeychainHelper {
 
     @discardableResult
     static func set(_ value: String, forKey key: String) -> Bool {
+        // Saving an empty value removes the item instead of storing an empty string
+        guard !value.isEmpty else { return delete(forKey: key) }
         guard let data = value.data(using: .utf8) else { return false }
         // Try to update first
         let query: [String: Any] = [
@@ -47,6 +49,17 @@ enum KeychainHelper {
             return addStatus == errSecSuccess
         }
         return status == errSecSuccess
+    }
+
+    @discardableResult
+    static func delete(forKey key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 }
 
@@ -138,11 +151,16 @@ class SettingsManager: ObservableObject {
         loadPrompts()
     }
     
-    func saveAPIKey(_ key: String, for provider: APIKeyType) {
+    /// Saves the API key to the Keychain. Returns false if the Keychain write
+    /// failed, in which case the published key is left unchanged.
+    @discardableResult
+    func saveAPIKey(_ key: String, for provider: APIKeyType) -> Bool {
         switch provider {
         case .berget:
+            // An empty key deletes the stored item (handled by KeychainHelper.set)
+            guard KeychainHelper.set(key, forKey: "bergetAPIKey") else { return false }
             bergetKey = key
-            KeychainHelper.set(key, forKey: "bergetAPIKey")
+            return true
         }
     }
     
@@ -230,16 +248,24 @@ class SettingsManager: ObservableObject {
     // MARK: - Text Processing Prompts
     
     private static let promptsKey = "textProcessingPrompts"
-    
+    private static let promptsBackupKey = "textProcessingPromptsBackup"
+
     func loadPrompts() {
-        guard let data = UserDefaults.standard.data(forKey: Self.promptsKey),
-              let prompts = try? JSONDecoder().decode([TextProcessingPrompt].self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: Self.promptsKey) else {
             // First launch: seed with default prompts
             textProcessingPrompts = Self.defaultPrompts()
             savePrompts()
             return
         }
-        textProcessingPrompts = prompts
+        if let prompts = try? JSONDecoder().decode([TextProcessingPrompt].self, from: data) {
+            textProcessingPrompts = prompts
+        } else {
+            // Stored data exists but is corrupt: preserve the raw blob in a backup
+            // key and fall back to defaults in memory WITHOUT persisting, so the
+            // user's data is never irreversibly overwritten.
+            UserDefaults.standard.set(data, forKey: Self.promptsBackupKey)
+            textProcessingPrompts = Self.defaultPrompts()
+        }
     }
     
     func savePrompts() {

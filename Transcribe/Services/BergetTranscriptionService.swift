@@ -53,9 +53,15 @@ final class BergetTranscriptionService: Sendable {
         language: String? = nil
     ) async throws -> TranscriptionResult {
         let boundary = UUID().uuidString
-        
-        // Create multipart form data
-        // Berget API only accepts: file (required) and model (optional)
+
+        // Only send a language when one was explicitly selected ("auto"/nil
+        // means server-side auto-detect, and the result stays "unknown").
+        let appliedLanguage: String? = {
+            guard let language, !language.isEmpty, language != "auto" else { return nil }
+            return language
+        }()
+
+        // Create multipart form data (OpenAI-compatible: file, model, language)
         var body = Data()
         
         // Map file extension to proper MIME type
@@ -81,7 +87,14 @@ final class BergetTranscriptionService: Sendable {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(model)\r\n".data(using: .utf8)!)
-        
+
+        // Add language (ISO-639-1) when explicitly selected
+        if let appliedLanguage {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(appliedLanguage)\r\n".data(using: .utf8)!)
+        }
+
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         
@@ -101,9 +114,16 @@ final class BergetTranscriptionService: Sendable {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let errorMessage = errorData["error"] as? String {
-                throw CloudTranscriptionError.apiError(errorMessage)
+            if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // OpenAI-compatible APIs return {"error": {"message": "..."}}
+                if let errorDict = errorData["error"] as? [String: Any],
+                   let errorMessage = errorDict["message"] as? String {
+                    throw CloudTranscriptionError.apiError(errorMessage)
+                }
+                // Fallback: plain {"error": "string"} shape
+                if let errorMessage = errorData["error"] as? String {
+                    throw CloudTranscriptionError.apiError(errorMessage)
+                }
             }
             throw CloudTranscriptionError.httpError(httpResponse.statusCode)
         }
@@ -115,7 +135,7 @@ final class BergetTranscriptionService: Sendable {
             return TranscriptionResult(
                 text: text,
                 segments: [],
-                language: language ?? "unknown",
+                language: appliedLanguage ?? "unknown",
                 duration: getAudioDuration(url: audioURL) ?? 0,
                 timestamp: Date(),
                 modelUsed: model
