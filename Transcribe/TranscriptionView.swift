@@ -27,7 +27,6 @@ struct TranscriptionView: View {
     @State private var showingExportPopover = false
     @State private var displayMode: DisplayMode = .transcript
     @State private var fontSize: Double = 16
-    @State private var showTimestamps = false
     @State private var showUnsavedChangesAlert = false
     @State private var hasBeenEdited = false
     @State private var selectedPromptId: UUID? = nil
@@ -452,72 +451,10 @@ struct TranscriptionView: View {
                         .foregroundColor(.textSecondary)
                         .padding(.horizontal, 20)
                     
-                    HStack(spacing: 8) {
-                        Button(action: { displayMode = .transcript }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "line.3.horizontal")
-                                    .font(.system(size: 13))
-                                Text(localized("transcript"))
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .foregroundColor(displayMode == .transcript ? .white : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(displayMode == .transcript ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == .transcript ? 0 : 1)
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TranscriptionButtonStyle())
-                        
-                        Button(action: { displayMode = .segments }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "text.alignleft")
-                                    .font(.system(size: 13))
-                                Text(localized("segments"))
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .foregroundColor(displayMode == .segments ? .white : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(displayMode == .segments ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == .segments ? 0 : 1)
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TranscriptionButtonStyle())
-
-                        Button(action: { displayMode = .timestamps }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 13))
-                                Text(localized("timestamps"))
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .foregroundColor(displayMode == .timestamps ? .white : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(displayMode == .timestamps ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == .timestamps ? 0 : 1)
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(TranscriptionButtonStyle())
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        displayModeButton(.transcript, icon: "line.3.horizontal", labelKey: "transcript")
+                        displayModeButton(.segments, icon: "text.alignleft", labelKey: "segments")
+                        displayModeButton(.timestamps, icon: "clock", labelKey: "timestamps")
                     }
                     .padding(.horizontal, 20)
                 }
@@ -653,19 +590,7 @@ struct TranscriptionView: View {
                                     .foregroundColor(.textTertiary)
                             }
                         }
-                        
-                        // Show Timestamps Toggle
-                        HStack {
-                            Text(localized("show_timestamps"))
-                                .font(.system(size: 12))
-                                .foregroundColor(.textSecondary)
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: $showTimestamps)
-                                .toggleStyle(SwitchToggleStyle(tint: .primaryAccent))
-                                .labelsHidden()
-                        }
+
                     }
                     .padding(.horizontal, 20)
                 }
@@ -968,6 +893,30 @@ struct TranscriptionView: View {
         return formatter.string(fromByteCount: Int64(bytesPerSec)) + "/s"
     }
     
+    private func displayModeButton(_ mode: DisplayMode, icon: String, labelKey: String) -> some View {
+        Button(action: { displayMode = mode }) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                Text(localized(labelKey))
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .foregroundColor(displayMode == mode ? .white : .primaryAccent)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(displayMode == mode ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == mode ? 0 : 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TranscriptionButtonStyle())
+    }
+
     func formatWithTimestamps(_ segments: [TranscriptionSegmentData]) -> String {
         segments.map { segment in
             "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
