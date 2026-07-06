@@ -1,6 +1,6 @@
 # Transcribe
 
-A native macOS app for speech-to-text transcription. Runs entirely on-device using WhisperKit and CoreML -- no data leaves your machine unless you choose cloud transcription. Optimized for Swedish with KB Whisper models, but supports 100+ languages.
+A native macOS app for speech-to-text transcription. Runs entirely on-device using WhisperKit and CoreML -- no data leaves your machine unless you choose cloud transcription. Optimized for Swedish (KB Whisper) and Norwegian (NB Whisper), but supports 100+ languages.
 
 ![Swift](https://img.shields.io/badge/Swift-6.1-orange)
 ![macOS](https://img.shields.io/badge/macOS-26+-blue)
@@ -13,7 +13,8 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 ## Features
 
 - **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded. Supports audio files (WAV, MP3, M4A, FLAC, AAC) and video files (MP4, MOV) -- audio is extracted automatically.
-- **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/KBLab), fine-tuned for Swedish speech.
+- **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/KBLab) (the National Library of Sweden), fine-tuned for Swedish speech.
+- **Norwegian-optimized models** -- NB Whisper models from [NbAiLab](https://huggingface.co/NbAiLab) (the National Library of Norway), fine-tuned for Norwegian speech.
 - **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
 - **System audio capture** -- Record all audio playing on your Mac (meetings, media, notifications) using ScreenCaptureKit. Optionally mix in your microphone to capture both sides of a meeting. macOS asks for permission on first use.
 - **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance.
@@ -54,9 +55,10 @@ The default model (KB Whisper Small) downloads automatically on first launch.
 | KB Whisper Small | ~500 MB | Default. Best balance of speed and accuracy for Swedish |
 | KB Whisper Medium | ~1.5 GB | Higher accuracy |
 | KB Whisper Large | ~3 GB | Highest accuracy |
+| NB Whisper Tiny--Large | ~75 MB--3 GB | Norwegian-optimized, four sizes |
 | OpenAI Whisper | Base--Large v3 | General multilingual models |
 
-KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://huggingface.co/mickekringai/kb-whisper-coreml) on Hugging Face.
+KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://huggingface.co/mickekringai/kb-whisper-coreml) and NB Whisper CoreML models at [digtek/whisperkit-nb-coreml](https://huggingface.co/digtek/whisperkit-nb-coreml) on Hugging Face.
 
 **Cloud (optional):**
 
@@ -66,7 +68,7 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 
 - **SwiftUI** -- Native macOS interface with dark/light mode
 - **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** -- On-device speech recognition via CoreML
-- **[YouTubeKit](https://github.com/nickkval/YouTubeKit)** -- YouTube audio downloading
+- **[YouTubeKit](https://github.com/alexeichhorn/YouTubeKit)** -- YouTube audio downloading
 - **AVFoundation / CoreAudio** -- Audio recording, playback, and device management
 - **ScreenCaptureKit** -- System audio capture
 - **Security.framework** -- API keys stored in macOS Keychain
@@ -83,8 +85,10 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 
 MIT License -- see [LICENSE](LICENSE) for details.
 
-## Author
+## Authors
 
 **Micke Kring** -- [mickekring.se](https://mickekring.se)
+
+**Peter Ljungstrand** -- [github.com/peterljungstrand](https://github.com/peterljungstrand)
 
 Built with [Claude Code](https://claude.ai/code).
