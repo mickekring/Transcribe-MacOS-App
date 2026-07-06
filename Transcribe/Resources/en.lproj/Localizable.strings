@@ -175,7 +175,7 @@
 
 /* WhisperKit Messages */
 "downloading_whisperkit_model" = "Downloading WhisperKit model (first time only, this may take a moment)...";
-"loading_model_status" = "Loading %@... This usually takes a few seconds.";
+"loading_model_status" = "Loading %@...";
 "initializing_whisperkit" = "Initializing WhisperKit...";
 "loading_audio_file" = "Loading audio file...";
 
@@ -245,3 +245,4 @@
 "playback_unavailable" = "Audio playback is not available for this file.";
 "model_load_in_progress" = "Still preparing the model (%d s). First-time optimization can take several minutes...";
 "save_audio_file" = "Save audio file";
+"timestamps" = "Timestamps";

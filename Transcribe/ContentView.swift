@@ -110,6 +110,9 @@ struct ContentView: View {
                 selectedModel = defaultModelId
                 await downloadModel(defaultModelId)
             }
+            // Load the selected model in the background so the first
+            // transcription doesn't pay the (potentially long) ANE load.
+            whisperKitService.prewarmSelectedModel()
         }
     }
     

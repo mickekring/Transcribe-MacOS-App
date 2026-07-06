@@ -42,6 +42,7 @@ struct TranscriptionView: View {
     enum DisplayMode {
         case transcript
         case segments
+        case timestamps
     }
     
     init(fileURL: URL) {
@@ -238,7 +239,17 @@ struct TranscriptionView: View {
         Group {
             if !viewModel.transcribedText.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    let displayText = displayMode == .segments ? formatAsSegments(viewModel.transcribedText) : viewModel.transcribedText
+                    let displayText: String = {
+                        switch displayMode {
+                        case .transcript:
+                            return viewModel.transcribedText
+                        case .segments:
+                            return formatAsSegments(viewModel.transcribedText)
+                        case .timestamps:
+                            // Falls back to plain text when no segment timing exists (e.g. Berget results)
+                            return viewModel.segments.isEmpty ? viewModel.transcribedText : formatWithTimestamps(viewModel.segments)
+                        }
+                    }()
                     
                     AutoScrollingTextView(
                         text: displayText,
@@ -481,6 +492,28 @@ struct TranscriptionView: View {
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
                                     .stroke(LinearGradient.accentGradient, lineWidth: displayMode == .segments ? 0 : 1)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(TranscriptionButtonStyle())
+
+                        Button(action: { displayMode = .timestamps }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                    .font(.system(size: 13))
+                                Text(localized("timestamps"))
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .foregroundColor(displayMode == .timestamps ? .white : .primaryAccent)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(displayMode == .timestamps ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == .timestamps ? 0 : 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -935,6 +968,12 @@ struct TranscriptionView: View {
         return formatter.string(fromByteCount: Int64(bytesPerSec)) + "/s"
     }
     
+    func formatWithTimestamps(_ segments: [TranscriptionSegmentData]) -> String {
+        segments.map { segment in
+            "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }.joined(separator: "\n")
+    }
+
     func formatAsSegments(_ text: String) -> String {
         // Split text into sentences and add line breaks
         let sentences = text.replacingOccurrences(of: ". ", with: ".\n\n")

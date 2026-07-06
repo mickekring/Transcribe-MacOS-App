@@ -30,22 +30,37 @@ class WhisperKitService {
         ModelManager.allLocalModels
     }
 
-    /// Compute units for CoreML model loading. Defaults to the GPU path:
-    /// WhisperKit's default Neural Engine path requires an ahead-of-time
-    /// "specialization" compile of the model graph that macOS caches — and
-    /// silently evicts, re-triggering 5-15 minute loads for large models,
-    /// or wedging entirely if a previous load was interrupted. The GPU path
-    /// loads in seconds (weights map straight into unified memory, like
-    /// Metal-based LLM runners) at a modest inference-speed cost.
-    /// Set UserDefaults key "preferNeuralEngine" to true to opt back in.
+    /// Compute units for CoreML model loading. Defaults to the Neural Engine
+    /// (WhisperKit's default): A/B testing on a 44-minute recording showed the
+    /// GPU path degrades encoder output on these models — decoder repetition
+    /// loops ("$$$...") and whole chunks misclassified as silence and dropped —
+    /// while the ANE path matches cloud-quality output. The cost is ANE's
+    /// ahead-of-time specialization compile on cold caches (minutes for large
+    /// models), mitigated by the shared-instance model cache and the prewarm
+    /// at app start. Set UserDefaults key "preferGPUCompute" to true to trade
+    /// quality for fast loads.
     private var computeOptions: ModelComputeOptions {
-        if UserDefaults.standard.bool(forKey: "preferNeuralEngine") {
-            return ModelComputeOptions()
+        if UserDefaults.standard.bool(forKey: "preferGPUCompute") {
+            return ModelComputeOptions(
+                audioEncoderCompute: .cpuAndGPU,
+                textDecoderCompute: .cpuAndGPU
+            )
         }
-        return ModelComputeOptions(
-            audioEncoderCompute: .cpuAndGPU,
-            textDecoderCompute: .cpuAndGPU
-        )
+        return ModelComputeOptions()
+    }
+
+    /// Loads the user's selected model in the background so it's already in
+    /// memory when the first transcription starts. Called at app launch; only
+    /// prewarms models that are fully downloaded.
+    func prewarmSelectedModel() {
+        guard let modelId = UserDefaults.standard.string(forKey: "selectedTranscriptionModel"),
+              !modelId.isEmpty,
+              modelId != "berget-kb-whisper-large",
+              ModelManager.shared.cachedModelFolder(for: modelId) != nil else { return }
+        Task { @MainActor in
+            self.logger.info("Prewarming selected model \(modelId, privacy: .public) at launch")
+            try? await self.initialize(modelId: modelId)
+        }
     }
     
     // MARK: - Model Metadata
@@ -371,18 +386,35 @@ class WhisperKitService {
                     // Get language code for transcription
                     let languageCode = language ?? "auto"
                     
-                    // Get timestamp settings from UserDefaults
-                    let includeTimestamps = UserDefaults.standard.bool(forKey: "includeTimestamps")
                     let wordTimestamps = UserDefaults.standard.bool(forKey: "wordTimestamps")
-                    
-                    // Create decoding options
+
+                    // Create decoding options.
+                    // - usePrefillPrompt MUST be true for the language to be
+                    //   enforced: WhisperKit applies it by prefilling the decoder
+                    //   with [SOT, <language>, <task>]. Without it the model
+                    //   re-detects language every 30s window and drifts into
+                    //   English translation on Swedish audio.
+                    // - withoutTimestamps stays false: timestamp tokens anchor
+                    //   long-form window seeking; decoding without them makes
+                    //   repetition loops/hallucination far more likely on long
+                    //   files. skipSpecialTokens keeps them out of the text.
+                    // chunkingStrategy .vad splits long audio at silence
+                    // boundaries and decodes chunks independently — a chunk that
+                    // falls into a repetition loop can't poison the rest of the
+                    // file, which matters for 45+ minute recordings.
                     let decodeOptions = DecodingOptions(
                         task: .transcribe,
                         language: languageCode == "auto" ? nil : languageCode,
-                        usePrefillPrompt: false,
+                        usePrefillPrompt: true,
                         skipSpecialTokens: true,
-                        withoutTimestamps: !includeTimestamps,
-                        wordTimestamps: wordTimestamps
+                        withoutTimestamps: false,
+                        wordTimestamps: wordTimestamps,
+                        // One worker: chunks stream sequentially into the live
+                        // preview. Concurrent workers interleave windowIds and
+                        // the streamed text appears to be written by several
+                        // hands at once.
+                        concurrentWorkerCount: 1,
+                        chunkingStrategy: .vad
                     )
                     
                     // Wrap mutable callback state in a Sendable container
@@ -414,33 +446,27 @@ class WhisperKitService {
                     // Finalize the callback state (saves last window text)
                     callbackState.finalize()
                     
-                    // Process final result
-                    if let firstResult = results.first {
-                        let fullText = firstResult.segments.map { $0.text.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-                        
-                        let finalSegments = firstResult.segments.map { segment in
-                            TranscriptionSegmentData(
-                                start: Double(segment.start),
-                                end: Double(segment.end),
-                                text: segment.text,
-                                words: nil
-                            )
-                        }
-                        
-                        continuation.yield(TranscriptionUpdate(
-                            text: fullText,
-                            progress: 1.0,
-                            segments: finalSegments,
-                            isComplete: true
-                        ))
-                    } else {
-                        continuation.yield(TranscriptionUpdate(
-                            text: "",
-                            progress: 1.0,
-                            segments: [],
-                            isComplete: true
-                        ))
+                    // Process final result. VAD chunking returns one
+                    // TranscriptionResult per chunk — merge them all; taking
+                    // only the first would drop most of the transcription.
+                    let merged = TranscriptionUtilities.mergeTranscriptionResults(results)
+                    let fullText = merged.segments.map { $0.text.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+
+                    let finalSegments = merged.segments.map { segment in
+                        TranscriptionSegmentData(
+                            start: Double(segment.start),
+                            end: Double(segment.end),
+                            text: segment.text,
+                            words: nil
+                        )
                     }
+
+                    continuation.yield(TranscriptionUpdate(
+                        text: fullText,
+                        progress: 1.0,
+                        segments: finalSegments,
+                        isComplete: true
+                    ))
                     
                     continuation.finish()
                     
@@ -508,7 +534,7 @@ private final class StreamingCallbackState: @unchecked Sendable {
             }
             currentWindowId = progress.windowId
         }
-        currentWindowText = progress.text.trimmingCharacters(in: .whitespaces)
+        currentWindowText = Self.strippingSpecialTokens(progress.text).trimmingCharacters(in: .whitespaces)
         maxWindowId = max(maxWindowId, progress.windowId)
         
         // Build the complete text from all segments
@@ -559,6 +585,13 @@ private final class StreamingCallbackState: @unchecked Sendable {
         if currentWindowId >= 0 && !currentWindowText.isEmpty {
             completedSegments[currentWindowId] = currentWindowText
         }
+    }
+
+    /// Removes `<|...|>` special-token markers (timestamps etc.) from streaming
+    /// text — decoding runs with timestamp tokens for long-form anchoring, but
+    /// they shouldn't appear in the live preview.
+    private static func strippingSpecialTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
     }
 }
 
