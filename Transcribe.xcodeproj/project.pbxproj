@@ -11,7 +11,7 @@
 		4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 404291392E793C6C00DB2587 /* YouTubeKit */; };
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
-		40DACEB82E75F6ED00E0B532 /* whisperkit-cli in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB72E75F6ED00E0B532 /* whisperkit-cli */; };
+		40DACEC12E75F6ED00E0B532 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,7 +67,6 @@
 			files = (
 				4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */,
 				40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */,
-				40DACEB82E75F6ED00E0B532 /* whisperkit-cli in Frameworks */,
 				4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -143,7 +142,7 @@
 			name = Transcribe;
 			packageProductDependencies = (
 				40DACEB52E75F6ED00E0B532 /* WhisperKit */,
-				40DACEB72E75F6ED00E0B532 /* whisperkit-cli */,
+				40DACEC02E75F6ED00E0B532 /* SpeakerKit */,
 				404291392E793C6C00DB2587 /* YouTubeKit */,
 			);
 			productName = Transcribe;
@@ -654,10 +653,10 @@
 		};
 		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -673,10 +672,10 @@
 			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
 		};
-		40DACEB72E75F6ED00E0B532 /* whisperkit-cli */ = {
+		40DACEC02E75F6ED00E0B532 /* SpeakerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */;
-			productName = "whisperkit-cli";
+			productName = SpeakerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
