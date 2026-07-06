@@ -85,7 +85,7 @@ struct TranscriptionView: View {
         }
         .alert(localized("unsaved_transcription"), isPresented: $showUnsavedChangesAlert) {
             Button(localized("copy_and_go_back"), role: nil) {
-                viewModel.copyToClipboard()
+                viewModel.copyToClipboard(exportableTranscript)
                 dismissView()
             }
             Button(localized("go_back_without_saving"), role: nil) {
@@ -240,29 +240,17 @@ struct TranscriptionView: View {
             if !viewModel.transcribedText.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     let displayText: String = {
-                        switch displayMode {
-                        case .transcript:
-                            return viewModel.transcribedText
-                        case .segments:
-                            return formatAsSegments(viewModel.transcribedText)
-                        case .timestamps:
-                            // Falls back to plain text when no segment timing exists (e.g. Berget results)
-                            return viewModel.segments.isEmpty ? viewModel.transcribedText : formatWithTimestamps(viewModel.segments)
-                        case .speakers:
+                        // Speakers mode shows status until diarization has produced turns
+                        if displayMode == .speakers && viewModel.speakerTurns == nil {
                             if viewModel.segments.isEmpty {
                                 return localized("speakers_unavailable")
-                            }
-                            if viewModel.isDiarizing {
-                                return localized("diarizing") + " \(Int(viewModel.diarizationProgress * 100))%"
                             }
                             if let error = viewModel.diarizationError {
                                 return localized("diarization_failed") + "\n\(error)"
                             }
-                            if let turns = viewModel.speakerTurns {
-                                return formatWithSpeakers(viewModel.segments, turns: turns)
-                            }
-                            return localized("diarizing")
+                            return localized("diarizing") + " \(Int(viewModel.diarizationProgress * 100))%"
                         }
+                        return exportableTranscript
                     }()
                     
                     AutoScrollingTextView(
@@ -506,19 +494,19 @@ struct TranscriptionView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 exportPopoverButton(
                                     icon: "doc.text",
-                                    label: localized("export_transcription_txt"),
+                                    label: "\(localized(exportModeLabelKey)) - Text (.txt)",
                                     enabled: !viewModel.transcribedText.isEmpty
                                 ) {
-                                    viewModel.exportTranscriptionAsText()
+                                    viewModel.exportText(exportableTranscript, suffix: exportModeSuffix)
                                     showingExportPopover = false
                                 }
-                                
+
                                 exportPopoverButton(
                                     icon: "doc.richtext",
-                                    label: localized("export_transcription_md"),
+                                    label: "\(localized(exportModeLabelKey)) - Markdown (.md)",
                                     enabled: !viewModel.transcribedText.isEmpty
                                 ) {
-                                    viewModel.exportTranscriptionAsMarkdown()
+                                    viewModel.exportMarkdown(exportableTranscript, suffix: exportModeSuffix)
                                     showingExportPopover = false
                                 }
                                 
@@ -550,7 +538,7 @@ struct TranscriptionView: View {
                         }
                         
                         // Copy button
-                        Button(action: { viewModel.copyToClipboard() }) {
+                        Button(action: { viewModel.copyToClipboard(exportableTranscript) }) {
                             HStack(spacing: 6) {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 13))
@@ -942,6 +930,45 @@ struct TranscriptionView: View {
         segments.map { segment in
             "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
         }.joined(separator: "\n")
+    }
+
+    /// The transcript formatted per the active display mode — used by display,
+    /// "Spara som..." and "Kopiera text" so exports match what's on screen.
+    /// Falls back to the plain transcript when the mode's data isn't available
+    /// (no segments, diarization not run).
+    var exportableTranscript: String {
+        switch displayMode {
+        case .transcript:
+            return viewModel.transcribedText
+        case .segments:
+            return formatAsSegments(viewModel.transcribedText)
+        case .timestamps:
+            return viewModel.segments.isEmpty ? viewModel.transcribedText : formatWithTimestamps(viewModel.segments)
+        case .speakers:
+            if let turns = viewModel.speakerTurns, !viewModel.segments.isEmpty {
+                return formatWithSpeakers(viewModel.segments, turns: turns)
+            }
+            return viewModel.transcribedText
+        }
+    }
+
+    /// Filename suffix and popover label key for the active display mode.
+    private var exportModeLabelKey: String {
+        switch displayMode {
+        case .transcript: return "transcript"
+        case .segments: return "segments"
+        case .timestamps: return "timestamps"
+        case .speakers: return "speakers"
+        }
+    }
+
+    private var exportModeSuffix: String {
+        switch displayMode {
+        case .transcript: return "transcription"
+        case .segments: return "segments"
+        case .timestamps: return "timestamps"
+        case .speakers: return "speakers"
+        }
     }
 
     /// Renders segments grouped into speaker turns:
@@ -1891,9 +1918,11 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         }
     }
     
-    func copyToClipboard() {
-        // Copy both transcription and processed text if available
-        var combined = transcribedText
+    /// Copies the given transcript (formatted by the view's active display
+    /// mode) plus any processed text. Falls back to the raw transcription
+    /// when no formatted text is passed.
+    func copyToClipboard(_ transcript: String? = nil) {
+        var combined = transcript ?? transcribedText
         if !processedText.isEmpty {
             combined += "\n\n---\n\n" + processedText
         }
@@ -1905,13 +1934,15 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         fileURL.deletingPathExtension().lastPathComponent
     }
     
-    func exportTranscriptionAsText() {
-        saveFile(content: transcribedText, defaultName: "\(baseName)_transcription.txt", contentType: .plainText)
+    /// Exports transcript content already formatted by the view's active
+    /// display mode (plain, segments, timestamps, or speakers).
+    func exportText(_ content: String, suffix: String) {
+        saveFile(content: content, defaultName: "\(baseName)_\(suffix).txt", contentType: .plainText)
     }
-    
-    func exportTranscriptionAsMarkdown() {
-        let md = "# \(fileName)\n\n\(transcribedText)\n"
-        saveFile(content: md, defaultName: "\(baseName)_transcription.md", contentType: UTType(filenameExtension: "md") ?? .plainText)
+
+    func exportMarkdown(_ content: String, suffix: String) {
+        let md = "# \(fileName)\n\n\(content)\n"
+        saveFile(content: md, defaultName: "\(baseName)_\(suffix).md", contentType: UTType(filenameExtension: "md") ?? .plainText)
     }
     
     func exportProcessedAsText() {
