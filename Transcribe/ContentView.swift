@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var fileErrorMessage = ""
     @State private var showModelDownloadError = false
     @State private var modelDownloadErrorMessage = ""
-    private let whisperKitService = WhisperKitService()
+    private let whisperKitService = WhisperKitService.shared
     
     var body: some View {
         Group {

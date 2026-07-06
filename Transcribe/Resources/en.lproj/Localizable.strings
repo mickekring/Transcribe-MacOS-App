@@ -175,7 +175,7 @@
 
 /* WhisperKit Messages */
 "downloading_whisperkit_model" = "Downloading WhisperKit model (first time only, this may take a moment)...";
-"preparing_model_first_use" = "Preparing %@ for use. This is a one-time setup...";
+"loading_model_status" = "Loading %@... This usually takes a few seconds.";
 "initializing_whisperkit" = "Initializing WhisperKit...";
 "loading_audio_file" = "Loading audio file...";
 
@@ -243,3 +243,5 @@
 "model_download_failed_title" = "Model Download Failed";
 "model_download_retry_hint" = "Check your internet connection and select the model again to retry.";
 "playback_unavailable" = "Audio playback is not available for this file.";
+"model_load_in_progress" = "Still preparing the model (%d s). First-time optimization can take several minutes...";
+"save_audio_file" = "Save audio file";

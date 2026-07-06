@@ -829,6 +829,13 @@ struct TranscriptionView: View {
                 Text(viewModel.fileFormat)
                     .font(.system(size: 10))
                     .foregroundColor(.textTertiary)
+                Button(action: { viewModel.saveAudioFile() }) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 13))
+                        .foregroundStyle(LinearGradient.accentGradient)
+                }
+                .buttonStyle(.plain)
+                .help(localized("save_audio_file"))
             }
         }
         .padding(.horizontal, 16)
@@ -1823,6 +1830,32 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         saveFile(content: md, defaultName: "\(baseName)_processed.md", contentType: UTType(filenameExtension: "md") ?? .plainText)
     }
     
+    /// Copies the source audio file to a user-chosen location. Recordings live
+    /// in a temp directory that is wiped on quit, so this is how users keep them.
+    func saveAudioFile() {
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = fileURL.lastPathComponent
+        if let type = UTType(filenameExtension: fileURL.pathExtension) {
+            savePanel.allowedContentTypes = [type]
+        }
+        savePanel.isExtensionHidden = false
+        savePanel.canCreateDirectories = true
+
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                    try FileManager.default.copyItem(at: self.fileURL, to: url)
+                } catch {
+                    self.exportErrorMessage = error.localizedDescription
+                    self.showExportError = true
+                }
+            }
+        }
+    }
+
     private func saveFile(content: String, defaultName: String, contentType: UTType) {
         let savePanel = NSSavePanel()
         savePanel.nameFieldStringValue = defaultName

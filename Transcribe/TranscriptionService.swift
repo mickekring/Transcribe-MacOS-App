@@ -58,9 +58,10 @@ class TranscriptionService {
         modelId: String,
         continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
     ) async throws {
-        // Initialize WhisperKit service if needed
+        // Use the shared service so the loaded model persists across
+        // transcriptions and concurrent loads coalesce instead of competing.
         if whisperKitService == nil {
-            whisperKitService = WhisperKitService()
+            whisperKitService = WhisperKitService.shared
         }
         
         // Use WhisperKit for standard models

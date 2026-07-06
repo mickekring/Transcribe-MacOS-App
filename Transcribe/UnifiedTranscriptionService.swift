@@ -11,7 +11,7 @@ class UnifiedTranscriptionService: ObservableObject {
     @Published var errorMessage: String?
     
     // Service instances
-    private let whisperKitService = WhisperKitService()
+    private let whisperKitService = WhisperKitService.shared
     private lazy var whisperKitWrapper = WhisperKitServiceWrapper(whisperKitService)
     
     // Current active service

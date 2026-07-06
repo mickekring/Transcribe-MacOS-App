@@ -1,9 +1,19 @@
 import Foundation
 import WhisperKit
 import AVFoundation
+import os
 
 @MainActor
 class WhisperKitService {
+    /// Shared instance. WhisperKit model loading is expensive (multi-GB CoreML
+    /// models with ANE specialization that can take minutes on a cold cache), so
+    /// the app must have exactly one loading pipeline and keep the loaded model
+    /// alive across transcriptions. Creating per-transcription instances causes
+    /// concurrent duplicate loads that contend for CoreML/ANE and can wedge.
+    static let shared = WhisperKitService()
+
+    private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "WhisperKit")
+
     var whisperKit: WhisperKit?
     private let languageManager = LanguageManager.shared
     private var initializationTask: Task<Void, Error>?
@@ -18,6 +28,24 @@ class WhisperKitService {
     
     var availableModels: [String] {
         ModelManager.allLocalModels
+    }
+
+    /// Compute units for CoreML model loading. Defaults to the GPU path:
+    /// WhisperKit's default Neural Engine path requires an ahead-of-time
+    /// "specialization" compile of the model graph that macOS caches — and
+    /// silently evicts, re-triggering 5-15 minute loads for large models,
+    /// or wedging entirely if a previous load was interrupted. The GPU path
+    /// loads in seconds (weights map straight into unified memory, like
+    /// Metal-based LLM runners) at a modest inference-speed cost.
+    /// Set UserDefaults key "preferNeuralEngine" to true to opt back in.
+    private var computeOptions: ModelComputeOptions {
+        if UserDefaults.standard.bool(forKey: "preferNeuralEngine") {
+            return ModelComputeOptions()
+        }
+        return ModelComputeOptions(
+            audioEncoderCompute: .cpuAndGPU,
+            textDecoderCompute: .cpuAndGPU
+        )
     }
     
     // MARK: - Model Metadata
@@ -82,22 +110,30 @@ class WhisperKitService {
         let variant = modelVariant(for: modelId)
         let repo = modelRepo(for: modelId)
         let downloadBase = modelManager.downloadBase
-        
+
         // Check if we already have this model downloaded locally
         if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
+            logger.info("Loading cached model \(modelId, privacy: .public) from \(cachedFolder, privacy: .public)")
+            // tokenizerFolder: resolve the tokenizer from our download base
+            // (WhisperKit caches it there) so model load never needs the network.
             let config = WhisperKitConfig(
                 modelFolder: cachedFolder,
+                tokenizerFolder: downloadBase,
+                computeOptions: computeOptions,
                 verbose: true,
                 download: false
             )
-            
+
             do {
+                let start = Date()
                 let kit = try await WhisperKit(config)
+                logger.info("Model \(modelId, privacy: .public) loaded in \(Date().timeIntervalSince(start), format: .fixed(precision: 1))s")
                 whisperKit = kit
                 currentModelId = modelId
                 return
             } catch {
                 // Cached model failed to load — fall through to re-download
+                logger.error("Cached model \(modelId, privacy: .public) failed to load: \(error.localizedDescription, privacy: .public)")
                 modelManager.deleteModel(modelId)
             }
         }
@@ -112,6 +148,8 @@ class WhisperKitService {
             if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
                 let config = WhisperKitConfig(
                     modelFolder: cachedFolder,
+                    tokenizerFolder: downloadBase,
+                    computeOptions: computeOptions,
                     verbose: true,
                     download: false
                 )
@@ -124,11 +162,12 @@ class WhisperKitService {
         }
         
         // Model not cached locally — download with progress tracking, then load
-        
+        logger.info("Model \(modelId, privacy: .public) not cached, downloading from \(repo, privacy: .public)")
+
         // Signal download started
         modelManager.isDownloading[modelId] = true
         modelManager.downloadProgress[modelId] = 0
-        
+
         do {
             // Phase 1: Download via WhisperKit.download() with progress callback
             let modelFolder = try await WhisperKit.download(
@@ -155,6 +194,8 @@ class WhisperKitService {
             // Phase 2: Load the downloaded model (no network needed)
             let config = WhisperKitConfig(
                 modelFolder: modelFolder.path,
+                tokenizerFolder: downloadBase,
+                computeOptions: computeOptions,
                 verbose: true,
                 download: false
             )
@@ -269,7 +310,7 @@ class WhisperKitService {
                         let isAlreadyDownloading = ModelManager.shared.isDownloading[modelId] == true
                         let statusMessage: String
                         if isCached {
-                            statusMessage = String(format: NSLocalizedString("preparing_model_first_use", comment: ""), ModelManager.shared.displayName(for: modelId))
+                            statusMessage = String(format: NSLocalizedString("loading_model_status", comment: ""), ModelManager.shared.displayName(for: modelId))
                         } else if isAlreadyDownloading {
                             statusMessage = String(format: NSLocalizedString("downloading_model", comment: ""), ModelManager.shared.displayName(for: modelId))
                         } else {
@@ -282,7 +323,26 @@ class WhisperKitService {
                             segments: [],
                             isComplete: false
                         ))
-                        
+
+                        // Heartbeat while the model loads: a cold ANE
+                        // specialization of a large model can take minutes,
+                        // and without periodic updates it looks like a hang.
+                        let loadStart = Date()
+                        let heartbeat = Task { @MainActor in
+                            while !Task.isCancelled {
+                                try? await Task.sleep(for: .seconds(20))
+                                guard !Task.isCancelled else { break }
+                                let elapsed = Int(Date().timeIntervalSince(loadStart))
+                                continuation.yield(TranscriptionUpdate(
+                                    text: String(format: NSLocalizedString("model_load_in_progress", comment: ""), elapsed),
+                                    progress: 0.01,
+                                    segments: [],
+                                    isComplete: false
+                                ))
+                            }
+                        }
+                        defer { heartbeat.cancel() }
+
                         try await self.initialize(modelId: modelId)
                     }
 
@@ -336,11 +396,14 @@ class WhisperKitService {
                         guard !cancelFlag.isCancelled else { return false }
                         return callbackState.handleProgress(progress)
                     }
+                    self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .public) model=\(modelId, privacy: .public)")
+                    let transcribeStart = Date()
                     let results = try await whisperKit.transcribe(
                         audioPath: fileURL.path,
                         decodeOptions: decodeOptions,
                         callback: callback
                     )
+                    self.logger.info("Transcription finished in \(Date().timeIntervalSince(transcribeStart), format: .fixed(precision: 1))s")
 
                     // If cancelled, don't report the partial output as a
                     // successful, complete transcription.

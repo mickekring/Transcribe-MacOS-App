@@ -175,7 +175,7 @@
 
 /* WhisperKit Messages */
 "downloading_whisperkit_model" = "Laddar ner WhisperKit-modell (endast första gången, detta kan ta en stund)...";
-"preparing_model_first_use" = "Förbereder %@ för användning. Detta behöver bara göras en gång...";
+"loading_model_status" = "Laddar %@... Det tar oftast bara några sekunder.";
 "initializing_whisperkit" = "Initierar WhisperKit...";
 "loading_audio_file" = "Laddar ljudfil...";
 
@@ -243,3 +243,5 @@
 "model_download_failed_title" = "Modellen kunde inte laddas ner";
 "model_download_retry_hint" = "Kontrollera din internetanslutning och välj modellen igen för att försöka på nytt.";
 "playback_unavailable" = "Ljuduppspelning är inte tillgänglig för den här filen.";
+"model_load_in_progress" = "Förbereder fortfarande modellen (%d s). Första optimeringen kan ta flera minuter...";
+"save_audio_file" = "Spara ljudfil";
