@@ -1,0 +1,10 @@
+schemaVersion: 1
+enabledWorkflows:
+  - macos
+  - project-discovery
+  - coverage
+  - debugging
+sessionDefaults:
+  projectPath: Transcribe.xcodeproj
+  scheme: Transcribe
+  configuration: Debug

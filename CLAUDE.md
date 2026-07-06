@@ -4,24 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Run
 
-This is a native macOS SwiftUI app. Open and build with Xcode:
-
-```bash
-open Transcribe.xcodeproj
-# Build: Cmd+B | Run: Cmd+R
-```
+This is a native macOS SwiftUI app. Development happens in VS Code with Claude Code as the primary workflow; Xcode stays open only for SwiftUI previews, Interface/view debugging, and signing/archiving.
 
 The project requires macOS 26+ (Tahoe) and runs on Apple Silicon (M1+).
 
+### XcodeBuildMCP (primary build/test/run loop)
+
+The XcodeBuildMCP server (v2.6+) is registered at project scope in `.mcp.json` (`npx -y xcodebuildmcp@latest mcp`). Workflows and session defaults are configured in `.xcodebuildmcp/config.yaml` — it enables the `macos`, `project-discovery`, `coverage`, and `debugging` workflows (only `simulator` is enabled by default, which this macOS-only project doesn't need) and sets `Transcribe.xcodeproj` / scheme `Transcribe` as session defaults, so most build/test/run calls need no arguments.
+
+Use its MCP tools as the main loop — write, build, test, run, iterate — instead of raw `xcodebuild` shell commands. Key tool groups for this project (macOS app):
+
+- **macos**: `build`, `build-and-run`, `test`, `clean`, `launch`, `stop`, `get-app-path`, `list-schemes`, `show-build-settings`
+- **project-discovery**: `discover-projects`, `list-schemes`, `show-build-settings`, `get-macos-bundle-id`
+- **coverage**: `get-coverage-report`, `get-file-coverage` (from xcresult bundles)
+- **debugging**: LLDB tools (`attach`, `add-breakpoint`, `stack`, `variables`, `lldb-command`)
+
+Scheme: `Transcribe`. Always pass `CLANG_COVERAGE_MAPPING=NO` as an extra build setting (see Xcode 26 issue below).
+
+**Important**: Always rebuild after making code changes to verify they compile and so the user can test them. Never skip the build step.
+
 ### Known Xcode 26 Build Issue
 
-Building from Xcode's UI fails with `___llvm_profile_runtime` undefined symbol (yyjson, a pure C SPM transitive dependency of WhisperKit). This is an Xcode 26 bug where `CLANG_COVERAGE_MAPPING` defaults to YES and pure C SPM package targets get coverage instrumentation but miss `-fprofile-instr-generate` in their linker invocation. Build from the command line instead:
+Default builds fail with `___llvm_profile_runtime` undefined symbol (yyjson, a pure C SPM transitive dependency of WhisperKit). This is an Xcode 26 bug where `CLANG_COVERAGE_MAPPING` defaults to YES and pure C SPM package targets get coverage instrumentation but miss `-fprofile-instr-generate` in their linker invocation. Always disable coverage mapping:
 
 ```bash
+# CLI fallback if MCP tools are unavailable:
 xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
 ```
 
-**Important**: Always rebuild after making code changes to verify they compile and so the user can test them. Never skip the build step.
+With XcodeBuildMCP, pass `CLANG_COVERAGE_MAPPING=NO` via the tool's extra build settings/args parameter on every build and test invocation.
+
+### Xcode (previews, signing, archiving only)
+
+```bash
+open Transcribe.xcodeproj
+```
+
+Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → Archive for distribution. Don't use it as the compile-test loop.
 
 ## Architecture
 
@@ -162,10 +181,10 @@ English is the default locale with full Swedish localization.
 
 ## Testing
 
+Prefer the XcodeBuildMCP `macos: test` tool (scheme `Transcribe`, with `CLANG_COVERAGE_MAPPING=NO`). CLI fallback:
+
 ```bash
-# Run from Xcode: Cmd+U
-# Or via xcodebuild:
-xcodebuild test -scheme Transcribe -destination 'platform=macOS'
+xcodebuild test -scheme Transcribe -destination 'platform=macOS' CLANG_COVERAGE_MAPPING=NO
 ```
 
 Test files:
