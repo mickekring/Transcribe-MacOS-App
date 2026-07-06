@@ -12,9 +12,10 @@ struct TranscriptionLanguage: Identifiable, Hashable {
 
     static let auto = TranscriptionLanguage(id: "auto", code: "auto", name: "Auto-detect", localizationKey: "language_auto")
     static let swedish = TranscriptionLanguage(id: "sv", code: "sv", name: "Swedish", localizationKey: "language_swedish")
+    static let norwegian = TranscriptionLanguage(id: "no", code: "no", name: "Norwegian", localizationKey: "language_norwegian")
     static let english = TranscriptionLanguage(id: "en", code: "en", name: "English", localizationKey: "language_english")
 
-    static let commonLanguages = [auto, swedish, english]
+    static let commonLanguages = [auto, swedish, norwegian, english]
 
     static let allLanguages = [
         auto,
@@ -31,7 +32,7 @@ struct TranscriptionLanguage: Identifiable, Hashable {
         TranscriptionLanguage(id: "it", code: "it", name: "Italian", localizationKey: "language_italian"),
         TranscriptionLanguage(id: "ja", code: "ja", name: "Japanese", localizationKey: "language_japanese"),
         TranscriptionLanguage(id: "ko", code: "ko", name: "Korean", localizationKey: "language_korean"),
-        TranscriptionLanguage(id: "no", code: "no", name: "Norwegian", localizationKey: "language_norwegian"),
+        norwegian,
         TranscriptionLanguage(id: "pl", code: "pl", name: "Polish", localizationKey: "language_polish"),
         TranscriptionLanguage(id: "pt", code: "pt", name: "Portuguese", localizationKey: "language_portuguese"),
         TranscriptionLanguage(id: "ru", code: "ru", name: "Russian", localizationKey: "language_russian"),

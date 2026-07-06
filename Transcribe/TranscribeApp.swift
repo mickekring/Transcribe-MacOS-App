@@ -27,6 +27,10 @@ struct TranscribeApp: App {
                 .preferredColorScheme(preferredScheme)
                 .background(WindowAccessor { window in
                     appDelegate.mainWindow = window
+                    // Persist window size/position across launches
+                    if window.frameAutosaveName != "TranscribeMainWindow" {
+                        window.setFrameAutosaveName("TranscribeMainWindow")
+                    }
                 })
         }
         .windowStyle(.automatic)
