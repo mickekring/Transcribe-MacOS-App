@@ -11,7 +11,7 @@
 		4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 404291392E793C6C00DB2587 /* YouTubeKit */; };
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
-		40DACEC12E75F6ED00E0B532 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
+		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +65,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */,
 				4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */,
 				40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */,
 				4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */,
@@ -230,7 +231,7 @@
 			mainGroup = 40DACE442E75861E00E0B532;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				404291382E793C6C00DB2587 /* XCRemoteSwiftPackageReference "YouTubeKit" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -651,7 +652,7 @@
 				minimumVersion = 0.2.9;
 			};
 		};
-		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
 			requirement = {
@@ -669,12 +670,12 @@
 		};
 		40DACEB52E75F6ED00E0B532 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
 			productName = WhisperKit;
 		};
 		40DACEC02E75F6ED00E0B532 /* SpeakerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
 			productName = SpeakerKit;
 		};
 /* End XCSwiftPackageProductDependency section */

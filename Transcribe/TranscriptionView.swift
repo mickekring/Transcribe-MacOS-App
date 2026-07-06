@@ -42,6 +42,7 @@ struct TranscriptionView: View {
         case transcript
         case segments
         case timestamps
+        case speakers
     }
     
     init(fileURL: URL) {
@@ -247,6 +248,20 @@ struct TranscriptionView: View {
                         case .timestamps:
                             // Falls back to plain text when no segment timing exists (e.g. Berget results)
                             return viewModel.segments.isEmpty ? viewModel.transcribedText : formatWithTimestamps(viewModel.segments)
+                        case .speakers:
+                            if viewModel.segments.isEmpty {
+                                return localized("speakers_unavailable")
+                            }
+                            if viewModel.isDiarizing {
+                                return localized("diarizing") + " \(Int(viewModel.diarizationProgress * 100))%"
+                            }
+                            if let error = viewModel.diarizationError {
+                                return localized("diarization_failed") + "\n\(error)"
+                            }
+                            if let turns = viewModel.speakerTurns {
+                                return formatWithSpeakers(viewModel.segments, turns: turns)
+                            }
+                            return localized("diarizing")
                         }
                     }()
                     
@@ -455,6 +470,7 @@ struct TranscriptionView: View {
                         displayModeButton(.transcript, icon: "line.3.horizontal", labelKey: "transcript")
                         displayModeButton(.segments, icon: "text.alignleft", labelKey: "segments")
                         displayModeButton(.timestamps, icon: "clock", labelKey: "timestamps")
+                        displayModeButton(.speakers, icon: "person.2", labelKey: "speakers")
                     }
                     .padding(.horizontal, 20)
                 }
@@ -894,7 +910,12 @@ struct TranscriptionView: View {
     }
     
     private func displayModeButton(_ mode: DisplayMode, icon: String, labelKey: String) -> some View {
-        Button(action: { displayMode = mode }) {
+        Button(action: {
+            displayMode = mode
+            if mode == .speakers {
+                viewModel.startDiarizationIfNeeded()
+            }
+        }) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 13))
@@ -921,6 +942,50 @@ struct TranscriptionView: View {
         segments.map { segment in
             "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
         }.joined(separator: "\n")
+    }
+
+    /// Renders segments grouped into speaker turns:
+    /// each turn starts with "[MM:SS] Talare N:" followed by its text.
+    func formatWithSpeakers(_ segments: [TranscriptionSegmentData], turns: [SpeakerTurn]) -> String {
+        var blocks: [String] = []
+        var currentSpeaker: Int? = nil
+        var currentLines: [String] = []
+        var turnStart: Double = 0
+
+        func flush() {
+            guard !currentLines.isEmpty else { return }
+            let label = currentSpeaker.map { String(format: localized("speaker_label"), $0 + 1) }
+                ?? localized("speaker_unknown")
+            blocks.append("[\(formatTime(turnStart))] \(label):\n" + currentLines.joined(separator: " "))
+        }
+
+        for segment in segments {
+            // Carry the previous speaker through segments with no overlap
+            // (short interjections between detected turns).
+            let speaker = dominantSpeaker(for: segment, in: turns) ?? currentSpeaker
+            if speaker != currentSpeaker || currentLines.isEmpty {
+                flush()
+                currentLines = []
+                currentSpeaker = speaker
+                turnStart = segment.start
+            }
+            currentLines.append(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        flush()
+
+        return blocks.joined(separator: "\n\n")
+    }
+
+    /// The speaker whose turns overlap this segment the most, or nil if none overlap.
+    private func dominantSpeaker(for segment: TranscriptionSegmentData, in turns: [SpeakerTurn]) -> Int? {
+        var overlapBySpeaker: [Int: Double] = [:]
+        for turn in turns {
+            let overlap = min(segment.end, turn.end) - max(segment.start, turn.start)
+            if overlap > 0 {
+                overlapBySpeaker[turn.speakerId, default: 0] += overlap
+            }
+        }
+        return overlapBySpeaker.max(by: { $0.value < $1.value })?.key
     }
 
     func formatAsSegments(_ text: String) -> String {
@@ -1281,6 +1346,11 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         }
     }
     @Published var segments: [TranscriptionSegmentData] = []
+    @Published var speakerTurns: [SpeakerTurn]? = nil
+    @Published var isDiarizing = false
+    @Published var diarizationProgress: Double = 0
+    @Published var diarizationError: String? = nil
+    private var diarizationTask: Task<Void, Never>?
     @Published var elapsedTime: Double = 0
     @Published var estimatedTimeRemaining: Double = 0
     @Published var errorMessage: String?
@@ -1358,6 +1428,9 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         transcriptionTask?.cancel()
         transcriptionTask = nil
         transcriptionService?.cancelTranscription()
+        diarizationTask?.cancel()
+        diarizationTask = nil
+        isDiarizing = false
         transcriptionTimer?.invalidate()
         transcriptionTimer = nil
         timer?.invalidate()
@@ -1365,6 +1438,38 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         audioPlayer?.stop()
         isPlaying = false
         isTranscribing = false
+    }
+
+    /// Runs speaker diarization once per file; results are cached in
+    /// `speakerTurns`. Requires local transcription segments for alignment.
+    func startDiarizationIfNeeded() {
+        guard speakerTurns == nil, !isDiarizing, !segments.isEmpty else { return }
+        isDiarizing = true
+        diarizationError = nil
+        diarizationProgress = 0
+
+        diarizationTask = Task {
+            do {
+                let turns = try await DiarizationService.shared.diarize(fileURL: fileURL) { progress in
+                    DispatchQueue.main.async {
+                        self.diarizationProgress = progress
+                    }
+                }
+                await MainActor.run {
+                    self.speakerTurns = turns
+                    self.isDiarizing = false
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.isDiarizing = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.diarizationError = error.localizedDescription
+                    self.isDiarizing = false
+                }
+            }
+        }
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {

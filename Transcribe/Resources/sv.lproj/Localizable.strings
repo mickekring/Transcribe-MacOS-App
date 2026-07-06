@@ -246,3 +246,9 @@
 "model_load_in_progress" = "Förbereder fortfarande modellen (%d s). Första optimeringen kan ta flera minuter...";
 "save_audio_file" = "Spara ljudfil";
 "timestamps" = "Tidsstämplar";
+"speakers" = "Talare";
+"speaker_label" = "Talare %d";
+"speaker_unknown" = "Okänd talare";
+"diarizing" = "Identifierar talare... Första gången laddas talarmodellerna ner.";
+"diarization_failed" = "Talaridentifiering misslyckades:";
+"speakers_unavailable" = "Talarvyn kräver en lokal transkribering med tidsdata. Transkribera med en lokal modell först.";

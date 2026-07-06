@@ -246,3 +246,9 @@
 "model_load_in_progress" = "Still preparing the model (%d s). First-time optimization can take several minutes...";
 "save_audio_file" = "Save audio file";
 "timestamps" = "Timestamps";
+"speakers" = "Speakers";
+"speaker_label" = "Speaker %d";
+"speaker_unknown" = "Unknown speaker";
+"diarizing" = "Identifying speakers... First use downloads the speaker models.";
+"diarization_failed" = "Speaker identification failed:";
+"speakers_unavailable" = "Speaker view requires a local transcription with timing data. Transcribe with a local model first.";
