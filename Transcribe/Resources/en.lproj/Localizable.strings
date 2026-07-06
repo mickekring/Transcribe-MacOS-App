@@ -252,3 +252,5 @@
 "diarizing" = "Identifying speakers... First use downloads the speaker models.";
 "diarization_failed" = "Speaker identification failed:";
 "speakers_unavailable" = "Speaker view requires a local transcription with timing data. Transcribe with a local model first.";
+"speaker_count" = "Number of speakers";
+"speaker_count_auto" = "Auto";

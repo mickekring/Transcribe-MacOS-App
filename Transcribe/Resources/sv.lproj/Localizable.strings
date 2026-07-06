@@ -252,3 +252,5 @@
 "diarizing" = "Identifierar talare... Första gången laddas talarmodellerna ner.";
 "diarization_failed" = "Talaridentifiering misslyckades:";
 "speakers_unavailable" = "Talarvyn kräver en lokal transkribering med tidsdata. Transkribera med en lokal modell först.";
+"speaker_count" = "Antal talare";
+"speaker_count_auto" = "Auto";

@@ -461,6 +461,11 @@ struct TranscriptionView: View {
                         displayModeButton(.speakers, icon: "person.2", labelKey: "speakers")
                     }
                     .padding(.horizontal, 20)
+
+                    if displayMode == .speakers {
+                        speakerOptionsPanel
+                            .padding(.horizontal, 20)
+                    }
                 }
                 
                 // Save/Copy Section
@@ -897,6 +902,56 @@ struct TranscriptionView: View {
         return formatter.string(fromByteCount: Int64(bytesPerSec)) + "/s"
     }
     
+    /// Speaker options shown while the Talare mode is active: a known-speaker-
+    /// count picker (pins clustering, big win on short clips) and rename fields
+    /// for each detected speaker. Names flow into display, save, and copy.
+    private var speakerOptionsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(localized("speaker_count"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.textSecondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { viewModel.speakerCountHint ?? 0 },
+                    set: { viewModel.rediarize(speakerCount: $0 == 0 ? nil : $0) }
+                )) {
+                    Text(localized("speaker_count_auto")).tag(0)
+                    ForEach(2...8, id: \.self) { count in
+                        Text("\(count)").tag(count)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 90)
+                .disabled(viewModel.isDiarizing)
+            }
+
+            if !viewModel.detectedSpeakerIds.isEmpty {
+                ForEach(viewModel.detectedSpeakerIds, id: \.self) { speakerId in
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.primaryAccent)
+                        TextField(
+                            String(format: localized("speaker_label"), speakerId + 1),
+                            text: Binding(
+                                get: { viewModel.speakerNames[speakerId] ?? "" },
+                                set: { viewModel.speakerNames[speakerId] = $0 }
+                            )
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.cardBackground)
+        )
+    }
+
     private func displayModeButton(_ mode: DisplayMode, icon: String, labelKey: String) -> some View {
         Button(action: {
             displayMode = mode
@@ -981,7 +1036,7 @@ struct TranscriptionView: View {
 
         func flush() {
             guard !currentLines.isEmpty else { return }
-            let label = currentSpeaker.map { String(format: localized("speaker_label"), $0 + 1) }
+            let label = currentSpeaker.map { viewModel.speakerDisplayName($0) }
                 ?? localized("speaker_unknown")
             blocks.append("[\(formatTime(turnStart))] \(label):\n" + currentLines.joined(separator: " "))
         }
@@ -1377,7 +1432,17 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     @Published var isDiarizing = false
     @Published var diarizationProgress: Double = 0
     @Published var diarizationError: String? = nil
+    /// User-assigned display names per speaker id (e.g. 0: "Cecilia").
+    @Published var speakerNames: [Int: String] = [:]
+    /// Known speaker count to pin clustering with; nil = auto-estimate.
+    @Published var speakerCountHint: Int? = nil
     private var diarizationTask: Task<Void, Never>?
+
+    /// Distinct speaker ids present in the diarization result, sorted.
+    var detectedSpeakerIds: [Int] {
+        guard let turns = speakerTurns else { return [] }
+        return Array(Set(turns.map(\.speakerId))).sorted()
+    }
     @Published var elapsedTime: Double = 0
     @Published var estimatedTimeRemaining: Double = 0
     @Published var errorMessage: String?
@@ -1467,6 +1532,26 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         isTranscribing = false
     }
 
+    /// Re-runs diarization with a pinned (or auto) speaker count.
+    /// Assigned names are kept — cluster ids usually remain stable in order.
+    func rediarize(speakerCount: Int?) {
+        guard speakerCountHint != speakerCount || speakerTurns == nil else { return }
+        speakerCountHint = speakerCount
+        diarizationTask?.cancel()
+        diarizationTask = nil
+        speakerTurns = nil
+        isDiarizing = false
+        startDiarizationIfNeeded()
+    }
+
+    /// Display name for a speaker id: user-assigned, or "Talare N".
+    func speakerDisplayName(_ id: Int) -> String {
+        if let name = speakerNames[id], !name.isEmpty {
+            return name
+        }
+        return String(format: localized("speaker_label"), id + 1)
+    }
+
     /// Runs speaker diarization once per file; results are cached in
     /// `speakerTurns`. Requires local transcription segments for alignment.
     func startDiarizationIfNeeded() {
@@ -1477,7 +1562,10 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 
         diarizationTask = Task {
             do {
-                let turns = try await DiarizationService.shared.diarize(fileURL: fileURL) { progress in
+                let turns = try await DiarizationService.shared.diarize(
+                    fileURL: fileURL,
+                    numberOfSpeakers: speakerCountHint
+                ) { progress in
                     DispatchQueue.main.async {
                         self.diarizationProgress = progress
                     }

@@ -36,6 +36,7 @@ final class DiarizationService {
     /// stored under the same base directory as the Whisper models.
     func diarize(
         fileURL: URL,
+        numberOfSpeakers: Int? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [SpeakerTurn] {
         // Video containers / non-native formats: extract the audio track first,
@@ -71,7 +72,10 @@ final class DiarizationService {
         guard let speakerKit else { throw DiarizationError.noAudio }
 
         let start = Date()
-        let result = try await speakerKit.diarize(audioArray: samples) { progress in
+        // A known speaker count pins the clustering stage — significantly more
+        // reliable on short clips where per-speaker samples are sparse.
+        let options = PyannoteDiarizationOptions(numberOfSpeakers: numberOfSpeakers)
+        let result = try await speakerKit.diarize(audioArray: samples, options: options) { progress in
             onProgress?(progress.fractionCompleted)
         }
         logger.info("Diarization found \(result.speakerCount) speakers in \(Date().timeIntervalSince(start), format: .fixed(precision: 1))s")
