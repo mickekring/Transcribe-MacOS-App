@@ -1278,7 +1278,10 @@ struct TranscriptionView: View {
             systemPrompt += "\n\n" + localized("additional_information") + ":\n" + additionalPromptInfo
         }
         
-        let transcription = viewModel.transcribedText
+        // Send the transcript as formatted by the active display mode — with
+        // speaker names or timestamps included, the LLM can attribute
+        // statements and reference moments instead of guessing.
+        let transcription = exportableTranscript
         let provider: LLMService.Provider = settingsManager.preferredLLMProvider == "berget" ? .berget : .ollama
         let model = provider == .berget ? settingsManager.selectedBergetLLMModel : settingsManager.selectedOllamaModel
         let apiKey = settingsManager.bergetKey
