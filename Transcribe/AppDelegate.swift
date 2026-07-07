@@ -8,6 +8,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarItem: NSStatusItem?
     /// The main WindowGroup window, captured by TranscribeApp when its content appears
     weak var mainWindow: NSWindow?
+    private var frameObservers: [Any] = []
+
+    /// Explicit window-frame persistence. AppKit's frameAutosaveName is
+    /// unreliable under SwiftUI window management (frames were never saved),
+    /// so the frame is stored in UserDefaults on resize/move/close and
+    /// restored when the window is first captured.
+    func adoptMainWindow(_ window: NSWindow) {
+        guard mainWindow !== window else { return }
+        mainWindow = window
+
+        let key = "MainWindowFrame"
+        if let saved = UserDefaults.standard.string(forKey: key) {
+            let frame = NSRectFromString(saved)
+            if frame.width > 0, frame.height > 0 {
+                window.setFrame(frame, display: true)
+            }
+        }
+
+        frameObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        frameObservers = [
+            NSWindow.didEndLiveResizeNotification,
+            NSWindow.didMoveNotification,
+            NSWindow.willCloseNotification
+        ].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { note in
+                guard let w = note.object as? NSWindow else { return }
+                UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: key)
+            }
+        }
+    }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Must run before the first model load (the launch prewarm) so

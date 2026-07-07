@@ -25,11 +25,9 @@ struct TranscribeApp: App {
                 .frame(minWidth: 900, minHeight: 620)
                 .preferredColorScheme(preferredScheme)
                 .background(WindowAccessor { window in
-                    appDelegate.mainWindow = window
-                    // Persist window size/position across launches
-                    if window.frameAutosaveName != "TranscribeMainWindow" {
-                        window.setFrameAutosaveName("TranscribeMainWindow")
-                    }
+                    // Captures the window for status-bar restore and
+                    // saves/restores its frame across launches
+                    appDelegate.adoptMainWindow(window)
                 })
         }
         // 16:9 default that fits every supported Mac's screen; the frame
