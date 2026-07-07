@@ -284,7 +284,10 @@ class WhisperKitService {
                 if userCancelledDownloads.contains(modelId) {
                     throw CancellationError()
                 }
-                guard attempt < 8 else {
+                // Each stalled attempt costs at most ~35s and resumes from
+                // the partial bytes, so a generous budget rides out long
+                // CDN bad patches (observed: 10+ consecutive stalls).
+                guard attempt < 20 else {
                     logger.error("Download of \(modelId, privacy: .public) stalled after \(attempt) attempts, giving up")
                     throw ModelDownloadError.stalledRepeatedly
                 }
@@ -294,9 +297,30 @@ class WhisperKitService {
         }
     }
 
+    /// Total bytes of the model currently on disk: the final variant folder
+    /// plus the Hub downloader's staging area, where the large weight files
+    /// accumulate as `.incomplete` until they finish. This is the ground
+    /// truth for both progress and stall detection — the SDK's Progress
+    /// counts files (20 equal slices regardless of size) and forgets resumed
+    /// bytes on retries, so it reads 5% while gigabytes sit on disk.
+    private nonisolated static func downloadedBytes(variant: String, repo: String, downloadBase: URL) -> Int64 {
+        let fm = FileManager.default
+        let repoDir = downloadBase.appendingPathComponent("models").appendingPathComponent(repo)
+        var total: Int64 = 0
+        for dir in [repoDir.appendingPathComponent(variant),
+                    repoDir.appendingPathComponent(".cache/huggingface/download").appendingPathComponent(variant)] {
+            guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
+            for case let file as URL in enumerator {
+                total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+        }
+        return total
+    }
+
     private func runDownloadAttempt(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
         let modelManager = ModelManager.shared
         let stalled = TranscriptionCancellationFlag()
+        let expectedBytes = modelManager.modelSizeBytes(for: modelId)
 
         let task = Task {
             try await WhisperKit.download(
@@ -304,10 +328,8 @@ class WhisperKitService {
                 downloadBase: downloadBase,
                 from: repo,
                 progressCallback: { progress in
-                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
                     let speed = progress.userInfo[.throughputKey] as? Double
                     Task { @MainActor in
-                        modelManager.downloadProgress[modelId] = fraction
                         if let speed {
                             modelManager.downloadSpeed[modelId] = speed
                         }
@@ -318,17 +340,21 @@ class WhisperKitService {
         downloadTasks[modelId] = task
         defer { downloadTasks[modelId] = nil }
 
+        // Byte-based progress and stall detection off disk state
         let watchdog = Task { @MainActor in
-            var lastProgress = modelManager.downloadProgress[modelId] ?? 0
-            var lastChange = Date()
+            var lastBytes = Self.downloadedBytes(variant: variant, repo: repo, downloadBase: downloadBase)
+            var lastGrowth = Date()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { break }
-                let progress = modelManager.downloadProgress[modelId] ?? 0
-                if progress > lastProgress {
-                    lastProgress = progress
-                    lastChange = Date()
-                } else if Date().timeIntervalSince(lastChange) > 30 {
+                let bytes = Self.downloadedBytes(variant: variant, repo: repo, downloadBase: downloadBase)
+                if let expectedBytes, expectedBytes > 0 {
+                    modelManager.downloadProgress[modelId] = min(Double(bytes) / Double(expectedBytes), 0.99)
+                }
+                if bytes > lastBytes {
+                    lastBytes = bytes
+                    lastGrowth = Date()
+                } else if Date().timeIntervalSince(lastGrowth) > 30 {
                     stalled.cancel()
                     task.cancel()
                     break
