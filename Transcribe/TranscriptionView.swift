@@ -258,9 +258,12 @@ struct TranscriptionView: View {
                         fontSize: fontSize,
                         isStreaming: viewModel.isTranscribing
                     )
-                    
-                    if viewModel.isTranscribing {
-                        streamingIndicator
+                    // Overlay instead of stacking below: stays visible even
+                    // when a short window would push a stacked pill offscreen
+                    .overlay(alignment: .bottomLeading) {
+                        if viewModel.isTranscribing {
+                            streamingIndicator
+                        }
                     }
                 }
             } else {
@@ -445,7 +448,9 @@ struct TranscriptionView: View {
     var rightSidePanel: some View {
         VStack(spacing: 0) {
             
-            // Main content area
+            // Main content area — scrolls when the window is short
+            // (e.g. many speaker rename fields in the Talare panel)
+            ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
                 // Display Mode Section
                 VStack(alignment: .leading, spacing: 8) {
@@ -764,10 +769,12 @@ struct TranscriptionView: View {
                 }
             }
             .padding(.top, 20)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.bottom, 16)
+            }
+            .frame(maxHeight: .infinity)
             .background(Color.surfaceBackground)
-            
-            // Audio player at bottom
+
+            // Audio player pinned at the bottom, outside the scroll area
             audioPlayerSection
         }
         .background(Color.surfaceBackground)
@@ -805,9 +812,14 @@ struct TranscriptionView: View {
                 .help(localized("save_audio_file"))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.cardBackground)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.cardBackground)
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
     }
 
     var playbackControls: some View {
