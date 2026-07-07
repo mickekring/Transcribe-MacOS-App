@@ -228,8 +228,42 @@ class WhisperKitService {
     }
 
     /// Runs WhisperKit.download as a cancellable, UI-addressable task.
+    /// Watchdog marker: a download attempt made no progress and was aborted.
+    private struct DownloadStalledError: Error {}
+
+    enum ModelDownloadError: LocalizedError {
+        case stalledRepeatedly
+
+        var errorDescription: String? {
+            "The download kept stalling. Check your internet connection and try again."
+        }
+    }
+
+    /// Downloads a model with automatic stall recovery: if no progress is
+    /// made for 30 seconds (HuggingFace's CDN is prone to stalling sustained
+    /// multi-GB transfers), the attempt is cancelled and retried — the
+    /// downloader resumes from its partial `.incomplete` file, so a stall
+    /// costs seconds, not a restart.
     private func runDownload(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
+        var attempt = 1
+        while true {
+            do {
+                return try await runDownloadAttempt(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+            } catch is DownloadStalledError {
+                guard attempt < 8 else {
+                    logger.error("Download of \(modelId, privacy: .public) stalled after \(attempt) attempts, giving up")
+                    throw ModelDownloadError.stalledRepeatedly
+                }
+                attempt += 1
+                logger.warning("Download of \(modelId, privacy: .public) stalled, retrying (attempt \(attempt)) — resuming from partial file")
+            }
+        }
+    }
+
+    private func runDownloadAttempt(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
         let modelManager = ModelManager.shared
+        let stalled = TranscriptionCancellationFlag()
+
         let task = Task {
             try await WhisperKit.download(
                 variant: variant,
@@ -249,7 +283,36 @@ class WhisperKitService {
         }
         downloadTasks[modelId] = task
         defer { downloadTasks[modelId] = nil }
-        return try await task.value
+
+        let watchdog = Task { @MainActor in
+            var lastProgress = modelManager.downloadProgress[modelId] ?? 0
+            var lastChange = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { break }
+                let progress = modelManager.downloadProgress[modelId] ?? 0
+                if progress > lastProgress {
+                    lastProgress = progress
+                    lastChange = Date()
+                } else if Date().timeIntervalSince(lastChange) > 30 {
+                    stalled.cancel()
+                    task.cancel()
+                    break
+                }
+            }
+        }
+        defer { watchdog.cancel() }
+
+        do {
+            return try await task.value
+        } catch {
+            // Distinguish watchdog aborts (retry) from user cancellation and
+            // real network errors (propagate)
+            if stalled.isCancelled {
+                throw DownloadStalledError()
+            }
+            throw error
+        }
     }
 
     /// Removes a partially downloaded model folder after a failed download so
