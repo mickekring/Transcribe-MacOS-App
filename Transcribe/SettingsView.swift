@@ -309,6 +309,7 @@ struct LocalModelsView: View {
 
 struct CloudModelsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
+    @ObservedObject private var catalog = BergetModelCatalog.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -350,29 +351,36 @@ struct CloudModelsView: View {
                         Divider()
                         
                         if !settingsManager.bergetKey.isEmpty {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("KB Whisper Large")
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text(localized("cloud_transcription_model_subtitle"))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.textSecondary)
-                                }
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(Color.green)
-                                        .frame(width: 6, height: 6)
-                                    Text(localized("available"))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.primaryAccent)
-                                }
+                            if catalog.asrModels.isEmpty {
+                                Text(localized("berget_models_unavailable"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textTertiary)
                             }
-                            .padding(12)
-                            .background(Color.elevatedSurface)
-                            .cornerRadius(8)
+                            ForEach(catalog.asrModels) { model in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(ModelManager.shared.displayName(for: "berget:\(model.id)"))
+                                            .font(.system(size: 13, weight: .medium))
+                                        Text(model.id)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    HStack(spacing: 6) {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 6, height: 6)
+                                        Text(localized("available"))
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.primaryAccent)
+                                    }
+                                }
+                                .padding(12)
+                                .background(Color.elevatedSurface)
+                                .cornerRadius(8)
+                            }
                         } else {
                             HStack(spacing: 8) {
                                 Image(systemName: "key")

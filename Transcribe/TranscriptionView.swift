@@ -1208,12 +1208,16 @@ struct TranscriptionView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Berget section (only if API key configured)
             if !settingsManager.bergetKey.isEmpty {
-                Text("Berget AI")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                HStack(spacing: 5) {
+                    Image(systemName: "cloud")
+                        .font(.system(size: 10))
+                    Text("Berget AI – \(localized("cloud_models"))")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
                 
                 ForEach(bergetCatalog.llmModels) { model in
                     llmPopoverRow(
@@ -1234,12 +1238,16 @@ struct TranscriptionView: View {
                     Divider().padding(.horizontal, 12).padding(.vertical, 4)
                 }
                 
-                Text("Ollama")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, settingsManager.bergetKey.isEmpty ? 8 : 0)
-                    .padding(.bottom, 4)
+                HStack(spacing: 5) {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 10))
+                    Text("Ollama – \(localized("local_models"))")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, settingsManager.bergetKey.isEmpty ? 8 : 0)
+                .padding(.bottom, 4)
                 
                 ForEach(settingsManager.ollamaModels, id: \.self) { model in
                     llmPopoverRow(
