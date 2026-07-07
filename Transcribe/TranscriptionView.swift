@@ -24,6 +24,7 @@ struct TranscriptionView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settingsManager: SettingsManager
     @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
     @State private var showingExportPopover = false
     @State private var displayMode: DisplayMode = .transcript
     @State private var fontSize: Double = 16
@@ -933,6 +934,7 @@ struct TranscriptionView: View {
     /// for each detected speaker. Names flow into display, save, and copy.
     private var speakerOptionsPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !viewModel.isCloudDiarization {
             HStack {
                 Text(localized("speaker_count"))
                     .font(.system(size: 12))
@@ -950,6 +952,7 @@ struct TranscriptionView: View {
                 .pickerStyle(.menu)
                 .frame(width: 90)
                 .disabled(viewModel.isDiarizing)
+            }
             }
 
             if !viewModel.detectedSpeakerIds.isEmpty {
@@ -1184,9 +1187,13 @@ struct TranscriptionView: View {
             if settingsManager.bergetKey.isEmpty {
                 return localized("select_model")
             }
-            // Find display name from registry
-            if let model = LLMCloudModelsView.bergetLLMModels.first(where: { $0.id == settingsManager.selectedBergetLLMModel }) {
-                return model.displayName
+            // Look up in the live catalog; a selection missing from it
+            // (decommissioned model) shows its raw id as a hint to repick
+            if let model = bergetCatalog.llmModels.first(where: { $0.id == settingsManager.selectedBergetLLMModel }) {
+                return model.name
+            }
+            if !settingsManager.selectedBergetLLMModel.isEmpty {
+                return settingsManager.selectedBergetLLMModel
             }
             return localized("select_model")
         } else {
@@ -1208,10 +1215,10 @@ struct TranscriptionView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 4)
                 
-                ForEach(LLMCloudModelsView.bergetLLMModels) { model in
+                ForEach(bergetCatalog.llmModels) { model in
                     llmPopoverRow(
-                        name: model.displayName,
-                        subtitle: model.size,
+                        name: model.name,
+                        subtitle: model.isStable ? "" : model.lifecycleState,
                         isSelected: settingsManager.preferredLLMProvider == "berget" && settingsManager.selectedBergetLLMModel == model.id
                     ) {
                         settingsManager.preferredLLMProvider = "berget"
@@ -1465,6 +1472,9 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     @Published var speakerNames: [Int: String] = [:]
     /// Known speaker count to pin clustering with; nil = auto-estimate.
     @Published var speakerCountHint: Int? = nil
+    /// Speaker turns came from Berget's server-side diarization — the local
+    /// speaker-count control doesn't apply (the API has no such knob).
+    @Published var isCloudDiarization = false
     private var diarizationTask: Task<Void, Never>?
 
     /// Distinct speaker ids present in the diarization result, sorted.
@@ -1632,6 +1642,9 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         wordCount = 0
         progress = 0
         segments = []
+        speakerTurns = nil
+        isCloudDiarization = false
+        diarizationError = nil
         errorMessage = nil
         statusMessage = ""
         transcriptionTime = 0
@@ -1660,9 +1673,13 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         let selectedLanguage = LanguageManager.shared.selectedLanguage.code == "auto" ? nil : LanguageManager.shared.selectedLanguage.code
         
         // Determine which service to use based on selected model
-        if selectedModel == "berget-kb-whisper-large" {
-            // Use Berget service
-            startBergetTranscription(language: selectedLanguage)
+        if selectedModel.hasPrefix("berget") {
+            // Cloud transcription (id format "berget:<api model id>";
+            // legacy "berget-kb-whisper-large" maps to the KB model)
+            let apiModel = selectedModel.hasPrefix("berget:")
+                ? String(selectedModel.dropFirst("berget:".count))
+                : "KBLab/kb-whisper-large"
+            startBergetTranscription(model: apiModel, language: selectedLanguage)
         } else {
             // Use local WhisperKit service
             startLocalTranscription()
@@ -1727,14 +1744,14 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         }
     }
 
-    private func startBergetTranscription(language: String?) {
+    private func startBergetTranscription(model: String, language: String?) {
         guard !bergetKey.isEmpty else {
             handleTranscriptionError(CloudTranscriptionError.apiError("Berget API key not configured"))
             return
         }
         
         statusMessage = localized("preparing_audio_file")
-        bergetService = BergetTranscriptionService(apiKey: bergetKey)
+        bergetService = BergetTranscriptionService(apiKey: bergetKey, model: model)
 
         transcriptionTask = Task {
             do {
@@ -1825,7 +1842,10 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 
                         switch result {
                         case .success(let transcriptionResult):
-                            self.transcribedText = transcriptionResult.text
+                            // Prefer joined segment text (clean) over the raw
+                            // text field, which may embed speaker prefixes
+                            let joined = transcriptionResult.segments.map(\.text).joined(separator: " ")
+                            self.transcribedText = joined.isEmpty ? transcriptionResult.text : joined
                             self.segments = transcriptionResult.segments.map { segment in
                                 TranscriptionSegmentData(
                                     start: segment.start,
@@ -1834,7 +1854,19 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
                                     words: nil
                                 )
                             }
-                            self.wordCount = transcriptionResult.text.split(separator: " ").count
+                            // Cloud diarization: "SPEAKER_00" labels → speaker
+                            // turns, powering the Talare view with no local
+                            // diarization pass
+                            let turns: [SpeakerTurn] = transcriptionResult.segments.compactMap { segment in
+                                guard let label = segment.speaker,
+                                      let id = Int(label.components(separatedBy: "_").last ?? "") else { return nil }
+                                return SpeakerTurn(speakerId: id, start: segment.start, end: segment.end)
+                            }
+                            if !turns.isEmpty {
+                                self.speakerTurns = turns
+                                self.isCloudDiarization = true
+                            }
+                            self.wordCount = self.transcribedText.split(separator: " ").count
                             self.finishTranscription()
                         case .failure(let error):
                             self.handleTranscriptionError(error)
@@ -1995,10 +2027,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     private func getModelDisplayName(_ modelId: String) -> String {
-        switch modelId {
-        case "berget-kb-whisper-large": return "KB Whisper Large (Berget)"
-        default: return modelId
-        }
+        ModelManager.shared.displayName(for: modelId)
     }
     
     func togglePlayPause() {

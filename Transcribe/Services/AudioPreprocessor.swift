@@ -5,10 +5,15 @@ class AudioPreprocessor {
     nonisolated(unsafe) static let shared = AudioPreprocessor()
     
     // Maximum file size (25 MB)
-    private let maxFileSize: Int64 = 25 * 1024 * 1024
+    // Berget accepts up to 100 MB per request and processes ~25x realtime
+    // within its 30-minute cap, so hours of 16 kHz mono AAC fit in ONE
+    // request. Single requests matter beyond efficiency: speaker labels
+    // (SPEAKER_00...) are only consistent within one transcription, so
+    // chunking would scramble diarization.
+    private let maxFileSize: Int64 = 95 * 1024 * 1024
     
     // Maximum duration (10 minutes)
-    private let maxDuration: Double = 600.0
+    private let maxDuration: Double = 6 * 60 * 60  // ~6h fits Berget's 30-min processing cap with margin
     
     // Chunk duration with overlap (9 minutes chunks with 30 seconds overlap)
     private let chunkDuration: Double = 540.0  // 9 minutes

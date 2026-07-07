@@ -255,3 +255,4 @@
 "speaker_count" = "Antal talare";
 "speaker_count_auto" = "Auto";
 "cancel_download" = "Avbryt nedladdning";
+"berget_models_unavailable" = "Modellistan är inte tillgänglig – lägg till din API-nyckel eller kontrollera anslutningen.";

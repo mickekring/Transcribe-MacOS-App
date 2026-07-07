@@ -770,22 +770,9 @@ struct LLMLocalModelsView: View {
     }
 }
 
-struct BergetLLMModel: Identifiable {
-    let id: String        // API model ID
-    let displayName: String
-    let size: String      // e.g. "70B"
-}
-
 struct LLMCloudModelsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
-    
-    static let bergetLLMModels: [BergetLLMModel] = [
-        BergetLLMModel(id: "meta-llama/Llama-3.3-70B-Instruct", displayName: "Llama 3.3 70B Instruct", size: "70B"),
-        BergetLLMModel(id: "meta-llama/Llama-3.1-8B-Instruct", displayName: "Llama 3.1 8B Instruct", size: "8B"),
-        BergetLLMModel(id: "mistralai/Mistral-Small-3.2-24B-Instruct-2506", displayName: "Mistral Small 3.2 24B", size: "24B"),
-        BergetLLMModel(id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B", size: "120B"),
-        BergetLLMModel(id: "zai-org/GLM-4.7", displayName: "GLM 4.7", size: ""),
-    ]
+    @ObservedObject private var catalog = BergetModelCatalog.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -834,16 +821,30 @@ struct LLMCloudModelsView: View {
                             Divider()
                             
                             VStack(spacing: 8) {
-                                ForEach(Self.bergetLLMModels) { model in
+                                if catalog.llmModels.isEmpty {
+                                    Text(localized("berget_models_unavailable"))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textTertiary)
+                                }
+                                ForEach(catalog.llmModels) { model in
                                     HStack {
                                         VStack(alignment: .leading, spacing: 4) {
-                                            Text(model.displayName)
-                                                .font(.system(size: 13, weight: .medium))
-                                            if !model.size.isEmpty {
-                                                Text(model.size)
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(.textSecondary)
+                                            HStack(spacing: 6) {
+                                                Text(model.name)
+                                                    .font(.system(size: 13, weight: .medium))
+                                                if !model.isStable {
+                                                    Text(model.lifecycleState)
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .padding(.horizontal, 5)
+                                                        .padding(.vertical, 2)
+                                                        .background(Color.orange.opacity(0.2))
+                                                        .foregroundColor(.orange)
+                                                        .cornerRadius(4)
+                                                }
                                             }
+                                            Text(model.id)
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.textSecondary)
                                         }
                                         
                                         Spacer()
@@ -856,6 +857,9 @@ struct LLMCloudModelsView: View {
                                     .background(Color.elevatedSurface)
                                     .cornerRadius(8)
                                 }
+                            }
+                            .task {
+                                await catalog.refresh(apiKey: settingsManager.bergetKey)
                             }
                         }
                     }

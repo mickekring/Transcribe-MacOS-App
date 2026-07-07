@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var localizationManager = LocalizationManager.shared
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
     @State private var isDraggingFile = false
     @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
     @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
@@ -113,6 +114,12 @@ struct ContentView: View {
             // Load the selected model in the background so the first
             // transcription doesn't pay the (potentially long) ANE load.
             whisperKitService.prewarmSelectedModel()
+
+            // Migrate the legacy cloud model id and refresh Berget's catalog
+            if selectedModel == "berget-kb-whisper-large" {
+                selectedModel = "berget:KBLab/kb-whisper-large"
+            }
+            await bergetCatalog.refresh(apiKey: settingsManager.bergetKey)
         }
     }
     
@@ -560,8 +567,15 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
-                    
-                    modelDropdownRow(modelId: "berget-kb-whisper-large", icon: "cloud")
+
+                    if bergetCatalog.asrModels.isEmpty {
+                        // Catalog not fetched yet (first run offline) — legacy default
+                        modelDropdownRow(modelId: "berget:KBLab/kb-whisper-large", icon: "cloud")
+                    } else {
+                        ForEach(bergetCatalog.asrModels) { model in
+                            modelDropdownRow(modelId: "berget:\(model.id)", icon: "cloud")
+                        }
+                    }
                 }
             }
             .padding(.vertical, 8)
@@ -572,7 +586,7 @@ struct ContentView: View {
     @ViewBuilder
     func modelDropdownRow(modelId: String, icon: String) -> some View {
         let isDownloaded = modelManager.isModelDownloaded(modelId)
-        let isCloud = modelId.starts(with: "berget-")
+        let isCloud = modelId.starts(with: "berget")
         let isDownloading = modelManager.isDownloading[modelId] == true
         let progress = modelManager.downloadProgress[modelId] ?? 0
         
@@ -677,7 +691,7 @@ struct ContentView: View {
     func getModelIcon(_ modelId: String) -> String {
         if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "nb_whisper-") || modelId.starts(with: "openai_whisper-") {
             return "laptopcomputer"
-        } else if modelId == "berget-kb-whisper-large" {
+        } else if modelId.starts(with: "berget") {
             return "cloud"
         } else if modelId.starts(with: "cloud-") {
             return "cloud.fill"

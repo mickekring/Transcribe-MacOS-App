@@ -255,3 +255,4 @@
 "speaker_count" = "Number of speakers";
 "speaker_count_auto" = "Auto";
 "cancel_download" = "Cancel download";
+"berget_models_unavailable" = "Model list unavailable — add your API key or check your connection.";

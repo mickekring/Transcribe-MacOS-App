@@ -60,7 +60,6 @@ class ModelManager: ObservableObject {
         "openai_whisper-medium": "Whisper Medium",
         "openai_whisper-large-v2": "Whisper Large v2",
         "openai_whisper-large-v3": "Whisper Large v3",
-        "berget-kb-whisper-large": "KB Whisper Large (Berget)",
     ]
     
     /// UserDefaults key for persisted model folder paths
@@ -148,8 +147,22 @@ class ModelManager: ObservableObject {
     }
     
     func displayName(for modelId: String) -> String {
-        Self.displayNames[modelId] ?? modelId
+        if let known = Self.displayNames[modelId] { return known }
+        // Cloud models: "berget:KBLab/kb-whisper-large" etc.
+        if modelId.hasPrefix("berget:") {
+            let apiId = String(modelId.dropFirst("berget:".count))
+            if let friendly = Self.bergetASRDisplayNames[apiId] { return friendly }
+            let shortName = apiId.components(separatedBy: "/").last ?? apiId
+            return "\(shortName) (Berget)"
+        }
+        return modelId
     }
+
+    private static let bergetASRDisplayNames: [String: String] = [
+        "KBLab/kb-whisper-large": "KB Whisper Large (Berget)",
+        "NbAiLab/nb-whisper-large": "NB Whisper Large (Berget)",
+        "Systran/faster-whisper-large-v3": "Faster Whisper V3 (Berget)",
+    ]
     
     // MARK: - Model Deletion
     

@@ -4,10 +4,11 @@ import AVFoundation
 final class BergetTranscriptionService: Sendable {
     private let apiKey: String
     private let baseURL = "https://api.berget.ai/v1"
-    private let model = "KBLab/kb-whisper-large"
-    
-    init(apiKey: String) {
+    private let model: String
+
+    init(apiKey: String, model: String = "KBLab/kb-whisper-large") {
         self.apiKey = apiKey
+        self.model = model
     }
     
     func transcribe(
@@ -95,6 +96,15 @@ final class BergetTranscriptionService: Sendable {
             body.append("\(appliedLanguage)\r\n".data(using: .utf8)!)
         }
 
+        // Segments with timing + speaker labels (WhisperX features).
+        // Diarization has minimal processing-time impact per Berget's docs.
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
+        body.append("verbose_json\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"diarize\"\r\n\r\n".data(using: .utf8)!)
+        body.append("true\r\n".data(using: .utf8)!)
+
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         
@@ -128,21 +138,48 @@ final class BergetTranscriptionService: Sendable {
             throw CloudTranscriptionError.httpError(httpResponse.statusCode)
         }
         
-        // Parse response — Berget returns {"text": "...", "usage": {...}}
+        // Parse the verbose response:
+        // {"text": "...", "language": "sv", "segments": {"segments": [
+        //   {"start": 0.0, "end": 2.5, "speaker": "SPEAKER_00", "text": "..."},
+        // ...], "word_segments": [...]}}
+        // The segment list is nested one level deeper than the docs show;
+        // tolerate a flat list too.
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        
-        if let text = json?["text"] as? String {
-            return TranscriptionResult(
-                text: text,
-                segments: [],
-                language: appliedLanguage ?? "unknown",
-                duration: getAudioDuration(url: audioURL) ?? 0,
-                timestamp: Date(),
-                modelUsed: model
-            )
-        } else {
+
+        guard let text = json?["text"] as? String else {
             throw CloudTranscriptionError.invalidResponse
         }
+
+        var rawSegments: [[String: Any]] = []
+        if let container = json?["segments"] as? [String: Any],
+           let inner = container["segments"] as? [[String: Any]] {
+            rawSegments = inner
+        } else if let flat = json?["segments"] as? [[String: Any]] {
+            rawSegments = flat
+        }
+
+        let segments: [TranscriptionSegment] = rawSegments.enumerated().compactMap { index, raw in
+            guard let start = raw["start"] as? Double,
+                  let end = raw["end"] as? Double,
+                  let segmentText = raw["text"] as? String else { return nil }
+            return TranscriptionSegment(
+                id: index,
+                start: start,
+                end: end,
+                text: segmentText.trimmingCharacters(in: .whitespaces),
+                confidence: nil,
+                speaker: raw["speaker"] as? String
+            )
+        }
+
+        return TranscriptionResult(
+            text: text,
+            segments: segments,
+            language: (json?["language"] as? String) ?? appliedLanguage ?? "unknown",
+            duration: getAudioDuration(url: audioURL) ?? 0,
+            timestamp: Date(),
+            modelUsed: model
+        )
     }
     
     private func transcribeWithStreaming(
