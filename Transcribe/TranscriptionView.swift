@@ -772,6 +772,16 @@ struct TranscriptionView: View {
             .padding(.bottom, 16)
             }
             .frame(maxHeight: .infinity)
+            // Opaque cover over the toolbar band — the top-side twin of the
+            // solid block under the audio player. The zero-height inset's
+            // background stretches up through the safe area, so scrolled
+            // content disappears behind the floating toolbar chips instead
+            // of showing through between them.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear
+                    .frame(height: 0)
+                    .background(Color.surfaceBackground.ignoresSafeArea(edges: .top))
+            }
             .background(Color.surfaceBackground)
 
             // Audio player pinned at the bottom, outside the scroll area
