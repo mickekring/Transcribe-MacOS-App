@@ -339,6 +339,8 @@ struct ContentView: View {
     func downloadModel(_ modelId: String) async {
         do {
             try await whisperKitService.downloadOnly(modelId: modelId)
+        } catch is CancellationError {
+            // User cancelled from the dropdown — no error alert
         } catch {
             modelDownloadErrorMessage = "\(modelManager.displayName(for: modelId)): \(error.localizedDescription)\n\n\(localized("model_download_retry_hint"))"
             showModelDownloadError = true
@@ -464,13 +466,27 @@ struct ContentView: View {
         }
     }
     
+    /// Progress percent of the currently active model download, if any.
+    private var activeDownloadPercent: Int? {
+        guard let id = modelManager.isDownloading.first(where: { $0.value })?.key else { return nil }
+        return Int((modelManager.downloadProgress[id] ?? 0) * 100)
+    }
+
     var modelDropdown: some View {
         Button(action: {
             showModelPopover.toggle()
         }) {
             HStack(spacing: 6) {
                 if modelManager.isDownloading.values.contains(true) {
-                    AccentSpinner(size: 18, lineWidth: 2)
+                    ZStack {
+                        AccentSpinner(size: 18, lineWidth: 2)
+                        if let percent = activeDownloadPercent {
+                            Text("\(percent)")
+                                .font(.system(size: 7, weight: .semibold))
+                                .foregroundColor(.primaryAccent)
+                                .monospacedDigit()
+                        }
+                    }
                 } else {
                     Image(systemName: getModelIcon(selectedModel))
                         .font(.system(size: 18))
@@ -586,6 +602,15 @@ struct ContentView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.primaryAccent)
                         .monospacedDigit()
+                    Button(action: {
+                        whisperKitService.cancelDownload(modelId: modelId)
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(localized("cancel_download"))
                 } else if !isDownloaded && !isCloud {
                     Text(modelManager.getModelSizeString(modelId))
                         .font(.system(size: 11))

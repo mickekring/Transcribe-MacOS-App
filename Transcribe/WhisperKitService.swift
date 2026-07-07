@@ -21,6 +21,8 @@ class WhisperKitService {
     private var currentModelId: String?
     private var activeTranscriptionTask: Task<Void, Never>?
     private var activeCancellationFlag: TranscriptionCancellationFlag?
+    /// In-flight model downloads by model id, cancellable from the UI.
+    private var downloadTasks: [String: Task<URL, Error>] = [:]
     
     var currentModel: String? {
         return currentModelId
@@ -184,23 +186,9 @@ class WhisperKitService {
         modelManager.downloadProgress[modelId] = 0
 
         do {
-            // Phase 1: Download via WhisperKit.download() with progress callback
-            let modelFolder = try await WhisperKit.download(
-                variant: variant,
-                downloadBase: downloadBase,
-                from: repo,
-                progressCallback: { progress in
-                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
-                    let speed = progress.userInfo[.throughputKey] as? Double
-                    Task { @MainActor in
-                        modelManager.downloadProgress[modelId] = fraction
-                        if let speed {
-                            modelManager.downloadSpeed[modelId] = speed
-                        }
-                    }
-                }
-            )
-            
+            // Phase 1: Download with progress callback (cancellable from the UI)
+            let modelFolder = try await runDownload(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+
             // Download complete
             modelManager.isDownloading[modelId] = false
             modelManager.downloadProgress[modelId] = 1.0
@@ -230,6 +218,38 @@ class WhisperKitService {
             cleanupPartialDownload(modelId: modelId)
             throw error
         }
+    }
+
+    /// Cancels an in-flight model download (from either the dropdown download
+    /// or a transcription that triggered one).
+    func cancelDownload(modelId: String) {
+        logger.info("Cancelling download of \(modelId, privacy: .public)")
+        downloadTasks[modelId]?.cancel()
+    }
+
+    /// Runs WhisperKit.download as a cancellable, UI-addressable task.
+    private func runDownload(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
+        let modelManager = ModelManager.shared
+        let task = Task {
+            try await WhisperKit.download(
+                variant: variant,
+                downloadBase: downloadBase,
+                from: repo,
+                progressCallback: { progress in
+                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
+                    let speed = progress.userInfo[.throughputKey] as? Double
+                    Task { @MainActor in
+                        modelManager.downloadProgress[modelId] = fraction
+                        if let speed {
+                            modelManager.downloadSpeed[modelId] = speed
+                        }
+                    }
+                }
+            )
+        }
+        downloadTasks[modelId] = task
+        defer { downloadTasks[modelId] = nil }
+        return try await task.value
     }
 
     /// Removes a partially downloaded model folder after a failed download so
@@ -264,22 +284,8 @@ class WhisperKitService {
         modelManager.downloadProgress[modelId] = 0
         
         do {
-            let modelFolder = try await WhisperKit.download(
-                variant: variant,
-                downloadBase: downloadBase,
-                from: repo,
-                progressCallback: { progress in
-                    let fraction = Double(progress.completedUnitCount) / max(Double(progress.totalUnitCount), 1)
-                    let speed = progress.userInfo[.throughputKey] as? Double
-                    Task { @MainActor in
-                        modelManager.downloadProgress[modelId] = fraction
-                        if let speed {
-                            modelManager.downloadSpeed[modelId] = speed
-                        }
-                    }
-                }
-            )
-            
+            let modelFolder = try await runDownload(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+
             modelManager.isDownloading[modelId] = false
             modelManager.downloadProgress[modelId] = 1.0
             modelManager.downloadSpeed.removeValue(forKey: modelId)

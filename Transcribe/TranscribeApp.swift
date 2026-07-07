@@ -22,8 +22,7 @@ struct TranscribeApp: App {
                 .environmentObject(appState)
                 .environmentObject(transcriptionManager)
                 .environmentObject(settingsManager)
-                .frame(minWidth: 900, minHeight: 700)
-                .frame(idealWidth: 1200, idealHeight: 850)
+                .frame(minWidth: 900, minHeight: 620)
                 .preferredColorScheme(preferredScheme)
                 .background(WindowAccessor { window in
                     appDelegate.mainWindow = window
@@ -33,6 +32,9 @@ struct TranscribeApp: App {
                     }
                 })
         }
+        // 16:9 default that fits every supported Mac's screen; the frame
+        // autosave takes over once the user resizes.
+        .defaultSize(width: 1280, height: 720)
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
         .commands {
