@@ -78,7 +78,7 @@ KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. N
 - `ModelManager.swift` - Model downloads, availability checking, and storage management
 - `LanguageManager.swift` - Language selection (100+ languages)
 - `SimplifiedManagers.swift` - Contains `SettingsManager` (app preferences, API keys, text processing prompts) and `KeychainHelper` (Keychain wrapper for API key storage)
-- `LocalizationManager.swift` - UI localization (English/Swedish) via `localized(_:)` helper
+- `LocalizationManager.swift` - UI localization (English/Swedish/Norwegian) via `localized(_:)` helper; first launch defaults from the system language
 
 ### Views
 - `ContentView.swift` - Main window with toolbar (file picker, recording, YouTube, settings)
@@ -178,6 +178,7 @@ Keychain access uses the native Security framework (`SimplifiedManagers.swift` ‚
 Uses `localized(_:)` helper function (defined in `LocalizationManager.swift`). String files:
 - `Transcribe/Resources/en.lproj/Localizable.strings` - English
 - `Transcribe/Resources/sv.lproj/Localizable.strings` - Swedish
+- `Transcribe/Resources/no.lproj/Localizable.strings` - Norwegian (Bokm√•l)
 
 English is the default locale with full Swedish localization.
 

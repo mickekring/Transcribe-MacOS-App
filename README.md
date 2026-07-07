@@ -17,10 +17,12 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 - **Norwegian-optimized models** -- NB Whisper models from [NbAiLab](https://huggingface.co/NbAiLab) (the National Library of Norway), fine-tuned for Norwegian speech.
 - **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
 - **System audio capture** -- Record all audio playing on your Mac (meetings, media, notifications) using ScreenCaptureKit. Optionally mix in your microphone to capture both sides of a meeting. macOS asks for permission on first use.
-- **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance.
-- **Cloud transcription (optional)** -- Berget AI provides GDPR-compliant cloud transcription for when you need it.
+- **Speaker identification** -- Diarization labels who said what, with renameable speakers and a known-speaker-count control. Runs locally (SpeakerKit/Pyannote) or server-side with cloud transcriptions.
+- **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance. Speaker-labeled transcripts give the LLM full context of who said what.
+- **Cloud transcription (optional)** -- Berget AI provides GDPR-compliant cloud transcription (KB Whisper, NB Whisper, Faster Whisper V3) with server-side diarization. Models are listed live from the API.
 - **Privacy by default** -- All recordings and downloads are stored in a temporary cache and automatically deleted when the app quits.
 - **100+ languages** -- Whisper supports broad multilingual transcription with automatic language detection.
+- **Localized UI** -- English, Swedish, and Norwegian, defaulting to your macOS language.
 
 ## Requirements
 
