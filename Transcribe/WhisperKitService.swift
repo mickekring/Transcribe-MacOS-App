@@ -23,6 +23,8 @@ class WhisperKitService {
     private var activeCancellationFlag: TranscriptionCancellationFlag?
     /// In-flight model downloads by model id, cancellable from the UI.
     private var downloadTasks: [String: Task<URL, Error>] = [:]
+    /// Model ids whose in-flight download the user explicitly cancelled.
+    private var userCancelledDownloads: Set<String> = []
     
     var currentModel: String? {
         return currentModelId
@@ -224,7 +226,25 @@ class WhisperKitService {
     /// or a transcription that triggered one).
     func cancelDownload(modelId: String) {
         logger.info("Cancelling download of \(modelId, privacy: .public)")
+        userCancelledDownloads.insert(modelId)
         downloadTasks[modelId]?.cancel()
+    }
+
+    /// Whether a model folder contains everything WhisperKit needs to load.
+    /// The vendored Hub downloader returns "success" when its task is
+    /// cancelled mid-transfer, so a returned folder must never be trusted
+    /// without this check — accepting a partial folder marks a broken model
+    /// as downloaded.
+    private func modelFolderIsComplete(_ folder: URL) -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: folder.appendingPathComponent("config.json").path) else { return false }
+        for component in ["MelSpectrogram", "AudioEncoder", "TextDecoder"] {
+            let compiled = folder.appendingPathComponent("\(component).mlmodelc")
+            for required in ["weights/weight.bin", "model.mil", "coremldata.bin"] {
+                guard fm.fileExists(atPath: compiled.appendingPathComponent(required).path) else { return false }
+            }
+        }
+        return true
     }
 
     /// Runs WhisperKit.download as a cancellable, UI-addressable task.
@@ -245,11 +265,25 @@ class WhisperKitService {
     /// downloader resumes from its partial `.incomplete` file, so a stall
     /// costs seconds, not a restart.
     private func runDownload(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
+        userCancelledDownloads.remove(modelId)
         var attempt = 1
         while true {
             do {
-                return try await runDownloadAttempt(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+                let folder = try await runDownloadAttempt(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+                // The downloader reports success even when cancelled
+                // mid-transfer — only a verified-complete folder counts.
+                if modelFolderIsComplete(folder) {
+                    return folder
+                }
+                if userCancelledDownloads.contains(modelId) {
+                    throw CancellationError()
+                }
+                logger.warning("Download of \(modelId, privacy: .public) returned an incomplete folder — resuming")
+                throw DownloadStalledError()
             } catch is DownloadStalledError {
+                if userCancelledDownloads.contains(modelId) {
+                    throw CancellationError()
+                }
                 guard attempt < 8 else {
                     logger.error("Download of \(modelId, privacy: .public) stalled after \(attempt) attempts, giving up")
                     throw ModelDownloadError.stalledRepeatedly
