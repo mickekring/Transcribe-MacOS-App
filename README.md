@@ -50,7 +50,7 @@ The default model (KB Whisper Small) downloads automatically on first launch.
 **Local (on-device):**
 
 | Model | Size | Notes |
-|-------|------|-------|
+| ----- | ---- | ----- |
 | KB Whisper Base | ~150 MB | Fast, good for Swedish |
 | KB Whisper Small | ~500 MB | Default. Best balance of speed and accuracy for Swedish |
 | KB Whisper Medium | ~1.5 GB | Higher accuracy |
@@ -89,6 +89,8 @@ MIT License -- see [LICENSE](LICENSE) for details.
 
 **Micke Kring** -- [mickekring.se](https://mickekring.se)
 
-**Peter Ljungstrand** -- [github.com/peterljungstrand](https://github.com/peterljungstrand)
+**Claude Code** -- [claude.ai/code](https://claude.ai/code)
 
-Built with [Claude Code](https://claude.ai/code).
+## Contributors
+
+**Peter Ljungstrand** -- [github.com/peterljungstrand](https://github.com/peterljungstrand) (NB Whisper models, pause/resume recording across sleep)
