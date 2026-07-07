@@ -185,6 +185,26 @@ struct TranscriptionView: View {
         }
     }
     
+    /// Status message renderer: the first line (e.g. "Anpassar X (41 s)") is
+    /// prominent; anything after a newline is secondary explanation text.
+    @ViewBuilder
+    private func statusMessageText(_ message: String) -> some View {
+        let parts = message.split(separator: "\n", maxSplits: 1).map(String.init)
+        VStack(spacing: 8) {
+            Text(parts.first ?? "")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.textPrimary)
+                .monospacedDigit()
+            if parts.count > 1 {
+                Text(parts[1])
+                    .font(.system(size: 12))
+                    .foregroundColor(.textTertiary)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 380)
+    }
+
     private var streamingIndicator: some View {
         HStack {
             HStack(spacing: 10) {
@@ -376,11 +396,7 @@ struct TranscriptionView: View {
                     // Show spinner for preprocessing
                     AccentSpinner(size: 32, lineWidth: 3)
                     
-                    Text(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 260)
+                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
                 } else if viewModel.isProcessingChunks {
                     // Show progress bar for chunk transcription (stay visible between chunks)
                     VStack(spacing: 16) {
@@ -395,11 +411,7 @@ struct TranscriptionView: View {
                             .scaleEffect(y: 2)
                     }
                     
-                    Text(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 260)
+                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
                 } else if viewModel.showSingleFileProgress {
                     // Show progress bar for single file transcription
                     VStack(spacing: 16) {
@@ -414,19 +426,11 @@ struct TranscriptionView: View {
                             .scaleEffect(y: 2)
                     }
                     
-                    Text(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 260)
+                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
                 } else {
                     AccentSpinner(size: 32, lineWidth: 3)
                     
-                    Text(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 260)
+                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
                 }
             }
             .padding(32)

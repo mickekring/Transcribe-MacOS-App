@@ -243,7 +243,7 @@
 "model_download_failed_title" = "Modellen kunde inte laddas ner";
 "model_download_retry_hint" = "Kontrollera din internetanslutning och välj modellen igen för att försöka på nytt.";
 "playback_unavailable" = "Ljuduppspelning är inte tillgänglig för den här filen.";
-"model_optimizing_status" = "Anpassar %@ för din dator (%@). Det tar oftast några minuter – upp till 15 för de största modellerna – och behövs bara första gången, eller efter att macOS rensat sin cache.";
+"model_optimizing_status" = "Anpassar %@ för din dator (%@)\nDet tar oftast några minuter – upp till 15 för de största modellerna – och behövs bara första gången, eller efter att macOS rensat sin cache.";
 "save_audio_file" = "Spara ljudfil";
 "timestamps" = "Tidsstämplar";
 "speakers" = "Talare";
