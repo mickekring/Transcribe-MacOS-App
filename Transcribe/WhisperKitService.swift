@@ -349,17 +349,25 @@ class WhisperKitService {
                         // specialization of a large model can take minutes,
                         // and without periodic updates it looks like a hang.
                         let loadStart = Date()
+                        // A load that runs past ~10s means macOS is building
+                        // its optimized version of the model (ANE
+                        // specialization) — switch to a status that explains
+                        // the wait in plain language, with a ticking clock.
                         let heartbeat = Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(10))
                             while !Task.isCancelled {
-                                try? await Task.sleep(for: .seconds(20))
-                                guard !Task.isCancelled else { break }
                                 let elapsed = Int(Date().timeIntervalSince(loadStart))
+                                let elapsedText = elapsed >= 60
+                                    ? "\(elapsed / 60) min \(elapsed % 60) s"
+                                    : "\(elapsed) s"
                                 continuation.yield(TranscriptionUpdate(
-                                    text: String(format: NSLocalizedString("model_load_in_progress", comment: ""), elapsed),
+                                    text: String(format: NSLocalizedString("model_optimizing_status", comment: ""),
+                                                 ModelManager.shared.displayName(for: modelId), elapsedText),
                                     progress: 0.01,
                                     segments: [],
                                     isComplete: false
                                 ))
+                                try? await Task.sleep(for: .seconds(5))
                             }
                         }
                         defer { heartbeat.cancel() }
