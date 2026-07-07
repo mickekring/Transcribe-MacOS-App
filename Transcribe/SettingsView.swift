@@ -156,6 +156,31 @@ struct GeneralSettingsView: View {
             .padding(.bottom, 40)
             
             VStack(alignment: .leading, spacing: 32) {
+                // Privacy: local-only mode disables every network feature
+                SettingsCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label {
+                            HStack {
+                                Text(localized("local_only_mode"))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                                Spacer()
+                                Toggle("", isOn: $settingsManager.localOnlyMode)
+                                    .toggleStyle(SwitchToggleStyle(tint: .primaryAccent))
+                                    .labelsHidden()
+                            }
+                        } icon: {
+                            Image(systemName: "lock.shield")
+                                .font(.system(size: 18))
+                                .foregroundStyle(LinearGradient.accentGradient)
+                        }
+
+                        Text(localized("local_only_mode_description"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.textSecondary)
+                    }
+                }
+
                 // App Language
                 SettingsCard {
                     VStack(alignment: .leading, spacing: 12) {
@@ -867,6 +892,7 @@ struct LLMCloudModelsView: View {
                                 }
                             }
                             .task {
+                                guard !settingsManager.localOnlyMode else { return }
                                 await catalog.refresh(apiKey: settingsManager.bergetKey)
                             }
                         }

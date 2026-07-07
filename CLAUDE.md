@@ -70,7 +70,7 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - KB Whisper models (Swedish-optimized): `kb_whisper-base/small/medium/large-coreml`
 - NB Whisper models (Norwegian-optimized): `nb_whisper-tiny/base/small/large-coreml`
 - OpenAI Whisper models: `openai_whisper-base/small/medium/large-v2/large-v3`
-- Cloud: Berget KB Whisper Large (requires API key)
+- Cloud: Berget ASR models fetched dynamically from /v1/models via `BergetModelCatalog` (KB Whisper Large, NB Whisper Large, Faster Whisper V3; requires API key). Cloud results include server-side diarization (speaker turns).
 
 KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. NB Whisper models load from `digtek/whisperkit-nb-coreml` HuggingFace repo. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch.
 
@@ -93,10 +93,12 @@ KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. N
 - `AppState.swift` - Navigation state (`currentTranscriptionURL`, `showTranscriptionView`, `showRecordingView`, `showSystemAudioView`)
 
 ### File Storage & Security
-All temporary files auto-cleanup on app quit and on startup (handles force-quit scenarios):
-- Recordings: `~/Library/Caches/Transcribe/Recordings/`
-- YouTube downloads: `~/Library/Caches/Transcribe/YouTube/`
-- Cleanup handled in `AppDelegate.cleanupTemporaryFiles()`
+All temporary files live under `FileManager.temporaryDirectory/Transcribe/` (inside the sandbox container) and auto-cleanup on app quit and on startup (handles force-quit scenarios):
+- Subfolders: `Recordings/`, `QuickRecordings/`, `SystemAudio/`, `YouTube/`, `Preprocessing/`
+- Cleanup handled in `AppDelegate.cleanupTemporaryFiles()` (removes the whole `Transcribe/` temp folder)
+- Models and the protected ANE cache live under Application Support (user data, intentionally persistent)
+
+`localOnlyMode` (Settings → General) is enforced: it gates the Berget model catalog fetch, cloud transcription/LLM, YouTube, model downloads (WhisperKitService.runDownload), and first-time diarization model downloads. Diarization pins already-downloaded Pyannote models via PyannoteConfig(modelFolder:) so it never touches the network once installed.
 
 API keys are stored in macOS Keychain via `KeychainHelper` (not UserDefaults). Legacy UserDefaults keys are migrated to Keychain on launch. No `print()` statements in production code — all debug logging has been removed.
 
@@ -193,7 +195,6 @@ Test files:
 
 ## Known Issues / Future Work
 
-- `localOnlyMode` setting exists in UI but is not enforced — network calls can still occur when enabled
 - `nonisolated(unsafe) static let shared` on `LocalizationManager` suppresses concurrency warnings without fixing thread safety
 - YouTubeTranscriptionView UI strings are hardcoded in Swedish (not using `localized()`)
 - AppDelegate status bar menu strings are hardcoded in English (not using `localized()`)

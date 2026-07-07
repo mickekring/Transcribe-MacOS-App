@@ -1175,7 +1175,7 @@ struct TranscriptionView: View {
     private var hasLLMModelSelected: Bool {
         let provider = settingsManager.preferredLLMProvider
         if provider == "berget" {
-            return !settingsManager.bergetKey.isEmpty && !settingsManager.selectedBergetLLMModel.isEmpty
+            return !settingsManager.bergetKey.isEmpty && !settingsManager.selectedBergetLLMModel.isEmpty && !settingsManager.localOnlyMode
         } else {
             return !settingsManager.selectedOllamaModel.isEmpty
         }
@@ -1206,8 +1206,8 @@ struct TranscriptionView: View {
     
     private var llmModelPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Berget section (only if API key configured)
-            if !settingsManager.bergetKey.isEmpty {
+            // Berget section (API key configured, not local-only)
+            if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
                 HStack(spacing: 5) {
                     Image(systemName: "cloud")
                         .font(.system(size: 10))
@@ -1234,7 +1234,7 @@ struct TranscriptionView: View {
             
             // Ollama section (only if models available)
             if !settingsManager.ollamaModels.isEmpty {
-                if !settingsManager.bergetKey.isEmpty {
+                if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
                     Divider().padding(.horizontal, 12).padding(.vertical, 4)
                 }
                 
@@ -1682,6 +1682,10 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         
         // Determine which service to use based on selected model
         if selectedModel.hasPrefix("berget") {
+            guard !UserDefaults.standard.bool(forKey: "localOnlyMode") else {
+                handleTranscriptionError(CloudTranscriptionError.apiError(localized("local_only_cloud_blocked")))
+                return
+            }
             // Cloud transcription (id format "berget:<api model id>";
             // legacy "berget-kb-whisper-large" maps to the KB model)
             let apiModel = selectedModel.hasPrefix("berget:")

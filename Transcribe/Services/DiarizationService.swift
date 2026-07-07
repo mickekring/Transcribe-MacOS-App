@@ -12,11 +12,14 @@ struct SpeakerTurn: Sendable {
 
 enum DiarizationError: LocalizedError {
     case noAudio
+    case localOnlyNoModels
 
     var errorDescription: String? {
         switch self {
         case .noAudio:
             return "No audio could be loaded for speaker identification."
+        case .localOnlyNoModels:
+            return "Local-only mode is enabled and the speaker models aren't downloaded yet. Turn it off in Settings once to download them."
         }
     }
 }
@@ -63,9 +66,21 @@ final class DiarizationService {
         guard !samples.isEmpty else { throw DiarizationError.noAudio }
 
         if speakerKit == nil {
-            logger.info("Initializing SpeakerKit (downloads models on first use)")
+            // When the Pyannote models are already on disk, pin them via
+            // modelFolder — the SDK then skips its Hub download/check
+            // entirely, guaranteeing zero network for diarization.
+            let repoDir = ModelManager.shared.downloadBase
+                .appendingPathComponent("models/argmaxinc/speakerkit-coreml")
+            let hasLocalModels = FileManager.default.fileExists(
+                atPath: repoDir.appendingPathComponent("speaker_segmenter").path
+            )
+            if !hasLocalModels && UserDefaults.standard.bool(forKey: "localOnlyMode") {
+                throw DiarizationError.localOnlyNoModels
+            }
+            logger.info("Initializing SpeakerKit (local models: \(hasLocalModels))")
             let config = PyannoteConfig(
-                downloadBase: ModelManager.shared.downloadBase.path
+                downloadBase: ModelManager.shared.downloadBase.path,
+                modelFolder: hasLocalModels ? repoDir.path : nil
             )
             speakerKit = try await SpeakerKit(config)
         }

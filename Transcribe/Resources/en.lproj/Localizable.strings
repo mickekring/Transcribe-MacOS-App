@@ -256,3 +256,6 @@
 "speaker_count_auto" = "Auto";
 "cancel_download" = "Cancel download";
 "berget_models_unavailable" = "Model list unavailable — add your API key or check your connection.";
+"local_only_mode" = "Local-only mode";
+"local_only_mode_description" = "Disables everything that uses the network: cloud transcription and text processing (Berget AI), the model catalog, YouTube import, and model downloads. Transcription, speaker identification, and Ollama processing run entirely on your Mac. Turn off temporarily to download new models.";
+"local_only_cloud_blocked" = "Local-only mode is enabled — cloud transcription is disabled. Choose a local model or turn off local-only mode in Settings.";

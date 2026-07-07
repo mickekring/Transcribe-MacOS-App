@@ -256,3 +256,6 @@
 "speaker_count_auto" = "Auto";
 "cancel_download" = "Avbryt nedladdning";
 "berget_models_unavailable" = "Modellistan är inte tillgänglig – lägg till din API-nyckel eller kontrollera anslutningen.";
+"local_only_mode" = "Endast lokalt läge";
+"local_only_mode_description" = "Stänger av allt som använder nätverket: molntranskribering och textbearbetning (Berget AI), modellkatalogen, YouTube-import och modellnedladdningar. Transkribering, talaridentifiering och Ollama-bearbetning körs helt på din dator. Stäng av tillfälligt för att ladda ner nya modeller.";
+"local_only_cloud_blocked" = "Endast lokalt läge är aktiverat – molntranskribering är avstängd. Välj en lokal modell eller stäng av lokalt läge i inställningarna.";

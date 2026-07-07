@@ -119,7 +119,9 @@ struct ContentView: View {
             if selectedModel == "berget-kb-whisper-large" {
                 selectedModel = "berget:KBLab/kb-whisper-large"
             }
-            await bergetCatalog.refresh(apiKey: settingsManager.bergetKey)
+            if !settingsManager.localOnlyMode {
+                await bergetCatalog.refresh(apiKey: settingsManager.bergetKey)
+            }
         }
     }
     
@@ -223,13 +225,15 @@ struct ContentView: View {
                 action: { appState.showSystemAudioView = true }
             )
             
-            FeatureCard(
-                icon: "play.rectangle.fill",
-                title: "YouTube",
-                action: {
-                    showYouTubeView = true
-                }
-            )
+            if !settingsManager.localOnlyMode {
+                FeatureCard(
+                    icon: "play.rectangle.fill",
+                    title: "YouTube",
+                    action: {
+                        showYouTubeView = true
+                    }
+                )
+            }
         }
     }
     
@@ -558,8 +562,8 @@ struct ContentView: View {
                     modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
                 }
                 
-                // Cloud models — only if Berget API key is configured
-                if !settingsManager.bergetKey.isEmpty {
+                // Cloud models — only with an API key and not in local-only mode
+                if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
                     Divider().padding(.horizontal, 12).padding(.vertical, 4)
                     
                     Text(localized("cloud_models"))

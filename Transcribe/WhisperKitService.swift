@@ -253,9 +253,15 @@ class WhisperKitService {
 
     enum ModelDownloadError: LocalizedError {
         case stalledRepeatedly
+        case localOnlyMode
 
         var errorDescription: String? {
-            "The download kept stalling. Check your internet connection and try again."
+            switch self {
+            case .stalledRepeatedly:
+                return "The download kept stalling. Check your internet connection and try again."
+            case .localOnlyMode:
+                return "Local-only mode is enabled — model downloads are disabled. Turn it off in Settings to download models."
+            }
         }
     }
 
@@ -265,6 +271,9 @@ class WhisperKitService {
     /// downloader resumes from its partial `.incomplete` file, so a stall
     /// costs seconds, not a restart.
     private func runDownload(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
+        guard !UserDefaults.standard.bool(forKey: "localOnlyMode") else {
+            throw ModelDownloadError.localOnlyMode
+        }
         userCancelledDownloads.remove(modelId)
         var attempt = 1
         while true {

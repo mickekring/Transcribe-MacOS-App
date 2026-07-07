@@ -75,11 +75,12 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 
 ## Privacy and Security
 
-- All transcription happens locally by default
-- Recordings and YouTube downloads are stored in `~/Library/Caches/Transcribe/` and deleted on app quit
-- Leftover files from force-quits are cleaned up on next launch
+- All transcription and speaker identification happens locally by default
+- **Local-only mode** (Settings → General) disables every network feature: cloud transcription/text processing, the model catalog, YouTube import, and model downloads — nothing leaves your Mac
+- Recordings, YouTube downloads, and converted audio live in a private temporary folder inside the app's sandbox and are deleted on quit; leftovers from force-quits are cleaned up on next launch
+- The only network connections the app ever makes, and only when you use those features: HuggingFace (model downloads), Berget AI (cloud transcription/LLM, requires your API key), YouTube (imports), and your own Ollama host
 - API keys are stored in the macOS Keychain, not in plaintext
-- No analytics, no tracking, no telemetry
+- No analytics, no tracking, no telemetry — in the app or its dependencies
 
 ## License
 
