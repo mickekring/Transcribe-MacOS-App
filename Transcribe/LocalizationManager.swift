@@ -12,7 +12,23 @@ class LocalizationManager: ObservableObject {
     @Published var currentLanguage: String = "en"
     
     private init() {
+        // First launch (no stored choice): follow the system language.
+        // Swedish macOS -> Swedish UI, Norwegian (Bokmål/Nynorsk) -> Norwegian,
+        // everything else -> English. The user can override in Settings.
+        if UserDefaults.standard.object(forKey: "appLanguage") == nil {
+            appLanguage = Self.defaultLanguageFromSystem()
+        }
         currentLanguage = appLanguage
+    }
+
+    private static func defaultLanguageFromSystem() -> String {
+        let systemCode = Locale.preferredLanguages.first
+            .map { Locale(identifier: $0).language.languageCode?.identifier ?? "" } ?? ""
+        switch systemCode {
+        case "sv": return "sv"
+        case "nb", "nn", "no": return "no"
+        default: return "en"
+        }
     }
     
     func updateLanguage() {

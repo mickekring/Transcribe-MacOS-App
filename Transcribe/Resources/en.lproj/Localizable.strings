@@ -22,6 +22,7 @@
 "app_language_description" = "Choose the language for the application interface";
 "english" = "English";
 "swedish" = "Svenska";
+"norwegian" = "Norsk";
 "play_sound_when_finished" = "Play sound when finished";
 "play_sound_description" = "Play a small sound when a transcription has completed";
 "save_destination" = "Save Destination";

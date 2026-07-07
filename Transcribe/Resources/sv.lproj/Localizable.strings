@@ -22,6 +22,7 @@
 "app_language_description" = "Välj språk för applikationsgränssnittet";
 "english" = "English";
 "swedish" = "Svenska";
+"norwegian" = "Norsk";
 "play_sound_when_finished" = "Spela ljud när det är klart";
 "play_sound_description" = "Spela ett litet ljud när en transkription har slutförts";
 "save_destination" = "Sparplats";

@@ -1,0 +1,260 @@
+/* Main Window */
+"open_files" = "Åpne filer...";
+"new_recording" = "Nytt opptak";
+"batch_transcription" = "Batch-transkribering";
+"support" = "Support";
+"drag_drop_hint" = "Åpne en fil, ta opp eller dra og slipp en mediefil for å transkribere.";
+"drop_files_here" = "Slipp filer her for å transkribere";
+"search_history" = "Søkehistorikk";
+"older" = "Eldre";
+"enter_url_placeholder" = "Skriv inn URL til YouTube, lyd- eller videofil...";
+
+/* Settings - General */
+"settings" = "Innstillinger";
+"general" = "Generelt";
+"transcription" = "Transkribering";
+"local_models" = "Lokale modeller";
+"downloaded_models" = "Nedlastede modeller";
+"cloud_models" = "Skymodeller";
+"api_keys" = "API-nøkler";
+"services" = "Tjenester";
+"app_language" = "Appspråk";
+"app_language_description" = "Velg språk for applikasjonsgrensesnittet";
+"english" = "English";
+"swedish" = "Svenska";
+"norwegian" = "Norsk";
+"play_sound_when_finished" = "Spill av lyd når det er ferdig";
+"play_sound_description" = "Spill av en liten lyd når en transkripsjon er fullført";
+"save_destination" = "Lagringssted";
+"save_destination_description" = "Velg mappen der nye opptak lagres";
+"choose_button" = "Velg...";
+
+/* KB Whisper Models */
+"kb_whisper_description" = "Videretrent versjon av Whisper fra Kungliga Biblioteket for svensk transkribering";
+"model_tiny_description" = "Raskest, lavere nøyaktighet";
+"model_base_description" = "Balansert hastighet og nøyaktighet";
+"model_small_description" = "God nøyaktighet";
+"model_medium_description" = "Høy nøyaktighet";
+"model_large_description" = "Best nøyaktighet";
+
+/* Settings - Transcription Models */
+"local_transcription_models" = "Lokale transkripsjonsmodeller";
+"local_models_description" = "KB Whisper-modeller optimalisert for svensk";
+"cloud_transcription_models" = "Skytranskripsjonsmodeller";
+"cloud_models_description" = "Modeller tilgjengelige via API-tjenester";
+"fastest_lower_accuracy" = "Raskest, lavere nøyaktighet";
+"balanced_speed_accuracy" = "Balansert hastighet og nøyaktighet";
+"good_accuracy" = "God nøyaktighet";
+"high_accuracy" = "Høy nøyaktighet";
+"best_accuracy" = "Best nøyaktighet";
+"download" = "Last ned";
+"select" = "Velg";
+"selected" = "Valgt";
+"remove" = "Fjern";
+"api_key_required" = "API-nøkkel kreves";
+"available" = "Tilgjengelig";
+"not_downloaded" = "Ikke nedlastet";
+"no_models_downloaded" = "Ingen modeller nedlastet ennå. Velg en modell i verktøylinjen — den lastes ned automatisk ved første bruk.";
+"delete_model" = "Fjern modell";
+"delete_model_confirm" = "Er du sikker på at du vil fjerne denne modellen? Du kan laste den ned igjen senere.";
+"downloading_model" = "Laster ned %@...";
+"download_progress" = "%@ av %@";
+
+/* Settings - Model Info */
+"downloaded_models_description" = "Disse modellene kjører helt på din enhet. Lyden og transkripsjonene dine forlater aldri datamaskinen din.";
+"cloud_transcription_description" = "GDPR-sikker — Alle data blir i Sverige";
+"cloud_transcription_model_subtitle" = "Svensk optimalisert transkribering";
+"berget_llm_description" = "GDPR-sikker — Alle data blir i Sverige";
+"berget_cloud_service_description" = "Svensk GDPR-sikker skytjeneste for transkribering";
+"ollama_llm_description" = "Ollama kjører språkmodeller lokalt på datamaskinen din. Dataene dine forlater aldri maskinen din.";
+"ollama_not_installed" = "Ollama kjører ikke. Last ned fra";
+"local_language_model" = "Lokal språkmodell";
+
+/* Settings - API Keys */
+"api_keys" = "API-nøkler";
+"api_key" = "API-nøkkel";
+"save" = "Lagre";
+"test_connection" = "Test tilkobling";
+"get_api_key_from" = "Hent API-nøkkel fra";
+"host_url" = "Verts-URL";
+"available_models" = "Tilgjengelige modeller:";
+"ollama_description" = "Ollama kjører lokalt på datamaskinen din. Ingen API-nøkkel kreves.";
+"ollama_local" = "Ollama (Lokal)";
+"get_api_key_berget" = "Hent API-nøkkel fra Berget";
+
+/* Settings - AI Services */
+"ai_services" = "AI-tjenester";
+"language_models" = "Språkmodeller";
+"enable_llm_processing" = "Aktiver LLM-behandling";
+"llm_processing_description" = "Behandle transkripsjoner med store språkmodeller for sammendrag, innsikt og mer";
+"default_provider" = "Standardleverandør";
+"default_prompts" = "Standardprompter";
+"prompts_description" = "Tilpass promptene som brukes til AI-behandling";
+"summary" = "Sammendrag";
+"action_items" = "Handlingspunkter";
+"key_points" = "Nøkkelpunkter";
+
+/* Settings - Bearbeta text */
+"process_text" = "Behandle tekst";
+"prompts" = "Prompter";
+"prompts_settings_description" = "Lag prompter for behandling av transkribert tekst med språkmodeller. Hver prompt blir en systemprompt.";
+"add_prompt" = "Legg til prompt";
+"edit_prompt" = "Rediger";
+"delete_prompt" = "Fjern prompt";
+"prompt_name" = "Promptnavn";
+
+/* Dropdown menus */
+"language" = "Språk";
+"model" = "Modell";
+"select_model" = "Velg modell";
+"more_languages" = "Flere språk";
+
+/* Languages */
+"language_auto" = "Auto";
+"language_swedish" = "Svensk";
+"language_english" = "Engelsk";
+"language_arabic" = "Arabisk";
+"language_chinese" = "Kinesisk";
+"language_danish" = "Dansk";
+"language_dutch" = "Nederlandsk";
+"language_finnish" = "Finsk";
+"language_french" = "Fransk";
+"language_german" = "Tysk";
+"language_hindi" = "Hindi";
+"language_italian" = "Italiensk";
+"language_japanese" = "Japansk";
+"language_korean" = "Koreansk";
+"language_norwegian" = "Norsk";
+"language_polish" = "Polsk";
+"language_portuguese" = "Portugisisk";
+"language_russian" = "Russisk";
+"language_spanish" = "Spansk";
+"language_turkish" = "Tyrkisk";
+"language_ukrainian" = "Ukrainsk";
+
+/* Common */
+"transcribe" = "Transkriber";
+"preferences" = "Innstillinger";
+"about" = "Om";
+
+/* Transcription View */
+"display_mode" = "Visningsmodus";
+"transcript" = "Transkribering";
+"segments" = "Segmenter";
+"save_copy" = "Lagre / Kopier";
+"save_as" = "Lagre som...";
+"copy_text" = "Kopier tekst";
+"duration" = "Lengde";
+"transcription_time" = "Transkribert tid";
+"words" = "Ord";
+"tokens" = "Tokens";
+"transcribing" = "Transkriberer...";
+"speed" = "Hastighet";
+"format" = "Format";
+"export_text" = "Tekst (.txt)";
+"export_srt" = "Undertekster (.srt)";
+"export_vtt" = "WebVTT (.vtt)";
+"export_transcription_txt" = "Transkribering - Tekst (.txt)";
+"export_transcription_md" = "Transkribering - Markdown (.md)";
+"export_processed_txt" = "Behandlet tekst - Tekst (.txt)";
+"export_processed_md" = "Behandlet tekst - Markdown (.md)";
+"options" = "Valg";
+"font_size" = "Tekststørrelse";
+"show_timestamps" = "Vis tidsmarkering";
+"retranscribe" = "Transkriber på nytt";
+"process_transcription" = "Behandle transkribering";
+"select_prompt" = "Velg prompt";
+"add_information" = "Legg til informasjon";
+"edit_information" = "Rediger informasjon";
+"additional_information" = "Ytterligere informasjon";
+"additional_info_description" = "Legg til kontekst for språkmodellen, f.eks. talernavn, møteemne eller andre relevante detaljer.";
+"process" = "Behandle";
+"processing_with_llm" = "Behandler...";
+"clear" = "Tøm";
+
+/* WhisperKit Messages */
+"downloading_whisperkit_model" = "Laster ned WhisperKit-modell (kun første gang, dette kan ta en stund)...";
+"loading_model_status" = "Laster %@...";
+"initializing_whisperkit" = "Initialiserer WhisperKit...";
+"loading_audio_file" = "Laster lydfil...";
+
+/* Audio Processing Messages */
+"preparing_audio_file" = "Forbereder lydfil...";
+"analyzing_audio_file" = "Analyserer lydfil...";
+"converting_audio_format" = "Konverterer lyd til optimalt format...";
+"splitting_audio_chunks" = "Deler opp lyden i deler...";
+"sending_audio_berget" = "Sender lydfil til Berget...";
+"processing_local_model" = "Behandler med lokal modell...";
+"transcribing_chunk" = "Transkriberer del %d av %d...";
+"processing_chunk" = "Behandler del %d av %d...";
+"merging_results" = "Slår sammen transkripsjonsresultater...";
+"chunk_of" = "Del %d av %d";
+
+/* Unsaved changes */
+"unsaved_transcription" = "Ulagret transkribering";
+"unsaved_transcription_message" = "Du har en transkribering som ikke er lagret. Vil du kopiere den til utklippstavlen før du forlater?";
+"copy_and_go_back" = "Kopier og gå tilbake";
+"go_back_without_saving" = "Gå tilbake uten å lagre";
+"cancel" = "Avbryt";
+"export_error" = "Eksport mislyktes";
+
+/* Recording View */
+"back" = "Tilbake";
+"recording_in_progress" = "Tar opp...";
+"recording_complete" = "Opptak ferdig";
+"recording_paused_sleep" = "Pauset — maskinen sover, gjenopptas automatisk";
+"tap_to_record" = "Trykk for å starte opptak";
+"pause" = "Pause";
+"play" = "Spill av";
+"start_over" = "Start på nytt";
+"mic_permission_required" = "Mikrofontillatelse kreves";
+"mic_permission_message" = "For å ta opp lyd trenger Transcribe tilgang til mikrofonen din. Gå til Systeminnstillinger > Sikkerhet og personvern > Mikrofon og aktiver Transcribe.";
+"leave_recording" = "Avslutte opptak?";
+"stay" = "Bli værende";
+"leave" = "Forlat";
+"recording_in_progress_leave" = "Et opptak pågår. Hvis du forlater, vil opptaket gå tapt.";
+"untranscribed_recording_leave" = "Du har et opptak som ikke er transkribert. Hvis du forlater, vil det gå tapt.";
+"audio_input_device" = "Lydinngang";
+
+/* System Audio Recording */
+"system_audio" = "Systemlyd";
+"system_audio_description" = "Ta opp all systemlyd";
+"tap_to_record_system" = "Trykk for å starte opptak av systemlyd";
+"system_audio_recording_in_progress" = "Tar opp systemlyd...";
+"system_audio_recording_complete" = "Opptak ferdig";
+"system_audio_recording_paused" = "Pauset — maskinen sover, gjenopptas automatisk";
+"system_audio_error" = "Systemlydfeil";
+"system_audio_permission_info" = "Tar opp all lyd som spilles av på din Mac — møter, media, varsler. macOS spør om tillatelse ved første bruk.";
+"include_microphone" = "Inkluder mikrofon";
+"mic_and_system_audio_info" = "Miks mikrofonen din med systemlyd for å fange begge sider av en samtale.";
+
+/* Theme */
+"switch_to_light" = "Bytt til lys modus";
+"switch_to_dark" = "Bytt til mørk modus";
+
+/* Error Handling (audit fixes) */
+"recording_error" = "Opptaksfeil";
+"recording_resume_failed" = "Opptaket kunne ikke gjenopptas etter hvilemodus. Opptaket er stoppet.";
+"mic_monitor_failed" = "Mikrofonen kunne ikke startes. Stemmen din vil ikke bli inkludert i opptaket.";
+"keychain_write_failed" = "Kunne ikke oppdatere API-nøkkelen i nøkkelringen. Prøv igjen.";
+"file_open_error" = "Kunne ikke åpne filen";
+"unsupported_file_type" = "Filtypen støttes ikke.";
+"model_download_failed_title" = "Modellen kunne ikke lastes ned";
+"model_download_retry_hint" = "Sjekk internettforbindelsen din og velg modellen igjen for å prøve på nytt.";
+"playback_unavailable" = "Lydavspilling er ikke tilgjengelig for denne filen.";
+"model_optimizing_status" = "Tilpasser %@ for datamaskinen din (%@)\nDet tar vanligvis noen minutter – opptil 15 for de største modellene – og trengs bare første gang, eller etter at macOS har ryddet mellomlageret.";
+"save_audio_file" = "Lagre lydfil";
+"timestamps" = "Tidsstempler";
+"speakers" = "Talere";
+"speaker_label" = "Taler %d";
+"speaker_unknown" = "Ukjent taler";
+"diarizing" = "Identifiserer talere... Første gang lastes talermodellene ned.";
+"diarization_failed" = "Taleridentifisering mislyktes:";
+"speakers_unavailable" = "Talervisningen krever en lokal transkribering med tidsdata. Transkriber med en lokal modell først.";
+"speaker_count" = "Antall talere";
+"speaker_count_auto" = "Auto";
+"cancel_download" = "Avbryt nedlasting";
+"berget_models_unavailable" = "Modellisten er ikke tilgjengelig – legg til API-nøkkelen din eller sjekk tilkoblingen.";
+"local_only_mode" = "Kun lokal modus";
+"local_only_mode_description" = "Slår av alt som bruker nettverket: skytranskribering og tekstbehandling (Berget AI), modellkatalogen, YouTube-import og modellnedlastinger. Transkribering, taleridentifisering og Ollama-behandling kjører helt på datamaskinen din. Slå av midlertidig for å laste ned nye modeller.";
+"local_only_cloud_blocked" = "Kun lokal modus er aktivert – skytranskribering er slått av. Velg en lokal modell eller slå av lokal modus i innstillingene.";

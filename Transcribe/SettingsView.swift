@@ -197,6 +197,7 @@ struct GeneralSettingsView: View {
                         Picker("", selection: $localizationManager.appLanguage) {
                             Text(localized("english")).tag("en")
                             Text(localized("swedish")).tag("sv")
+                            Text(localized("norwegian")).tag("no")
                         }
                         .pickerStyle(.menu)
                         .frame(width: 200)
