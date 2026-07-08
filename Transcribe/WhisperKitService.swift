@@ -598,13 +598,16 @@ class WhisperKitService {
                     // TranscriptionResult per chunk — merge them all; taking
                     // only the first would drop most of the transcription.
                     let merged = TranscriptionUtilities.mergeTranscriptionResults(results)
-                    let fullText = merged.segments.map { $0.text.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+                    let fullText = merged.segments
+                        .map { strippingSpecialTokens($0.text).trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
 
                     let finalSegments = merged.segments.map { segment in
                         TranscriptionSegmentData(
                             start: Double(segment.start),
                             end: Double(segment.end),
-                            text: segment.text,
+                            text: strippingSpecialTokens(segment.text).trimmingCharacters(in: .whitespaces),
                             words: segment.words?.map { word in
                                 WordTimestamp(
                                     word: word.word,
@@ -641,6 +644,13 @@ class WhisperKitService {
             }
         }
     }
+}
+
+/// Removes `<|...|>` special-token markers from Whisper output. skipSpecialTokens
+/// covers the standard vocabulary but misses model-specific tokens like
+/// NB Whisper's `<|nocaptions|>`, which otherwise leak into visible text.
+private func strippingSpecialTokens(_ text: String) -> String {
+    text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
 }
 
 // Thread-safe cancellation flag shared between the producer task, the stream's
@@ -689,7 +699,7 @@ private final class StreamingCallbackState: @unchecked Sendable {
             }
             currentWindowId = progress.windowId
         }
-        currentWindowText = Self.strippingSpecialTokens(progress.text).trimmingCharacters(in: .whitespaces)
+        currentWindowText = strippingSpecialTokens(progress.text).trimmingCharacters(in: .whitespaces)
         maxWindowId = max(maxWindowId, progress.windowId)
         
         // Build the complete text from all segments
@@ -742,12 +752,7 @@ private final class StreamingCallbackState: @unchecked Sendable {
         }
     }
 
-    /// Removes `<|...|>` special-token markers (timestamps etc.) from streaming
-    /// text — decoding runs with timestamp tokens for long-form anchoring, but
-    /// they shouldn't appear in the live preview.
-    private static func strippingSpecialTokens(_ text: String) -> String {
-        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
-    }
+
 }
 
 extension TranscriptionError {
