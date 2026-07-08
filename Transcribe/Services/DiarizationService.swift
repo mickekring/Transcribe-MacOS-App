@@ -33,6 +33,9 @@ final class DiarizationService {
 
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "Diarization")
     private var speakerKit: SpeakerKit?
+    /// Options used by the most recent run, recorded into debug exports so
+    /// tuning experiments are self-documenting.
+    private(set) var lastOptionsDescription = ""
 
     /// Diarizes an audio (or video) file and returns speaker turns ordered by
     /// start time. Downloads the diarization models on first use; they are
@@ -89,7 +92,22 @@ final class DiarizationService {
         let start = Date()
         // A known speaker count pins the clustering stage — significantly more
         // reliable on short clips where per-speaker samples are sparse.
-        let options = PyannoteDiarizationOptions(numberOfSpeakers: numberOfSpeakers)
+        // Tuning experiment overrides (unset = SDK defaults; threshold 0.6):
+        //   defaults write com.mickekring.transcribe.Transcribe diarizationClusterThreshold -float 0.7
+        //   defaults write com.mickekring.transcribe.Transcribe diarizationMinClusterSize -int 3
+        //   defaults write com.mickekring.transcribe.Transcribe diarizationExclusiveReconciliation -bool false
+        let defaults = UserDefaults.standard
+        let thresholdOverride = defaults.double(forKey: "diarizationClusterThreshold")
+        let minClusterOverride = defaults.integer(forKey: "diarizationMinClusterSize")
+        let exclusive = (defaults.object(forKey: "diarizationExclusiveReconciliation") as? Bool) ?? true
+        let options = PyannoteDiarizationOptions(
+            numberOfSpeakers: numberOfSpeakers,
+            clusterDistanceThreshold: thresholdOverride > 0 ? Float(thresholdOverride) : nil,
+            minClusterSize: minClusterOverride > 0 ? minClusterOverride : nil,
+            useExclusiveReconciliation: exclusive
+        )
+        lastOptionsDescription = "speakers=\(numberOfSpeakers.map(String.init) ?? "auto") threshold=\(thresholdOverride > 0 ? String(thresholdOverride) : "default(0.6)") minCluster=\(minClusterOverride > 0 ? String(minClusterOverride) : "default") exclusive=\(exclusive)"
+        logger.info("Diarizing with \(self.lastOptionsDescription, privacy: .public)")
         let result = try await speakerKit.diarize(audioArray: samples, options: options) { progress in
             onProgress?(progress.fractionCompleted)
         }

@@ -1710,6 +1710,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 
         let payload: [String: Any] = [
             "source": source,
+            "options": DiarizationService.shared.lastOptionsDescription,
             "file": fileURL.lastPathComponent,
             "exportedAt": ISO8601DateFormatter().string(from: Date()),
             "turns": (speakerTurns ?? []).map { ["speaker": $0.speakerId, "start": $0.start, "end": $0.end] },
