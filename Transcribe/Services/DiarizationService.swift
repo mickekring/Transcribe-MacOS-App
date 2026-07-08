@@ -146,8 +146,18 @@ final class DiarizationService {
             guard timeBySpeaker.count > 1 else { return result }
             let totalTime = timeBySpeaker.values.reduce(0, +)
 
+            // Contiguity guard: chimera clusters come from ONE blended
+            // passage, so a phantom's turns are temporally contiguous. A real
+            // quiet participant (validated: a girl with 4.3s across 47s of
+            // interview) peppers the conversation — never dissolved, however
+            // small her share.
+            func isContiguous(_ speaker: Int) -> Bool {
+                let speakerTurns = result.filter { $0.speakerId == speaker }
+                guard let first = speakerTurns.first, let last = speakerTurns.last else { return false }
+                return last.end - first.start <= 30.0
+            }
             guard let phantom = timeBySpeaker
-                .filter({ $0.value < 20.0 && $0.value / totalTime < 0.05 })
+                .filter({ $0.value < 20.0 && $0.value / totalTime < 0.05 && isContiguous($0.key) })
                 .min(by: { $0.value < $1.value })?.key else { return result }
 
             // Adjacent speaker: most speech time in the turns bordering the
