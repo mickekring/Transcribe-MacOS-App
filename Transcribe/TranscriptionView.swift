@@ -1057,7 +1057,64 @@ struct TranscriptionView: View {
 
     /// Renders segments grouped into speaker turns:
     /// each turn starts with "[MM:SS] Talare N:" followed by its text.
+    /// When word timings exist, assignment happens per word — short
+    /// interjections ("ja", "precis") land on the right speaker even when
+    /// Whisper packed them into another speaker's segment.
     func formatWithSpeakers(_ segments: [TranscriptionSegmentData], turns: [SpeakerTurn]) -> String {
+        let allWords = segments.flatMap { $0.words ?? [] }
+        if !allWords.isEmpty && !turns.isEmpty {
+            return formatWithSpeakersWordLevel(words: allWords, turns: turns)
+        }
+        return formatWithSpeakersSegmentLevel(segments, turns: turns)
+    }
+
+    private func formatWithSpeakersWordLevel(words: [WordTimestamp], turns: [SpeakerTurn]) -> String {
+        func speaker(for word: WordTimestamp) -> Int? {
+            let mid = (word.start + word.end) / 2
+            // Containing turn wins; otherwise nearest turn by midpoint distance
+            if let containing = turns.first(where: { mid >= $0.start && mid <= $0.end }) {
+                return containing.speakerId
+            }
+            return turns.min(by: { distance(mid, to: $0) < distance(mid, to: $1) })?.speakerId
+        }
+
+        var blocks: [String] = []
+        var currentSpeaker: Int? = nil
+        var currentWords: [String] = []
+        var turnStart: Double = 0
+
+        func flush() {
+            guard !currentWords.isEmpty else { return }
+            let label = currentSpeaker.map { viewModel.speakerDisplayName($0) }
+                ?? localized("speaker_unknown")
+            let text = currentWords.joined(separator: " ")
+                .replacingOccurrences(of: "  ", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            blocks.append("[\(formatTime(turnStart))] \(label):\n" + text)
+        }
+
+        for word in words {
+            let id = speaker(for: word) ?? currentSpeaker
+            if id != currentSpeaker || currentWords.isEmpty {
+                flush()
+                currentWords = []
+                currentSpeaker = id
+                turnStart = word.start
+            }
+            currentWords.append(word.word.trimmingCharacters(in: .whitespaces))
+        }
+        flush()
+
+        return blocks.joined(separator: "\n\n")
+    }
+
+    private func distance(_ time: Double, to turn: SpeakerTurn) -> Double {
+        if time < turn.start { return turn.start - time }
+        if time > turn.end { return time - turn.end }
+        return 0
+    }
+
+    private func formatWithSpeakersSegmentLevel(_ segments: [TranscriptionSegmentData], turns: [SpeakerTurn]) -> String {
         var blocks: [String] = []
         var currentSpeaker: Int? = nil
         var currentLines: [String] = []
@@ -1591,6 +1648,30 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         startDiarizationIfNeeded()
     }
 
+    /// Debug: dumps turns/segments/words as JSON for benchmark scoring
+    /// (scripts/score_diarization.py). Enable with:
+    /// defaults write com.mickekring.transcribe.Transcribe diarizationDebugExport -bool true
+    func exportDiarizationDebug(source: String) {
+        guard UserDefaults.standard.bool(forKey: "diarizationDebugExport") else { return }
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+              let bundleId = Bundle.main.bundleIdentifier else { return }
+        let dir = appSupport.appendingPathComponent(bundleId).appendingPathComponent("DiarizationDebug")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let payload: [String: Any] = [
+            "source": source,
+            "file": fileURL.lastPathComponent,
+            "exportedAt": ISO8601DateFormatter().string(from: Date()),
+            "turns": (speakerTurns ?? []).map { ["speaker": $0.speakerId, "start": $0.start, "end": $0.end] },
+            "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] },
+            "words": segments.flatMap { $0.words ?? [] }.map { ["word": $0.word, "start": $0.start, "end": $0.end] }
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let name = fileURL.deletingPathExtension().lastPathComponent
+        let stamp = Int(Date().timeIntervalSince1970)
+        try? data.write(to: dir.appendingPathComponent("\(name)-\(source)-\(stamp).json"))
+    }
+
     /// Display name for a speaker id: user-assigned, or "Talare N".
     func speakerDisplayName(_ id: Int) -> String {
         if let name = speakerNames[id], !name.isEmpty {
@@ -1620,6 +1701,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
                 await MainActor.run {
                     self.speakerTurns = turns
                     self.isDiarizing = false
+                    self.exportDiarizationDebug(source: "local")
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -1863,20 +1945,44 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
                                     start: segment.start,
                                     end: segment.end,
                                     text: segment.text,
-                                    words: nil
+                                    words: segment.words?.map { word in
+                                        WordTimestamp(word: word.word, start: word.start, end: word.end, confidence: 1.0)
+                                    }
                                 )
                             }
-                            // Cloud diarization: "SPEAKER_00" labels → speaker
-                            // turns, powering the Talare view with no local
-                            // diarization pass
-                            let turns: [SpeakerTurn] = transcriptionResult.segments.compactMap { segment in
-                                guard let label = segment.speaker,
-                                      let id = Int(label.components(separatedBy: "_").last ?? "") else { return nil }
-                                return SpeakerTurn(speakerId: id, start: segment.start, end: segment.end)
+                            // Cloud diarization: prefer word-level speaker
+                            // labels (align+diarize) — they capture handovers
+                            // mid-segment; fall back to segment-level labels
+                            func speakerId(_ label: String?) -> Int? {
+                                guard let label else { return nil }
+                                return Int(label.components(separatedBy: "_").last ?? "")
+                            }
+                            var turns: [SpeakerTurn] = []
+                            let speakerWords = transcriptionResult.segments
+                                .flatMap { $0.words ?? [] }
+                                .compactMap { word -> (Int, Double, Double)? in
+                                    guard let id = speakerId(word.speaker) else { return nil }
+                                    return (id, word.start, word.end)
+                                }
+                            if !speakerWords.isEmpty {
+                                // Merge consecutive same-speaker words into turns
+                                for (id, start, end) in speakerWords {
+                                    if let last = turns.last, last.speakerId == id {
+                                        turns[turns.count - 1] = SpeakerTurn(speakerId: id, start: last.start, end: end)
+                                    } else {
+                                        turns.append(SpeakerTurn(speakerId: id, start: start, end: end))
+                                    }
+                                }
+                            } else {
+                                turns = transcriptionResult.segments.compactMap { segment in
+                                    guard let id = speakerId(segment.speaker) else { return nil }
+                                    return SpeakerTurn(speakerId: id, start: segment.start, end: segment.end)
+                                }
                             }
                             if !turns.isEmpty {
                                 self.speakerTurns = turns
                                 self.isCloudDiarization = true
+                                self.exportDiarizationDebug(source: "cloud")
                             }
                             self.wordCount = self.transcribedText.split(separator: " ").count
                             self.finishTranscription()

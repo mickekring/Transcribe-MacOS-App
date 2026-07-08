@@ -104,6 +104,10 @@ final class BergetTranscriptionService: Sendable {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"diarize\"\r\n\r\n".data(using: .utf8)!)
         body.append("true\r\n".data(using: .utf8)!)
+        // Word-level timestamps: powers word-precise speaker turns
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"align\"\r\n\r\n".data(using: .utf8)!)
+        body.append("true\r\n".data(using: .utf8)!)
 
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
@@ -162,13 +166,27 @@ final class BergetTranscriptionService: Sendable {
             guard let start = raw["start"] as? Double,
                   let end = raw["end"] as? Double,
                   let segmentText = raw["text"] as? String else { return nil }
+            // With align=true each segment carries word timings; with
+            // diarize=true each word may carry its own speaker label
+            let words: [TranscriptionWord]? = (raw["words"] as? [[String: Any]])?.compactMap { rawWord in
+                guard let text = rawWord["word"] as? String,
+                      let wordStart = rawWord["start"] as? Double,
+                      let wordEnd = rawWord["end"] as? Double else { return nil }
+                return TranscriptionWord(
+                    word: text,
+                    start: wordStart,
+                    end: wordEnd,
+                    speaker: rawWord["speaker"] as? String
+                )
+            }
             return TranscriptionSegment(
                 id: index,
                 start: start,
                 end: end,
                 text: segmentText.trimmingCharacters(in: .whitespaces),
                 confidence: nil,
-                speaker: raw["speaker"] as? String
+                speaker: raw["speaker"] as? String,
+                words: (words?.isEmpty == false) ? words : nil
             )
         }
 

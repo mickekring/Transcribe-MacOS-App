@@ -37,6 +37,27 @@ struct TranscriptionSegment: Codable {
     let text: String
     let confidence: Float?
     let speaker: String?
+    /// Word-level timings (WhisperX align / WhisperKit wordTimestamps)
+    let words: [TranscriptionWord]?
+
+    init(id: Int, start: TimeInterval, end: TimeInterval, text: String,
+         confidence: Float?, speaker: String?, words: [TranscriptionWord]? = nil) {
+        self.id = id
+        self.start = start
+        self.end = end
+        self.text = text
+        self.confidence = confidence
+        self.speaker = speaker
+        self.words = words
+    }
+}
+
+struct TranscriptionWord: Codable {
+    let word: String
+    let start: TimeInterval
+    let end: TimeInterval
+    /// Speaker label when server-side diarization assigned one per word
+    let speaker: String?
 }
 
 // MARK: - Text Processing Prompts

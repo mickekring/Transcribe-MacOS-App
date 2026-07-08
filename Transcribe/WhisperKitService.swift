@@ -532,8 +532,6 @@ class WhisperKitService {
                     // Get language code for transcription
                     let languageCode = language ?? "auto"
                     
-                    let wordTimestamps = UserDefaults.standard.bool(forKey: "wordTimestamps")
-
                     // Create decoding options.
                     // - usePrefillPrompt MUST be true for the language to be
                     //   enforced: WhisperKit applies it by prefilling the decoder
@@ -554,7 +552,11 @@ class WhisperKitService {
                         usePrefillPrompt: true,
                         skipSpecialTokens: true,
                         withoutTimestamps: false,
-                        wordTimestamps: wordTimestamps,
+                        // Always on: word timings power word-level speaker
+                        // assignment in the Talare view (~10-20% extra decode
+                        // time, essential for meeting transcripts where short
+                        // interjections change speakers mid-segment)
+                        wordTimestamps: true,
                         // One worker: chunks stream sequentially into the live
                         // preview. Concurrent workers interleave windowIds and
                         // the streamed text appears to be written by several
@@ -603,7 +605,14 @@ class WhisperKitService {
                             start: Double(segment.start),
                             end: Double(segment.end),
                             text: segment.text,
-                            words: nil
+                            words: segment.words?.map { word in
+                                WordTimestamp(
+                                    word: word.word,
+                                    start: Double(word.start),
+                                    end: Double(word.end),
+                                    confidence: word.probability
+                                )
+                            }
                         )
                     }
 
