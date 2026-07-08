@@ -65,7 +65,7 @@
 "cloud_transcription_description" = "GDPR-sikker — Alle data blir i Sverige";
 "cloud_transcription_model_subtitle" = "Svensk optimalisert transkribering";
 "berget_llm_description" = "GDPR-sikker — Alle data blir i Sverige";
-"berget_cloud_service_description" = "Svensk GDPR-sikker skytjeneste for transkribering";
+"berget_cloud_service_description" = "Svensk GDPR-sikker skytjeneste for transkribering og språkmodeller";
 "ollama_llm_description" = "Ollama kjører språkmodeller lokalt på datamaskinen din. Dataene dine forlater aldri maskinen din.";
 "ollama_not_installed" = "Ollama kjører ikke. Last ned fra";
 "local_language_model" = "Lokal språkmodell";
