@@ -113,7 +113,7 @@ final class DiarizationService {
         }
         logger.info("Diarization found \(result.speakerCount) speakers in \(Date().timeIntervalSince(start), format: .fixed(precision: 1))s")
 
-        return result.segments
+        let turns = result.segments
             .compactMap { segment -> SpeakerTurn? in
                 guard let id = segment.speaker.speakerId else { return nil }
                 return SpeakerTurn(
@@ -123,5 +123,54 @@ final class DiarizationService {
                 )
             }
             .sorted { $0.start < $1.start }
+
+        // Auto mode only: dissolve phantom speakers. Rapid exchanges blend
+        // both voices into every embedding window; those chimera windows
+        // cluster together as a "new voice" (observed: a 12s closing volley
+        // in a 4-minute two-person clip becoming speaker 3). A speaker with
+        // a sliver of total time is debris, not a participant — merge into
+        // the temporally adjacent speaker. A pinned count is never altered.
+        guard numberOfSpeakers == nil else { return turns }
+        return Self.dissolvePhantomSpeakers(turns, logger: logger)
+    }
+
+    /// Merges speakers with < 5% of speech time (and < 20s absolute) into
+    /// whichever real speaker holds the most time adjacent to their turns.
+    private static func dissolvePhantomSpeakers(_ turns: [SpeakerTurn], logger: Logger) -> [SpeakerTurn] {
+        var result = turns
+        while true {
+            var timeBySpeaker: [Int: Double] = [:]
+            for turn in result {
+                timeBySpeaker[turn.speakerId, default: 0] += turn.end - turn.start
+            }
+            guard timeBySpeaker.count > 1 else { return result }
+            let totalTime = timeBySpeaker.values.reduce(0, +)
+
+            guard let phantom = timeBySpeaker
+                .filter({ $0.value < 20.0 && $0.value / totalTime < 0.05 })
+                .min(by: { $0.value < $1.value })?.key else { return result }
+
+            // Adjacent speaker: most speech time in the turns bordering the
+            // phantom's spans
+            var adjacency: [Int: Double] = [:]
+            for (index, turn) in result.enumerated() where turn.speakerId == phantom {
+                for neighborIndex in [index - 1, index + 1] {
+                    guard result.indices.contains(neighborIndex) else { continue }
+                    let neighbor = result[neighborIndex]
+                    if neighbor.speakerId != phantom {
+                        adjacency[neighbor.speakerId, default: 0] += neighbor.end - neighbor.start
+                    }
+                }
+            }
+            let heir = adjacency.max(by: { $0.value < $1.value })?.key
+                ?? timeBySpeaker.filter { $0.key != phantom }.max(by: { $0.value < $1.value })!.key
+
+            logger.info("Dissolving phantom speaker \(phantom) (\(timeBySpeaker[phantom] ?? 0, format: .fixed(precision: 1))s) into speaker \(heir)")
+            result = result.map { turn in
+                turn.speakerId == phantom
+                    ? SpeakerTurn(speakerId: heir, start: turn.start, end: turn.end)
+                    : turn
+            }
+        }
     }
 }
