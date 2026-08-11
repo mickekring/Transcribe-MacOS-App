@@ -311,3 +311,11 @@
 
 "ios_about" = "About this app";
 "ios_version" = "Version %@ (%@)";
+
+"ios_cloud_models" = "Cloud models (Berget AI)";
+"ios_api_key" = "API key";
+"ios_cloud_hint" = "With a Berget AI API key you can transcribe in the cloud — Swedish infrastructure, GDPR-compliant. Audio is sent encrypted and not stored.";
+"ios_sending_cloud" = "Sending audio to Berget AI…";
+"ios_cloud_transcribing" = "Transcribing in the cloud…";
+"ios_api_key_missing" = "Berget API key missing. Add it in Settings.";
+"ios_eval_badge" = "eval";

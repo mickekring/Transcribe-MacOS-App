@@ -311,3 +311,11 @@
 
 "ios_about" = "Om appen";
 "ios_version" = "Version %@ (%@)";
+
+"ios_cloud_models" = "Molnmodeller (Berget AI)";
+"ios_api_key" = "API-nyckel";
+"ios_cloud_hint" = "Med en API-nyckel från Berget AI kan du transkribera i molnet — svensk infrastruktur, GDPR-säkrat. Ljudet skickas krypterat och lagras inte.";
+"ios_sending_cloud" = "Skickar ljudet till Berget AI…";
+"ios_cloud_transcribing" = "Transkriberar i molnet…";
+"ios_api_key_missing" = "API-nyckel för Berget saknas. Lägg till den i Inställningar.";
+"ios_eval_badge" = "test";

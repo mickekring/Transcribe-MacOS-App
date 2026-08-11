@@ -6,8 +6,10 @@ import TranscribeKit
 struct ModelsView: View {
     @ObservedObject private var modelManager = ModelManager.shared
     @ObservedObject private var localization = LocalizationManager.shared
+    @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
     @AppStorage("selectedTranscriptionModel") private var selectedModel = "kb_whisper-small-coreml"
     @AppStorage("appColorScheme") private var appColorScheme = "dark"
+    @State private var bergetKey = KeychainHelper.get("bergetAPIKey") ?? ""
 
     private let models = ModelManager.kbModels + ModelManager.nbModels
 
@@ -39,6 +41,28 @@ struct ModelsView: View {
             }
 
             Section {
+                SecureField(localized("ios_api_key"), text: $bergetKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onChange(of: bergetKey) { _, newValue in
+                        // Empty value deletes the stored item
+                        _ = KeychainHelper.set(newValue, forKey: "bergetAPIKey")
+                    }
+                    .onSubmit { refreshCatalog() }
+
+                if !bergetKey.isEmpty {
+                    ForEach(bergetCatalog.asrModels) { model in
+                        cloudModelRow(model)
+                    }
+                }
+            } header: {
+                Text(localized("ios_cloud_models"))
+            } footer: {
+                Text(localized("ios_cloud_hint"))
+            }
+            .task { refreshCatalog() }
+
+            Section {
                 NavigationLink {
                     AboutView()
                 } label: {
@@ -49,6 +73,38 @@ struct ModelsView: View {
         .scrollContentBackground(.hidden)
         .background(Color.surfaceBackground)
         .navigationTitle(localized("ios_settings"))
+    }
+
+    private func refreshCatalog() {
+        guard !bergetKey.isEmpty else { return }
+        let key = bergetKey
+        Task { await bergetCatalog.refresh(apiKey: key) }
+    }
+
+    @ViewBuilder
+    private func cloudModelRow(_ model: BergetModel) -> some View {
+        let modelId = "berget:\(model.id)"
+        HStack {
+            Image(systemName: "cloud")
+                .foregroundColor(.textSecondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(modelManager.displayName(for: modelId))
+                if !model.isStable {
+                    Text(localized("ios_eval_badge"))
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer()
+            if selectedModel == modelId {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.primaryAccent)
+            } else {
+                Button(localized("ios_use_model")) { selectedModel = modelId }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
     }
 
     @ViewBuilder
