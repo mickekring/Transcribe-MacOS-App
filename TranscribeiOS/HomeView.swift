@@ -174,31 +174,43 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Text(localized("ios_app_title"))
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundColor(.textPrimary)
 
-            Image("LogoIcon")
-                .resizable()
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .strokeBorder(Color.borderLight, lineWidth: 0.5)
-                )
-                .shadow(color: Color.primaryAccent.opacity(0.35), radius: 18, y: 4)
+            LogoMark()
 
-            Text(localized("ios_latest_transcriptions"))
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(.textSecondary)
-                .textCase(.uppercase)
-                .font(.caption)
-                .padding(.top, 6)
+            if !store.records.isEmpty {
+                Text(localized("ios_latest_transcriptions"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.bottom, 2)
+    }
+
+    private struct LogoMark: View {
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient.accentGradient)
+                    .frame(width: 68, height: 68)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    // Matches the app icon in dark mode; white keeps the
+                    // contrast on the green in light mode
+                    .foregroundColor(scheme == .dark ? .black : .white)
+            }
+            .shadow(color: Color.primaryAccent.opacity(0.35), radius: 16, y: 4)
+        }
     }
 
     /// Copies the picked file into Documents/Recordings — the security-scoped

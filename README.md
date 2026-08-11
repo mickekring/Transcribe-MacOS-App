@@ -87,6 +87,19 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 - API keys are stored in the macOS Keychain, not in plaintext
 - No analytics, no tracking, no telemetry — in the app or its dependencies
 
+## iOS version (early development)
+
+An iOS companion app lives in this repository as the `TranscribeiOS` target, built on `TranscribeKit` — a local Swift package holding the transcription core both apps share (WhisperKit service, diarization, audio preprocessing, model management). It runs KB/NB Whisper and speaker identification fully on-device on the iPhone's Neural Engine. It is at an early, experimental stage — expect instability.
+
+**Privacy on iOS** follows the same principle as the Mac app — nothing leaves the device:
+
+- Transcription and speaker identification run entirely on-device; the only network connection is HuggingFace for model downloads
+- Recordings and transcripts are stored locally in the app's sandbox, visible in the Files app under On My iPhone — this is device-local storage and never syncs to iCloud Drive
+- Everything the app stores (recordings, transcripts, models, the Neural Engine cache) is **excluded from iCloud and computer backups**, so no audio or text ever reaches Apple's servers — the trade-off being that transcriptions do not restore onto a new phone
+- Files at rest are protected by iOS device encryption
+
+**Retention differs from macOS by design**: the Mac app treats audio as temporary and wipes it on quit, since your source files live elsewhere. On the phone, the app is often the only recorder in the room — recordings and transcriptions are kept until you delete them, and deleting a transcription removes its audio file too.
+
 ## License
 
 MIT License -- see [LICENSE](LICENSE) for details.
