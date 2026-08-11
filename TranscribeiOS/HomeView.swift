@@ -5,10 +5,21 @@ import TranscribeKit
 /// record with the microphone, or import an audio/video file.
 struct HomeView: View {
     @StateObject private var store = TranscriptStore()
+    @AppStorage("iosLanguage") private var language = "sv"
+    @AppStorage("iosDiarize") private var diarize = true
     @State private var showRecorder = false
     @State private var showImporter = false
     @State private var job: AudioJob?
     @State private var importError: String?
+
+    private var languageLabel: String {
+        switch language {
+        case "sv": return "Svenska"
+        case "no": return "Norska"
+        case "en": return "Engelska"
+        default: return "Automatiskt"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -67,25 +78,66 @@ struct HomeView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 16) {
-                    Button {
-                        showRecorder = true
-                    } label: {
-                        Label("Spela in", systemImage: "mic.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                VStack(spacing: 12) {
+                    // Per-transcription options live here, not in settings —
+                    // you should see what language you're about to transcribe
+                    // in before you hit record.
+                    HStack {
+                        Menu {
+                            Picker("Språk", selection: $language) {
+                                Text("Svenska").tag("sv")
+                                Text("Norska").tag("no")
+                                Text("Engelska").tag("en")
+                                Text("Automatiskt").tag("auto")
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "globe")
+                                Text(languageLabel)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                            }
+                            .font(.subheadline)
+                        }
 
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Label("Importera", systemImage: "square.and.arrow.down")
-                            .frame(maxWidth: .infinity)
+                        Spacer()
+
+                        Toggle(isOn: $diarize) {
+                            Label("Talare", systemImage: "person.2")
+                                .font(.subheadline)
+                        }
+                        .toggleStyle(.switch)
+                        .fixedSize()
                     }
-                    .buttonStyle(.bordered)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.borderLight, lineWidth: 0.5)
+                    )
+
+                    HStack(spacing: 16) {
+                        Button {
+                            showRecorder = true
+                        } label: {
+                            Label("Spela in", systemImage: "mic.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+
+                        Button {
+                            showImporter = true
+                        } label: {
+                            Label("Importera", systemImage: "square.and.arrow.down")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .controlSize(.large)
                 }
-                .controlSize(.large)
                 .padding()
                 .background(.bar)
             }

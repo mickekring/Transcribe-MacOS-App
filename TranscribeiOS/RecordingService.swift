@@ -12,6 +12,10 @@ final class RecordingService: NSObject, ObservableObject {
     @Published var level: Float = 0          // 0...1 for the meter
     @Published var duration: TimeInterval = 0
     @Published var errorMessage: String?
+    /// Rolling level history for the waveform display (newest last)
+    @Published var levelHistory: [Float] = []
+
+    static let historyLength = 160
 
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
@@ -58,7 +62,8 @@ final class RecordingService: NSObject, ObservableObject {
             isRecording = true
             isPaused = false
             duration = 0
-            meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            levelHistory = []
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.tick() }
             }
         } catch {
@@ -103,6 +108,10 @@ final class RecordingService: NSObject, ObservableObject {
         // Average power is in dBFS (−160...0); map −50...0 to 0...1
         let db = recorder.averagePower(forChannel: 0)
         level = max(0, min(1, (db + 50) / 50))
+        levelHistory.append(level)
+        if levelHistory.count > Self.historyLength {
+            levelHistory.removeFirst(levelHistory.count - Self.historyLength)
+        }
         duration = recorder.currentTime
     }
 }

@@ -5,31 +5,25 @@ import TranscribeKit
 /// models, pick the default, language, and diarization default.
 struct ModelsView: View {
     @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var localization = LocalizationManager.shared
     @AppStorage("selectedTranscriptionModel") private var selectedModel = "kb_whisper-small-coreml"
-    @AppStorage("iosDiarize") private var diarize = true
-    @AppStorage("iosLanguage") private var language = "sv"
     @AppStorage("appColorScheme") private var appColorScheme = "dark"
 
     private let models = ModelManager.kbModels + ModelManager.nbModels
 
     var body: some View {
         Form {
-            Section("Utseende") {
+            Section("App") {
                 Picker("Tema", selection: $appColorScheme) {
                     ForEach(AppTheme.allCases) { theme in
                         Text(theme.label).tag(theme.rawValue)
                     }
                 }
-            }
-
-            Section("Transkribering") {
-                Picker("Språk", selection: $language) {
+                Picker("Språk i appen", selection: $localization.appLanguage) {
                     Text("Svenska").tag("sv")
                     Text("Norska").tag("no")
-                    Text("Engelska").tag("en")
-                    Text("Automatiskt").tag("auto")
+                    Text("English").tag("en")
                 }
-                Toggle("Identifiera talare", isOn: $diarize)
             }
 
             Section("Modeller") {
@@ -46,7 +40,7 @@ struct ModelsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color.surfaceBackground)
-        .navigationTitle("Modeller")
+        .navigationTitle("Inställningar")
     }
 
     @ViewBuilder
