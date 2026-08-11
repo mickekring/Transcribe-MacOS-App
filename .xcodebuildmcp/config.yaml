@@ -1,6 +1,8 @@
 schemaVersion: 1
 enabledWorkflows:
   - macos
+  - simulator
+  - ui-automation
   - project-discovery
   - coverage
   - debugging
