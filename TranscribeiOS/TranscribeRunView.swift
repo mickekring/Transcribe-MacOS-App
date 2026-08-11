@@ -22,6 +22,7 @@ struct TranscribeRunView: View {
     @AppStorage("iosLanguage") private var language = "sv"
 
     @State private var status = ""
+    @State private var statusInfo = ""
     @State private var progress: Double = 0
     @State private var transcript = ""
     @State private var isDone = false
@@ -41,6 +42,13 @@ struct TranscribeRunView: View {
                     Text(status)
                         .font(.callout)
                         .foregroundStyle(failed ? .red : .secondary)
+                }
+                if !statusInfo.isEmpty {
+                    Text(statusInfo)
+                        .font(.caption)
+                        .foregroundColor(.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
                 }
                 if let rtf {
                     Text(String(format: "%.2fx realtid", rtf))
@@ -90,8 +98,35 @@ struct TranscribeRunView: View {
             let asset = AVURLAsset(url: job.url)
             let duration = (try? await asset.load(.duration)).map(CMTimeGetSeconds) ?? 0
 
-            status = "Laddar modell… (första gången kan ta flera minuter)"
-            try await WhisperKitService.shared.initialize(modelId: selectedModel)
+            // Two distinct waits, two distinct messages: loading an already-
+            // optimized model into memory takes seconds; the first-ever load
+            // of a model builds the Neural Engine cache and takes minutes.
+            // Same heuristic as the Mac app: a load running past 10s means
+            // the cache is being built.
+            let modelName = ModelManager.shared.displayName(for: selectedModel)
+            status = "Laddar \(modelName) till minnet…"
+            statusInfo = "Tar oftast under en minut."
+            let loadStart = Date()
+            let heartbeat = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                while !Task.isCancelled {
+                    let elapsed = Int(Date().timeIntervalSince(loadStart))
+                    let clock = elapsed >= 60
+                        ? "\(elapsed / 60) min \(elapsed % 60) s"
+                        : "\(elapsed) s"
+                    status = "Anpassar \(modelName) för din iPhone (\(clock))"
+                    statusInfo = "Modellen optimeras för telefonens Neural Engine. Det görs bara första gången den används och kan ta flera minuter."
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+            do {
+                try await WhisperKitService.shared.initialize(modelId: selectedModel)
+                heartbeat.cancel()
+            } catch {
+                heartbeat.cancel()
+                throw error
+            }
+            statusInfo = ""
 
             status = "Transkriberar…"
             let start = Date()
