@@ -12,7 +12,7 @@ struct SpikeView: View {
     @State private var showImporter = false
     @State private var pickedFile: URL?
     @State private var transcript = ""
-    @State private var speakerLines: [String] = []
+    @State private var speakerTranscript = ""
     @State private var status = ""
     @State private var isWorking = false
     @State private var diarize = false
@@ -77,19 +77,17 @@ struct SpikeView: View {
                     }
                 }
 
-                if !transcript.isEmpty {
+                if !speakerTranscript.isEmpty {
+                    Section("Transkription med talare") {
+                        Text(speakerTranscript)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                    }
+                } else if !transcript.isEmpty {
                     Section("Transkription") {
                         Text(transcript)
                             .font(.callout)
                             .textSelection(.enabled)
-                    }
-                }
-
-                if !speakerLines.isEmpty {
-                    Section("Talare") {
-                        ForEach(speakerLines, id: \.self) { line in
-                            Text(line).font(.callout.monospacedDigit())
-                        }
                     }
                 }
             }
@@ -140,7 +138,7 @@ struct SpikeView: View {
         let model = selectedModel
         isWorking = true
         transcript = ""
-        speakerLines = []
+        speakerTranscript = ""
         transcribeSeconds = nil
         status = "Laddar modell… (första gången byggs ANE-cachen, det kan ta flera minuter)"
 
@@ -157,11 +155,13 @@ struct SpikeView: View {
 
                 status = "Transkriberar…"
                 let start = Date()
+                var segments: [TranscriptionSegmentData] = []
                 for try await update in WhisperKitService.shared.transcribe(
                     fileURL: file, modelId: model, language: "sv") {
                     transcript = update.text
                     status = "Transkriberar… \(Int(update.progress * 100))%"
                     if update.isComplete {
+                        segments = update.segments
                         transcribeSeconds = Date().timeIntervalSince(start)
                     }
                 }
@@ -169,10 +169,14 @@ struct SpikeView: View {
                 if diarize {
                     status = "Identifierar talare…"
                     let turns = try await DiarizationService.shared.diarize(fileURL: file)
-                    speakerLines = turns.map { turn in
-                        String(format: "Talare %d  %.1f–%.1f s",
-                               turn.speakerId + 1, turn.start, turn.end)
-                    }
+                    // Same tuned pipeline as the Mac app: word-level speaker
+                    // assignment with turn cleaning, from TranscribeKit.
+                    speakerTranscript = SpeakerTranscriptFormatter.format(
+                        segments: segments,
+                        turns: turns,
+                        speakerName: { "Talare \($0 + 1)" },
+                        unknownLabel: "Okänd talare"
+                    )
                 }
                 status = "Klar"
             } catch {
