@@ -82,6 +82,28 @@ extension LinearGradient {
     )
 }
 
+// MARK: - Accent Spinner (same as the Mac app's)
+
+/// Modern circular spinner using the accent color
+struct AccentSpinner: View {
+    var size: CGFloat = 20
+    var lineWidth: CGFloat = 2.5
+    @State private var isRotating = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(
+                Color.primaryAccent,
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+            )
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(isRotating ? 360 : 0))
+            .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: isRotating)
+            .onAppear { isRotating = true }
+    }
+}
+
 // MARK: - Theme selection (matches the Mac's appColorScheme key)
 
 enum AppTheme: String, CaseIterable, Identifiable {

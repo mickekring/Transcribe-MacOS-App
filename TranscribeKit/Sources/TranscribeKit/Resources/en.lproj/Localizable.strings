@@ -308,3 +308,6 @@
 "ios_rename_transcription" = "Rename transcription";
 "ios_share_text" = "Share text";
 "ios_share_audio" = "Share audio file";
+
+"ios_about" = "About this app";
+"ios_version" = "Version %@ (%@)";

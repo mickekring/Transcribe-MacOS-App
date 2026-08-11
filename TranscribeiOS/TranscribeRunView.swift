@@ -38,8 +38,8 @@ struct TranscribeRunView: View {
                         .progressViewStyle(.linear)
                         .padding(.horizontal)
                 }
-                HStack {
-                    if !isDone && !failed { ProgressView() }
+                HStack(spacing: 10) {
+                    if !isDone && !failed { AccentSpinner(size: 18) }
                     Text(status)
                         .font(.callout)
                         .foregroundStyle(failed ? .red : .secondary)

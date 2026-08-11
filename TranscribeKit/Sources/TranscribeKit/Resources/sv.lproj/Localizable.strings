@@ -308,3 +308,6 @@
 "ios_rename_transcription" = "Byt namn på transkribering";
 "ios_share_text" = "Dela text";
 "ios_share_audio" = "Dela ljudfil";
+
+"ios_about" = "Om appen";
+"ios_version" = "Version %@ (%@)";

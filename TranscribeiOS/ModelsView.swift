@@ -37,6 +37,14 @@ struct ModelsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                NavigationLink {
+                    AboutView()
+                } label: {
+                    Label(localized("ios_about"), systemImage: "info.circle")
+                }
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Color.surfaceBackground)

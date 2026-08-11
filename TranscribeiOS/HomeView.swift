@@ -13,6 +13,11 @@ struct HomeView: View {
     @State private var job: AudioJob?
     @State private var importError: String?
 
+    private static let appVersion =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    private static let buildNumber =
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+
     private var languageLabel: String {
         switch language {
         case "sv": return localized("language_swedish")
@@ -145,6 +150,10 @@ struct HomeView: View {
                     // Match the options card above: same corner radius, and
                     // no capsule ends visually poking past the card's edges
                     .buttonBorderShape(.roundedRectangle(radius: 12))
+
+                    Text(String(format: localized("ios_version"), Self.appVersion, Self.buildNumber))
+                        .font(.caption2)
+                        .foregroundColor(.textTertiary)
                 }
                 .padding()
                 .background(.bar)
