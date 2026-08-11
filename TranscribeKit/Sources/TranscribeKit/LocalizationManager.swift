@@ -43,11 +43,17 @@ public class LocalizationManager: ObservableObject {
     }
     
     private func languageBundle() -> Bundle {
+        // Strings ship as TranscribeKit package resources so macOS and iOS
+        // share one table; the app bundle remains a fallback.
+        if let path = Bundle.module.path(forResource: currentLanguage, ofType: "lproj"),
+           let bundle = Bundle(path: path) {
+            return bundle
+        }
         if let path = Bundle.main.path(forResource: currentLanguage, ofType: "lproj"),
            let bundle = Bundle(path: path) {
             return bundle
         }
-        return Bundle.main
+        return Bundle.module
     }
 }
 

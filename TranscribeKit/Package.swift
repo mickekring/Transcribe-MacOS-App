@@ -20,6 +20,9 @@ let package = Package(
             dependencies: [
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "SpeakerKit", package: "argmax-oss-swift")
+            ],
+            resources: [
+                .process("Resources")
             ]
         )
     ]

@@ -10,10 +10,10 @@
 		4039A38C2F65BF7900E33982 /* Transcribe.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */; };
 		4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 404291392E793C6C00DB2587 /* YouTubeKit */; };
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
-		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
-		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
-		40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC32E75F6ED00E0B532 /* TranscribeKit */; };
 		40C0FFEE000000000000A00B /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A00A /* TranscribeKit */; };
+		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
+		40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC32E75F6ED00E0B532 /* TranscribeKit */; };
+		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -39,13 +39,18 @@
 		4087E8D62E769BBC00C23FC9 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		4087E8D82E769BC600C23FC9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		4087E8DA2E769BE100C23FC9 /* MetalPerformanceShaders.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShaders.framework; path = System/Library/Frameworks/MetalPerformanceShaders.framework; sourceTree = SDKROOT; };
+		40C0FFEE000000000000A002 /* TranscribeiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TranscribeiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		40DACE4D2E75861E00E0B532 /* Transcribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Transcribe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		40DACE5B2E75861F00E0B532 /* TranscribeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TranscribeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		40DACE652E75861F00E0B532 /* TranscribeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TranscribeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		40C0FFEE000000000000A002 /* TranscribeiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TranscribeiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		40C0FFEE000000000000A001 /* TranscribeiOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TranscribeiOS;
+			sourceTree = "<group>";
+		};
 		40DACE4F2E75861E00E0B532 /* Transcribe */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Transcribe;
@@ -61,14 +66,17 @@
 			path = TranscribeUITests;
 			sourceTree = "<group>";
 		};
-		40C0FFEE000000000000A001 /* TranscribeiOS */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = TranscribeiOS;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		40C0FFEE000000000000A005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				40C0FFEE000000000000A00B /* TranscribeKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		40DACE4A2E75861E00E0B532 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -92,14 +100,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		40C0FFEE000000000000A005 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				40C0FFEE000000000000A00B /* TranscribeKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -144,6 +144,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		40C0FFEE000000000000A003 /* TranscribeiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 40C0FFEE000000000000A007 /* Build configuration list for PBXNativeTarget "TranscribeiOS" */;
+			buildPhases = (
+				40C0FFEE000000000000A004 /* Sources */,
+				40C0FFEE000000000000A005 /* Frameworks */,
+				40C0FFEE000000000000A006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				40C0FFEE000000000000A001 /* TranscribeiOS */,
+			);
+			name = TranscribeiOS;
+			packageProductDependencies = (
+				40C0FFEE000000000000A00A /* TranscribeKit */,
+			);
+			productName = TranscribeiOS;
+			productReference = 40C0FFEE000000000000A002 /* TranscribeiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
 		40DACE4C2E75861E00E0B532 /* Transcribe */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 40DACE6F2E75861F00E0B532 /* Build configuration list for PBXNativeTarget "Transcribe" */;
@@ -216,29 +239,6 @@
 			productReference = 40DACE652E75861F00E0B532 /* TranscribeUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		40C0FFEE000000000000A003 /* TranscribeiOS */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 40C0FFEE000000000000A007 /* Build configuration list for PBXNativeTarget "TranscribeiOS" */;
-			buildPhases = (
-				40C0FFEE000000000000A004 /* Sources */,
-				40C0FFEE000000000000A005 /* Frameworks */,
-				40C0FFEE000000000000A006 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				40C0FFEE000000000000A001 /* TranscribeiOS */,
-			);
-			name = TranscribeiOS;
-			packageProductDependencies = (
-				40C0FFEE000000000000A00A /* TranscribeKit */,
-			);
-			productName = TranscribeiOS;
-			productReference = 40C0FFEE000000000000A002 /* TranscribeiOS.app */;
-			productType = "com.apple.product-type.application";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -249,6 +249,9 @@
 				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
+					40C0FFEE000000000000A003 = {
+						CreatedOnToolsVersion = 16.4;
+					};
 					40DACE4C2E75861E00E0B532 = {
 						CreatedOnToolsVersion = 16.4;
 						LastSwiftMigration = 1640;
@@ -260,9 +263,6 @@
 					40DACE642E75861F00E0B532 = {
 						CreatedOnToolsVersion = 16.4;
 						TestTargetID = 40DACE4C2E75861E00E0B532;
-					};
-					40C0FFEE000000000000A003 = {
-						CreatedOnToolsVersion = 16.4;
 					};
 				};
 			};
@@ -297,6 +297,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		40C0FFEE000000000000A006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		40DACE4B2E75861E00E0B532 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -319,16 +326,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		40C0FFEE000000000000A006 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		40C0FFEE000000000000A004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXResourcesBuildPhase section */
-
-/* Begin PBXSourcesBuildPhase section */
 		40DACE492E75861E00E0B532 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -344,13 +351,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		40DACE612E75861F00E0B532 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		40C0FFEE000000000000A004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -373,6 +373,67 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		40C0FFEE000000000000A008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RW3JS6CR99;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe behöver tillgång till din mikrofon för att spela in ljud för transkribering.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		40C0FFEE000000000000A009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RW3JS6CR99;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe behöver tillgång till din mikrofon för att spela in ljud för transkribering.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		40DACE6D2E75861F00E0B532 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */;
@@ -666,70 +727,18 @@
 			};
 			name = Release;
 		};
-		40C0FFEE000000000000A008 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RW3JS6CR99;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe behöver tillgång till din mikrofon för att spela in ljud för transkribering.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.ios;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		40C0FFEE000000000000A009 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 4039A38B2F65BF7900E33982 /* Transcribe.xcconfig */;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RW3JS6CR99;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe behöver tillgång till din mikrofon för att spela in ljud för transkribering.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mickekring.transcribe.ios;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		40C0FFEE000000000000A007 /* Build configuration list for PBXNativeTarget "TranscribeiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				40C0FFEE000000000000A008 /* Debug */,
+				40C0FFEE000000000000A009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		40DACE482E75861E00E0B532 /* Build configuration list for PBXProject "Transcribe" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -766,16 +775,14 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		40C0FFEE000000000000A007 /* Build configuration list for PBXNativeTarget "TranscribeiOS" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				40C0FFEE000000000000A008 /* Debug */,
-				40C0FFEE000000000000A009 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		40DACEC22E75F6ED00E0B532 /* XCLocalSwiftPackageReference "TranscribeKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = TranscribeKit;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		404291382E793C6C00DB2587 /* XCRemoteSwiftPackageReference "YouTubeKit" */ = {
@@ -796,18 +803,15 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		40DACEC22E75F6ED00E0B532 /* XCLocalSwiftPackageReference "TranscribeKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = TranscribeKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		404291392E793C6C00DB2587 /* YouTubeKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 404291382E793C6C00DB2587 /* XCRemoteSwiftPackageReference "YouTubeKit" */;
 			productName = YouTubeKit;
+		};
+		40C0FFEE000000000000A00A /* TranscribeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TranscribeKit;
 		};
 		40DACEB52E75F6ED00E0B532 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -820,10 +824,6 @@
 			productName = SpeakerKit;
 		};
 		40DACEC32E75F6ED00E0B532 /* TranscribeKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = TranscribeKit;
-		};
-		40C0FFEE000000000000A00A /* TranscribeKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TranscribeKit;
 		};
