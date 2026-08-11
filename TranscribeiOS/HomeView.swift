@@ -142,6 +142,9 @@ struct HomeView: View {
                         .buttonStyle(.bordered)
                     }
                     .controlSize(.large)
+                    // Match the options card above: same corner radius, and
+                    // no capsule ends visually poking past the card's edges
+                    .buttonBorderShape(.roundedRectangle(radius: 12))
                 }
                 .padding()
                 .background(.bar)
