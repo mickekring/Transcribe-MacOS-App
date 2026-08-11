@@ -12,6 +12,7 @@
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
 		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
+		40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC32E75F6ED00E0B532 /* TranscribeKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +67,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */,
+				40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */,
 				4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */,
 				40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */,
 				4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */,
@@ -144,6 +146,7 @@
 			packageProductDependencies = (
 				40DACEB52E75F6ED00E0B532 /* WhisperKit */,
 				40DACEC02E75F6ED00E0B532 /* SpeakerKit */,
+				40DACEC32E75F6ED00E0B532 /* TranscribeKit */,
 				404291392E793C6C00DB2587 /* YouTubeKit */,
 			);
 			productName = Transcribe;
@@ -233,6 +236,7 @@
 			mainGroup = 40DACE442E75861E00E0B532;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				40DACEC22E75F6ED00E0B532 /* XCLocalSwiftPackageReference "TranscribeKit" */,
 				40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				404291382E793C6C00DB2587 /* XCRemoteSwiftPackageReference "YouTubeKit" */,
 			);
@@ -664,6 +668,13 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		40DACEC22E75F6ED00E0B532 /* XCLocalSwiftPackageReference "TranscribeKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = TranscribeKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		404291392E793C6C00DB2587 /* YouTubeKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -679,6 +690,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
 			productName = SpeakerKit;
+		};
+		40DACEC32E75F6ED00E0B532 /* TranscribeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TranscribeKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

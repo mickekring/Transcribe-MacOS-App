@@ -1,16 +1,16 @@
 import Foundation
 import SwiftUI
 
-class ModelManager: ObservableObject {
-    nonisolated(unsafe) static let shared = ModelManager()
+public class ModelManager: ObservableObject {
+    nonisolated(unsafe) public static let shared = ModelManager()
     
-    @Published var downloadProgress: [String: Double] = [:]
-    @Published var downloadedModels: Set<String> = []
-    @Published var isDownloading: [String: Bool] = [:]
-    @Published var downloadSpeed: [String: Double] = [:]  // bytes/sec
+    @Published public var downloadProgress: [String: Double] = [:]
+    @Published public var downloadedModels: Set<String> = []
+    @Published public var isDownloading: [String: Bool] = [:]
+    @Published public var downloadSpeed: [String: Double] = [:]  // bytes/sec
     
     /// All available local model IDs
-    static let allLocalModels: [String] = [
+    public static let allLocalModels: [String] = [
         "kb_whisper-base-coreml",
         "kb_whisper-small-coreml",
         "kb_whisper-medium-coreml",
@@ -26,9 +26,9 @@ class ModelManager: ObservableObject {
         "openai_whisper-large-v3",
     ]
 
-    static let kbModels: [String] = allLocalModels.filter { $0.starts(with: "kb_whisper-") }
-    static let nbModels: [String] = allLocalModels.filter { $0.starts(with: "nb_whisper-") }
-    static let openAIModels: [String] = allLocalModels.filter { $0.starts(with: "openai_whisper-") }
+    public static let kbModels: [String] = allLocalModels.filter { $0.starts(with: "kb_whisper-") }
+    public static let nbModels: [String] = allLocalModels.filter { $0.starts(with: "nb_whisper-") }
+    public static let openAIModels: [String] = allLocalModels.filter { $0.starts(with: "openai_whisper-") }
 
     private let modelSizes: [String: Int64] = [
         "kb_whisper-base-coreml": 145_000_000,
@@ -74,7 +74,7 @@ class ModelManager: ObservableObject {
     
     /// Base directory for all app model storage.
     /// Located in Application Support so it's cleaned up when the app is deleted.
-    var modelsDirectory: URL {
+    public var modelsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory,
                                                   in: .userDomainMask).first!
         let bundleID = Bundle.main.bundleIdentifier ?? "com.transcribe.app"
@@ -83,7 +83,7 @@ class ModelManager: ObservableObject {
     
     /// The download base passed to WhisperKit/HubApi so models are stored
     /// inside Application Support instead of ~/Documents/huggingface.
-    var downloadBase: URL {
+    public var downloadBase: URL {
         modelsDirectory.appendingPathComponent("HuggingFace")
     }
     
@@ -95,7 +95,7 @@ class ModelManager: ObservableObject {
     // MARK: - Model Folder Path Tracking
     
     /// Returns the persisted local folder path for a previously downloaded model, or nil if not yet downloaded.
-    func cachedModelFolder(for modelId: String) -> String? {
+    public func cachedModelFolder(for modelId: String) -> String? {
         let paths = loadModelFolderPaths()
         guard let path = paths[modelId] else { return nil }
         
@@ -110,7 +110,7 @@ class ModelManager: ObservableObject {
     }
     
     /// Persists the local folder path after a successful model download.
-    func saveModelFolderPath(_ path: String, for modelId: String) {
+    public func saveModelFolderPath(_ path: String, for modelId: String) {
         var paths = loadModelFolderPaths()
         paths[modelId] = path
         UserDefaults.standard.set(paths, forKey: Self.modelFolderPathsKey)
@@ -142,11 +142,11 @@ class ModelManager: ObservableObject {
         }
     }
     
-    func isModelDownloaded(_ modelName: String) -> Bool {
+    public func isModelDownloaded(_ modelName: String) -> Bool {
         downloadedModels.contains(modelName)
     }
     
-    func displayName(for modelId: String) -> String {
+    public func displayName(for modelId: String) -> String {
         if let known = Self.displayNames[modelId] { return known }
         // Cloud models: "berget:KBLab/kb-whisper-large" etc.
         if modelId.hasPrefix("berget:") {
@@ -166,7 +166,7 @@ class ModelManager: ObservableObject {
     
     // MARK: - Model Deletion
     
-    func deleteModel(_ modelName: String) {
+    public func deleteModel(_ modelName: String) {
         if let path = cachedModelFolder(for: modelName) {
             let url = URL(fileURLWithPath: path)
             try? FileManager.default.removeItem(at: url)
@@ -174,11 +174,11 @@ class ModelManager: ObservableObject {
         removeModelFolderPath(for: modelName)
     }
     
-    func modelSizeBytes(for modelName: String) -> Int64? {
+    public func modelSizeBytes(for modelName: String) -> Int64? {
         modelSizes[modelName]
     }
     
-    func getModelSizeString(_ modelName: String) -> String {
+    public func getModelSizeString(_ modelName: String) -> String {
         guard let size = modelSizes[modelName] else { return "Unknown" }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file

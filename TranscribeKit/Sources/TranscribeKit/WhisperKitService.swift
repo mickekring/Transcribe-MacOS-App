@@ -4,17 +4,17 @@ import AVFoundation
 import os
 
 @MainActor
-class WhisperKitService {
+public class WhisperKitService {
     /// Shared instance. WhisperKit model loading is expensive (multi-GB CoreML
     /// models with ANE specialization that can take minutes on a cold cache), so
     /// the app must have exactly one loading pipeline and keep the loaded model
     /// alive across transcriptions. Creating per-transcription instances causes
     /// concurrent duplicate loads that contend for CoreML/ANE and can wedge.
-    static let shared = WhisperKitService()
+    public static let shared = WhisperKitService()
 
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "WhisperKit")
 
-    var whisperKit: WhisperKit?
+    public var whisperKit: WhisperKit?
     private let languageManager = LanguageManager.shared
     private var initializationTask: Task<Void, Error>?
     private var initializingModelId: String?
@@ -26,11 +26,11 @@ class WhisperKitService {
     /// Model ids whose in-flight download the user explicitly cancelled.
     private var userCancelledDownloads: Set<String> = []
     
-    var currentModel: String? {
+    public var currentModel: String? {
         return currentModelId
     }
     
-    var availableModels: [String] {
+    public var availableModels: [String] {
         ModelManager.allLocalModels
     }
 
@@ -56,7 +56,7 @@ class WhisperKitService {
     /// Loads the user's selected model in the background so it's already in
     /// memory when the first transcription starts. Called at app launch; only
     /// prewarms models that are fully downloaded.
-    func prewarmSelectedModel() {
+    public func prewarmSelectedModel() {
         guard let modelId = UserDefaults.standard.string(forKey: "selectedTranscriptionModel"),
               !modelId.isEmpty,
               modelId != "berget-kb-whisper-large",
@@ -102,7 +102,7 @@ class WhisperKitService {
     
     // MARK: - Initialization
     
-    func initialize(modelId: String) async throws {
+    public func initialize(modelId: String) async throws {
         // Coalesce concurrent loads instead of misreporting them as
         // "model not found": await any in-flight initialization.
         while let task = initializationTask {
@@ -224,7 +224,7 @@ class WhisperKitService {
 
     /// Cancels an in-flight model download (from either the dropdown download
     /// or a transcription that triggered one).
-    func cancelDownload(modelId: String) {
+    public func cancelDownload(modelId: String) {
         logger.info("Cancelling download of \(modelId, privacy: .public)")
         userCancelledDownloads.insert(modelId)
         downloadTasks[modelId]?.cancel()
@@ -401,7 +401,7 @@ class WhisperKitService {
     
     /// Downloads a model without loading it into memory.
     /// Used when the user selects a non-downloaded model from the dropdown.
-    func downloadOnly(modelId: String) async throws {
+    public func downloadOnly(modelId: String) async throws {
         let modelManager = ModelManager.shared
         
         // Skip if already downloaded or already downloading
@@ -431,23 +431,23 @@ class WhisperKitService {
         }
     }
 
-    func loadModel(_ modelName: String) async throws {
+    public func loadModel(_ modelName: String) async throws {
         try await initialize(modelId: modelName)
     }
     
-    func unloadModel() {
+    public func unloadModel() {
         whisperKit = nil
         currentModelId = nil
     }
 
     /// Cancels the in-flight transcription, if any. WhisperKit inference
     /// early-stops via the progress callback returning false.
-    func cancelTranscription() {
+    public func cancelTranscription() {
         activeCancellationFlag?.cancel()
         activeTranscriptionTask?.cancel()
     }
 
-    func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
+    public func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         let cancelFlag = TranscriptionCancellationFlag()
         activeCancellationFlag = cancelFlag
 
@@ -660,13 +660,13 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
 
-    var isCancelled: Bool {
+    public var isCancelled: Bool {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
     }
 
-    func cancel() {
+    public func cancel() {
         lock.lock()
         defer { lock.unlock() }
         cancelled = true
@@ -686,11 +686,11 @@ private final class StreamingCallbackState: @unchecked Sendable {
     private let startTime = Date()
     private var maxWindowId = 0
     
-    init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
+    public init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
         self.continuation = continuation
     }
     
-    func handleProgress(_ progress: TranscriptionProgress) -> Bool {
+    public func handleProgress(_ progress: TranscriptionProgress) -> Bool {
         let now = Date()
         
         if progress.windowId != currentWindowId {
@@ -746,7 +746,7 @@ private final class StreamingCallbackState: @unchecked Sendable {
         return true
     }
     
-    func finalize() {
+    public func finalize() {
         if currentWindowId >= 0 && !currentWindowText.isEmpty {
             completedSegments[currentWindowId] = currentWindowText
         }
@@ -756,5 +756,5 @@ private final class StreamingCallbackState: @unchecked Sendable {
 }
 
 extension TranscriptionError {
-    static let initializationTimeout = TranscriptionError.modelNotFound
+    public static let initializationTimeout = TranscriptionError.modelNotFound
 }

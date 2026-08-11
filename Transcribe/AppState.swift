@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 
 class AppState: ObservableObject {
     @Published var currentTranscriptionURL: URL?

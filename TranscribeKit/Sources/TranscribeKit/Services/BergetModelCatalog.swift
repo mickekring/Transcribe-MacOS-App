@@ -2,14 +2,14 @@ import Foundation
 import os
 
 /// A model as served by Berget's /v1/models endpoint.
-struct BergetModel: Codable, Identifiable, Equatable {
-    let id: String              // API id, e.g. "KBLab/kb-whisper-large"
-    let name: String            // short name, e.g. "kb-whisper-large"
-    let modelType: String       // "text" | "speech-to-text" | "embedding" | "rerank"
-    let lifecycleState: String  // "stable" | "eval" | "maintenance"
-    let isUp: Bool
+public struct BergetModel: Codable, Identifiable, Equatable {
+    public let id: String              // API id, e.g. "KBLab/kb-whisper-large"
+    public let name: String            // short name, e.g. "kb-whisper-large"
+    public let modelType: String       // "text" | "speech-to-text" | "embedding" | "rerank"
+    public let lifecycleState: String  // "stable" | "eval" | "maintenance"
+    public let isUp: Bool
 
-    var isStable: Bool { lifecycleState == "stable" }
+    public var isStable: Bool { lifecycleState == "stable" }
 }
 
 /// Live catalog of Berget's available models, replacing hardcoded registries.
@@ -17,8 +17,8 @@ struct BergetModel: Codable, Identifiable, Equatable {
 /// status per model) and cached in UserDefaults so the pickers keep working
 /// offline with the last known state.
 @MainActor
-final class BergetModelCatalog: ObservableObject {
-    static let shared = BergetModelCatalog()
+public final class BergetModelCatalog: ObservableObject {
+    public static let shared = BergetModelCatalog()
 
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "BergetCatalog")
     private static let cacheKey = "bergetModelCatalogCache"
@@ -27,12 +27,12 @@ final class BergetModelCatalog: ObservableObject {
     private var isRefreshing = false
 
     /// Chat models currently serving (down/maintenance models are hidden).
-    var llmModels: [BergetModel] {
+    public var llmModels: [BergetModel] {
         models.filter { $0.modelType == "text" && $0.isUp }
     }
 
     /// Speech-to-text models currently serving.
-    var asrModels: [BergetModel] {
+    public var asrModels: [BergetModel] {
         models.filter { $0.modelType == "speech-to-text" && $0.isUp }
     }
 
@@ -42,7 +42,7 @@ final class BergetModelCatalog: ObservableObject {
 
     /// Fetches the current model list. Safe to call often; concurrent calls
     /// coalesce and failures keep the cached list.
-    func refresh(apiKey: String) async {
+    public func refresh(apiKey: String) async {
         guard !apiKey.isEmpty, !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }

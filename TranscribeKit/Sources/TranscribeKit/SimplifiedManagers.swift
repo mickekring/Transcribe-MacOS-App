@@ -6,10 +6,10 @@ import Security
 // MARK: - Native Keychain Helper
 
 /// Lightweight wrapper around the Security framework for storing API keys.
-enum KeychainHelper {
+public enum KeychainHelper {
     private static let service = "com.transcribe.api-keys"
 
-    static func get(_ key: String) -> String? {
+    public static func get(_ key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -27,7 +27,7 @@ enum KeychainHelper {
     }
 
     @discardableResult
-    static func set(_ value: String, forKey key: String) -> Bool {
+    public static func set(_ value: String, forKey key: String) -> Bool {
         // Saving an empty value removes the item instead of storing an empty string
         guard !value.isEmpty else { return delete(forKey: key) }
         guard let data = value.data(using: .utf8) else { return false }
@@ -52,7 +52,7 @@ enum KeychainHelper {
     }
 
     @discardableResult
-    static func delete(forKey key: String) -> Bool {
+    public static func delete(forKey key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -66,17 +66,17 @@ enum KeychainHelper {
 // Simplified managers that don't have external dependencies for initial build
 
 @MainActor
-class TranscriptionManager: ObservableObject {
-    @Published var isTranscribing = false
-    @Published var currentProgress: Double = 0
-    @Published var currentTask: String = ""
-    @Published var completedTranscriptions: [TranscriptionResult] = []
+public class TranscriptionManager: ObservableObject {
+    @Published public var isTranscribing = false
+    @Published public var currentProgress: Double = 0
+    @Published public var currentTask: String = ""
+    @Published public var completedTranscriptions: [TranscriptionResult] = []
     
-    init() {
+    public init() {
         // Simplified init without dependencies
     }
     
-    func transcribeFile(_ url: URL) {
+    public func transcribeFile(_ url: URL) {
         // Placeholder implementation
         isTranscribing = true
         currentTask = "Transcribing \(url.lastPathComponent)"
@@ -91,52 +91,52 @@ class TranscriptionManager: ObservableObject {
 }
 
 @MainActor
-class SettingsManager: ObservableObject {
-    @AppStorage("defaultLanguage") var defaultLanguage: String = "sv"
-    @AppStorage("enableAutoLanguageDetection") var enableAutoLanguageDetection: Bool = true
-    @AppStorage("enableTimestamps") var enableTimestamps: Bool = true
-    @AppStorage("enableSpeakerDiarization") var enableSpeakerDiarization: Bool = false
-    @AppStorage("preferredLLMProvider") var preferredLLMProvider: String = "ollama"
-    @AppStorage("enableLLMEnhancement") var enableLLMEnhancement: Bool = false
-    @AppStorage("autoSaveTranscriptions") var autoSaveTranscriptions: Bool = true
-    @AppStorage("transcriptionSaveLocation") var transcriptionSaveLocation: String = ""
+public class SettingsManager: ObservableObject {
+    @AppStorage("defaultLanguage") public var defaultLanguage: String = "sv"
+    @AppStorage("enableAutoLanguageDetection") public var enableAutoLanguageDetection: Bool = true
+    @AppStorage("enableTimestamps") public var enableTimestamps: Bool = true
+    @AppStorage("enableSpeakerDiarization") public var enableSpeakerDiarization: Bool = false
+    @AppStorage("preferredLLMProvider") public var preferredLLMProvider: String = "ollama"
+    @AppStorage("enableLLMEnhancement") public var enableLLMEnhancement: Bool = false
+    @AppStorage("autoSaveTranscriptions") public var autoSaveTranscriptions: Bool = true
+    @AppStorage("transcriptionSaveLocation") public var transcriptionSaveLocation: String = ""
     
     // API Keys stored securely in Keychain
-    @Published var bergetKey: String = ""
+    @Published public var bergetKey: String = ""
     
     // Text processing prompts
-    @Published var textProcessingPrompts: [TextProcessingPrompt] = []
+    @Published public var textProcessingPrompts: [TextProcessingPrompt] = []
     
     // Berget LLM settings
-    @AppStorage("selectedBergetLLMModel") var selectedBergetLLMModel: String = "meta-llama/Llama-3.3-70B-Instruct"
+    @AppStorage("selectedBergetLLMModel") public var selectedBergetLLMModel: String = "meta-llama/Llama-3.3-70B-Instruct"
     
     // Ollama settings
-    @AppStorage("ollamaHost") var ollamaHost: String = "http://127.0.0.1:11434"
-    @Published var ollamaModels: [String] = []
-    @Published var ollamaConnectionStatus: String = ""
-    @AppStorage("selectedOllamaModel") var selectedOllamaModel: String = ""
+    @AppStorage("ollamaHost") public var ollamaHost: String = "http://127.0.0.1:11434"
+    @Published public var ollamaModels: [String] = []
+    @Published public var ollamaConnectionStatus: String = ""
+    @AppStorage("selectedOllamaModel") public var selectedOllamaModel: String = ""
     
     // Recording settings
-    @AppStorage("recordingQuality") var recordingQuality: String = "high"
-    @AppStorage("enableNoiseReduction") var enableNoiseReduction: Bool = true
-    @AppStorage("enableSilenceTrimming") var enableSilenceTrimming: Bool = true
-    @AppStorage("maxRecordingDuration") var maxRecordingDuration: Int = 14400
+    @AppStorage("recordingQuality") public var recordingQuality: String = "high"
+    @AppStorage("enableNoiseReduction") public var enableNoiseReduction: Bool = true
+    @AppStorage("enableSilenceTrimming") public var enableSilenceTrimming: Bool = true
+    @AppStorage("maxRecordingDuration") public var maxRecordingDuration: Int = 14400
     
     // UI Settings
-    @AppStorage("showStatusBarIcon") var showStatusBarIcon: Bool = true
-    @AppStorage("launchAtStartup") var launchAtStartup: Bool = false
-    @AppStorage("minimizeToStatusBar") var minimizeToStatusBar: Bool = false
+    @AppStorage("showStatusBarIcon") public var showStatusBarIcon: Bool = true
+    @AppStorage("launchAtStartup") public var launchAtStartup: Bool = false
+    @AppStorage("minimizeToStatusBar") public var minimizeToStatusBar: Bool = false
     
     // Privacy settings
-    @AppStorage("enableAnalytics") var enableAnalytics: Bool = false
-    @AppStorage("localOnlyMode") var localOnlyMode: Bool = false
-    @AppStorage("clearHistoryOnQuit") var clearHistoryOnQuit: Bool = false
+    @AppStorage("enableAnalytics") public var enableAnalytics: Bool = false
+    @AppStorage("localOnlyMode") public var localOnlyMode: Bool = false
+    @AppStorage("clearHistoryOnQuit") public var clearHistoryOnQuit: Bool = false
     
     // Default model and output format as simple strings
-    @AppStorage("defaultModel") var defaultModel: String = "kb_whisper-small-coreml"
-    @AppStorage("defaultOutputFormat") var defaultOutputFormat: String = "txt"
+    @AppStorage("defaultModel") public var defaultModel: String = "kb_whisper-small-coreml"
+    @AppStorage("defaultOutputFormat") public var defaultOutputFormat: String = "txt"
     
-    init() {
+    public init() {
         // Migrate API key from UserDefaults to Keychain if needed
         if let legacyKey = UserDefaults.standard.string(forKey: "bergetAPIKey"), !legacyKey.isEmpty {
             if KeychainHelper.set(legacyKey, forKey: "bergetAPIKey") {
@@ -154,7 +154,7 @@ class SettingsManager: ObservableObject {
     /// Saves the API key to the Keychain. Returns false if the Keychain write
     /// failed, in which case the published key is left unchanged.
     @discardableResult
-    func saveAPIKey(_ key: String, for provider: APIKeyType) -> Bool {
+    public func saveAPIKey(_ key: String, for provider: APIKeyType) -> Bool {
         switch provider {
         case .berget:
             // An empty key deletes the stored item (handled by KeychainHelper.set)
@@ -164,11 +164,11 @@ class SettingsManager: ObservableObject {
         }
     }
     
-    func validateAPIKey(_ key: String, for provider: APIKeyType) async -> Bool {
+    public func validateAPIKey(_ key: String, for provider: APIKeyType) async -> Bool {
         return !key.isEmpty
     }
     
-    func checkOllamaConnection() async {
+    public func checkOllamaConnection() async {
         // Real Ollama API check
         await MainActor.run {
             self.ollamaConnectionStatus = "Connecting..."
@@ -215,7 +215,7 @@ class SettingsManager: ObservableObject {
         }
     }
     
-    func resetToDefaults() {
+    public func resetToDefaults() {
         defaultLanguage = "sv"
         enableAutoLanguageDetection = true
         enableTimestamps = true
@@ -250,7 +250,7 @@ class SettingsManager: ObservableObject {
     private static let promptsKey = "textProcessingPrompts"
     private static let promptsBackupKey = "textProcessingPromptsBackup"
 
-    func loadPrompts() {
+    public func loadPrompts() {
         guard let data = UserDefaults.standard.data(forKey: Self.promptsKey) else {
             // First launch: seed with default prompts
             textProcessingPrompts = Self.defaultPrompts()
@@ -268,30 +268,30 @@ class SettingsManager: ObservableObject {
         }
     }
     
-    func savePrompts() {
+    public func savePrompts() {
         if let data = try? JSONEncoder().encode(textProcessingPrompts) {
             UserDefaults.standard.set(data, forKey: Self.promptsKey)
         }
     }
     
-    func addPrompt(_ prompt: TextProcessingPrompt) {
+    public func addPrompt(_ prompt: TextProcessingPrompt) {
         textProcessingPrompts.append(prompt)
         savePrompts()
     }
     
-    func updatePrompt(_ prompt: TextProcessingPrompt) {
+    public func updatePrompt(_ prompt: TextProcessingPrompt) {
         if let index = textProcessingPrompts.firstIndex(where: { $0.id == prompt.id }) {
             textProcessingPrompts[index] = prompt
             savePrompts()
         }
     }
     
-    func deletePrompt(_ prompt: TextProcessingPrompt) {
+    public func deletePrompt(_ prompt: TextProcessingPrompt) {
         textProcessingPrompts.removeAll { $0.id == prompt.id }
         savePrompts()
     }
     
-    static func defaultPrompts() -> [TextProcessingPrompt] {
+    public static func defaultPrompts() -> [TextProcessingPrompt] {
         [
             TextProcessingPrompt(
                 name: "Sammanfattning",
@@ -383,6 +383,6 @@ class SettingsManager: ObservableObject {
     }
 }
 
-enum APIKeyType: String {
+public enum APIKeyType: String {
     case berget = "Berget"
 }

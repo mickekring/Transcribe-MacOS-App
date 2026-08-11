@@ -1,4 +1,5 @@
 import Foundation
+import TranscribeKit
 import AVFoundation
 import ScreenCaptureKit
 import CoreAudio

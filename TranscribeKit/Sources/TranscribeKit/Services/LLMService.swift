@@ -2,9 +2,11 @@ import Foundation
 
 /// Unified LLM service supporting OpenAI-compatible chat completion APIs (Berget, Ollama).
 /// Streams responses token-by-token via an AsyncThrowingStream.
-final class LLMService: Sendable {
-    
-    enum Provider: String, Sendable {
+public final class LLMService: Sendable {
+
+    public init() {}
+
+    public enum Provider: String, Sendable {
         case berget
         case ollama
     }
@@ -42,7 +44,7 @@ final class LLMService: Sendable {
     ///   - apiKey: API key (required for Berget, ignored for Ollama)
     ///   - ollamaHost: Ollama base URL (default localhost:11434)
     /// - Returns: An AsyncThrowingStream of String tokens
-    func streamCompletion(
+    public func streamCompletion(
         systemPrompt: String,
         userMessage: String,
         provider: Provider,

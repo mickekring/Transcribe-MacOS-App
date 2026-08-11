@@ -2,21 +2,23 @@ import Foundation
 import Combine
 
 // Transcription update structure for streaming
-struct TranscriptionUpdate {
-    let text: String
-    let progress: Double
-    let segments: [TranscriptionSegmentData]
-    let isComplete: Bool
+public struct TranscriptionUpdate {
+    public let text: String
+    public let progress: Double
+    public let segments: [TranscriptionSegmentData]
+    public let isComplete: Bool
 }
 
 @MainActor
-class TranscriptionService {
+public class TranscriptionService {
+    public init() {}
+
     private let modelManager = ModelManager.shared
     private let languageManager = LanguageManager.shared
     private var whisperKitService: WhisperKitService?
     private var transcriptionTask: Task<Void, Never>?
 
-    func transcribe(fileURL: URL) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
+    public func transcribe(fileURL: URL) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -109,18 +111,18 @@ class TranscriptionService {
         continuation.finish()
     }
     
-    func cancelTranscription() {
+    public func cancelTranscription() {
         transcriptionTask?.cancel()
         whisperKitService?.cancelTranscription()
     }
 }
 
-enum TranscriptionError: LocalizedError {
+public enum TranscriptionError: LocalizedError {
     case noModelSelected
     case modelNotFound
     case unsupportedModel
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .noModelSelected:
             return "No transcription model selected"

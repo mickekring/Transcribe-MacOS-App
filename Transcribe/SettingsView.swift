@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 
 struct SettingsView: View {
     @EnvironmentObject var settingsManager: SettingsManager

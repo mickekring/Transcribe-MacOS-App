@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 
 struct AboutView: View {
     @AppStorage("appColorScheme") private var appColorScheme: String = "dark"

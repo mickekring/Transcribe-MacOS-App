@@ -1,23 +1,23 @@
 import Foundation
 import SwiftUI
 
-struct TranscriptionLanguage: Identifiable, Hashable {
-    let id: String
-    let code: String
-    let name: String
-    let localizationKey: String
+public struct TranscriptionLanguage: Identifiable, Hashable {
+    public let id: String
+    public let code: String
+    public let name: String
+    public let localizationKey: String
 
     /// Computed on access so picker labels update when the app language changes
-    var localizedName: String { localized(localizationKey) }
+    public var localizedName: String { localized(localizationKey) }
 
-    static let auto = TranscriptionLanguage(id: "auto", code: "auto", name: "Auto-detect", localizationKey: "language_auto")
-    static let swedish = TranscriptionLanguage(id: "sv", code: "sv", name: "Swedish", localizationKey: "language_swedish")
-    static let norwegian = TranscriptionLanguage(id: "no", code: "no", name: "Norwegian", localizationKey: "language_norwegian")
-    static let english = TranscriptionLanguage(id: "en", code: "en", name: "English", localizationKey: "language_english")
+    public static let auto = TranscriptionLanguage(id: "auto", code: "auto", name: "Auto-detect", localizationKey: "language_auto")
+    public static let swedish = TranscriptionLanguage(id: "sv", code: "sv", name: "Swedish", localizationKey: "language_swedish")
+    public static let norwegian = TranscriptionLanguage(id: "no", code: "no", name: "Norwegian", localizationKey: "language_norwegian")
+    public static let english = TranscriptionLanguage(id: "en", code: "en", name: "English", localizationKey: "language_english")
 
-    static let commonLanguages = [auto, swedish, norwegian, english]
+    public static let commonLanguages = [auto, swedish, norwegian, english]
 
-    static let allLanguages = [
+    public static let allLanguages = [
         auto,
         swedish,
         english,
@@ -42,10 +42,10 @@ struct TranscriptionLanguage: Identifiable, Hashable {
     ]
 }
 
-class LanguageManager: ObservableObject {
-    nonisolated(unsafe) static let shared = LanguageManager()
+public class LanguageManager: ObservableObject {
+    nonisolated(unsafe) public static let shared = LanguageManager()
     
-    @Published var selectedLanguage: TranscriptionLanguage = .auto
+    @Published public var selectedLanguage: TranscriptionLanguage = .auto
     @AppStorage("transcriptionLanguage") private var savedLanguageCode: String = "auto"
     
     private init() {
@@ -62,7 +62,7 @@ class LanguageManager: ObservableObject {
     }
     
     @MainActor
-    func selectLanguage(_ language: TranscriptionLanguage) {
+    public func selectLanguage(_ language: TranscriptionLanguage) {
         selectedLanguage = language
         savedLanguageCode = language.code
     }

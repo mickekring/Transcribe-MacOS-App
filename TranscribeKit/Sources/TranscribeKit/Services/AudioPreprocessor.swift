@@ -1,8 +1,8 @@
 import Foundation
 import AVFoundation
 
-class AudioPreprocessor {
-    nonisolated(unsafe) static let shared = AudioPreprocessor()
+public class AudioPreprocessor {
+    nonisolated(unsafe) public static let shared = AudioPreprocessor()
     
     // Maximum file size (25 MB)
     // Berget accepts up to 100 MB per request and processes ~25x realtime
@@ -19,23 +19,23 @@ class AudioPreprocessor {
     private let chunkDuration: Double = 540.0  // 9 minutes
     private let overlapDuration: Double = 30.0  // 30 seconds overlap
     
-    struct ProcessedAudio {
-        let url: URL
-        let chunks: [AudioChunk]
-        let needsCleanup: Bool
-        let originalDuration: Double
+    public struct ProcessedAudio {
+        public let url: URL
+        public let chunks: [AudioChunk]
+        public let needsCleanup: Bool
+        public let originalDuration: Double
         /// The user's original input file — never deleted by cleanup.
-        let originalURL: URL
+        public let originalURL: URL
     }
     
-    struct AudioChunk {
-        let url: URL
-        let startTime: Double
-        let endTime: Double
-        let index: Int
+    public struct AudioChunk {
+        public let url: URL
+        public let startTime: Double
+        public let endTime: Double
+        public let index: Int
     }
     
-    func preprocessAudio(
+    public func preprocessAudio(
         url: URL,
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProcessedAudio {
@@ -111,7 +111,7 @@ class AudioPreprocessor {
     
     /// Returns true when the file needs to be converted before WhisperKit can
     /// read it (e.g. video containers like .mp4/.mov, or non-native audio).
-    func needsConversionForWhisperKit(url: URL) -> Bool {
+    public func needsConversionForWhisperKit(url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return !Self.nativeAudioExtensions.contains(ext)
     }
@@ -130,7 +130,7 @@ class AudioPreprocessor {
     /// Extracts audio from any AVAsset-compatible file (including video) and
     /// returns a .wav URL that WhisperKit can read. Caller must delete the
     /// returned file when done.
-    func extractAudioForWhisperKit(url: URL) async throws -> URL {
+    public func extractAudioForWhisperKit(url: URL) async throws -> URL {
         let asset = AVURLAsset(url: url)
 
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
@@ -381,7 +381,7 @@ class AudioPreprocessor {
         return chunks
     }
     
-    func cleanupProcessedAudio(_ processedAudio: ProcessedAudio) {
+    public func cleanupProcessedAudio(_ processedAudio: ProcessedAudio) {
         guard processedAudio.needsCleanup else { return }
 
         // Delete temporary files — never the user's original file
@@ -394,7 +394,7 @@ class AudioPreprocessor {
         }
     }
     
-    func mergeChunkedTranscriptions(
+    public func mergeChunkedTranscriptions(
         _ transcriptions: [(chunk: AudioChunk, result: TranscriptionResult)]
     ) -> TranscriptionResult {
         // Safety check
@@ -533,11 +533,11 @@ class AudioPreprocessor {
     }
 }
 
-enum AudioProcessingError: LocalizedError {
+public enum AudioProcessingError: LocalizedError {
     case exportFailed(String)
     case chunkingFailed(String)
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .exportFailed(let message):
             return "Audio export failed: \(message)"

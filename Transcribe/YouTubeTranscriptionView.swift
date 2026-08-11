@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 
 struct YouTubeTranscriptionView: View {
     @State private var youtubeURL = ""

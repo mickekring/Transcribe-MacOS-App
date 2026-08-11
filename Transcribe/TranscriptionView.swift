@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 import AVFoundation
 import UniformTypeIdentifiers
 
@@ -2316,19 +2317,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
 }
 
-struct TranscriptionSegmentData {
-    let start: Double
-    let end: Double
-    let text: String
-    let words: [WordTimestamp]?
-}
 
-struct WordTimestamp {
-    let word: String
-    let start: Double
-    let end: Double
-    let confidence: Float
-}
 
 // MARK: - Auto-Scrolling Text View
 

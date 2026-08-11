@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 import AVFoundation
 import CoreAudio
 import AppKit

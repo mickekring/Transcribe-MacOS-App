@@ -4,17 +4,23 @@ import SpeakerKit
 import os
 
 /// A contiguous span of audio attributed to one speaker.
-struct SpeakerTurn: Sendable {
-    let speakerId: Int
-    let start: Double
-    let end: Double
+public struct SpeakerTurn: Sendable {
+    public let speakerId: Int
+    public let start: Double
+    public let end: Double
+
+    public init(speakerId: Int, start: Double, end: Double) {
+        self.speakerId = speakerId
+        self.start = start
+        self.end = end
+    }
 }
 
-enum DiarizationError: LocalizedError {
+public enum DiarizationError: LocalizedError {
     case noAudio
     case localOnlyNoModels
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .noAudio:
             return "No audio could be loaded for speaker identification."
@@ -28,19 +34,19 @@ enum DiarizationError: LocalizedError {
 /// Shared instance so the loaded models persist across runs, mirroring
 /// WhisperKitService.
 @MainActor
-final class DiarizationService {
-    static let shared = DiarizationService()
+public final class DiarizationService {
+    public static let shared = DiarizationService()
 
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "Diarization")
     private var speakerKit: SpeakerKit?
     /// Options used by the most recent run, recorded into debug exports so
     /// tuning experiments are self-documenting.
-    private(set) var lastOptionsDescription = ""
+    public private(set) var lastOptionsDescription = ""
 
     /// Diarizes an audio (or video) file and returns speaker turns ordered by
     /// start time. Downloads the diarization models on first use; they are
     /// stored under the same base directory as the Whisper models.
-    func diarize(
+    public func diarize(
         fileURL: URL,
         numberOfSpeakers: Int? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil

@@ -1,4 +1,5 @@
 import Foundation
+import TranscribeKit
 import SwiftUI
 import YouTubeKit
 import AVFoundation

@@ -3,12 +3,14 @@ import SwiftUI
 
 /// Unified transcription service that routes between WhisperKit and SwiftWhisper
 @MainActor
-class UnifiedTranscriptionService: ObservableObject {
-    @Published var isTranscribing = false
-    @Published var transcriptionProgress: Double = 0.0
-    @Published var currentModel: String?
-    @Published var modelState: ModelState = .unloaded
-    @Published var errorMessage: String?
+public class UnifiedTranscriptionService: ObservableObject {
+    public init() {}
+
+    @Published public var isTranscribing = false
+    @Published public var transcriptionProgress: Double = 0.0
+    @Published public var currentModel: String?
+    @Published public var modelState: ModelState = .unloaded
+    @Published public var errorMessage: String?
     
     // Service instances
     private let whisperKitService = WhisperKitService.shared
@@ -17,11 +19,11 @@ class UnifiedTranscriptionService: ObservableObject {
     // Current active service
     private var activeService: TranscriptionServiceProtocol?
     
-    enum ServiceType {
+    public enum ServiceType {
         case whisperKit
     }
     
-    enum ModelState {
+    public enum ModelState {
         case unloaded
         case loading
         case loaded
@@ -53,7 +55,7 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Load a transcription model
-    func loadModel(_ modelName: String) async throws {
+    public func loadModel(_ modelName: String) async throws {
         modelState = .loading
         currentModel = nil
         activeService = nil
@@ -77,7 +79,7 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Unload current model
-    func unloadModel() {
+    public func unloadModel() {
         Task {
             await whisperKitService.unloadModel()
         }
@@ -89,19 +91,19 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Check if a model is downloaded
-    func isModelDownloaded(_ modelName: String) async -> Bool {
+    public func isModelDownloaded(_ modelName: String) async -> Bool {
         // Check actual on-disk state, not the static model catalog
         return ModelManager.shared.isModelDownloaded(modelName)
     }
     
     /// Download a model
-    func downloadModel(_ modelName: String, progressHandler: ((Double) -> Void)? = nil) async throws {
+    public func downloadModel(_ modelName: String, progressHandler: ((Double) -> Void)? = nil) async throws {
         // WhisperKit downloads models automatically when loading
         try await whisperKitService.loadModel(modelName)
     }
     
     /// Delete a downloaded model
-    func deleteModel(_ modelName: String) throws {
+    public func deleteModel(_ modelName: String) throws {
         // WhisperKit manages its own model deletion
         // This would need to be implemented in WhisperKitService
     }
@@ -109,7 +111,7 @@ class UnifiedTranscriptionService: ObservableObject {
     // MARK: - Transcription
     
     /// Transcribe audio file
-    func transcribe(
+    public func transcribe(
         audioURL: URL,
         language: String = "sv",
         progressHandler: (@Sendable (Double) -> Void)? = nil
@@ -143,7 +145,7 @@ class UnifiedTranscriptionService: ObservableObject {
     // MARK: - Model Information
     
     /// Get list of all available models
-    func getAllAvailableModels() async -> [TranscriptionModel] {
+    public func getAllAvailableModels() async -> [TranscriptionModel] {
         var models: [TranscriptionModel] = []
         let downloaded = ModelManager.shared.downloadedModels
         
@@ -218,19 +220,19 @@ class UnifiedTranscriptionService: ObservableObject {
     }
     
     /// Get Swedish-optimized models
-    func getSwedishModels() async -> [TranscriptionModel] {
+    public func getSwedishModels() async -> [TranscriptionModel] {
         return await getAllAvailableModels().filter { $0.language == "Swedish" }
     }
     
     /// Get multilingual models
-    func getMultilingualModels() async -> [TranscriptionModel] {
+    public func getMultilingualModels() async -> [TranscriptionModel] {
         return await getAllAvailableModels().filter { $0.language == "Multilingual" }
     }
 }
 
 // MARK: - Protocol for common interface
 
-protocol TranscriptionServiceProtocol {
+public protocol TranscriptionServiceProtocol {
     func transcribe(
         audioURL: URL,
         language: String,
@@ -242,14 +244,14 @@ protocol TranscriptionServiceProtocol {
 
 // WhisperKit wrapper for protocol conformance
 @MainActor
-class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
+public class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
     private let whisperKitService: WhisperKitService
     
-    init(_ service: WhisperKitService) {
+    public init(_ service: WhisperKitService) {
         self.whisperKitService = service
     }
     
-    func transcribe(
+    public func transcribe(
         audioURL: URL,
         language: String,
         progressHandler: (@Sendable (Double) -> Void)?
@@ -319,11 +321,11 @@ class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
 
 // MARK: - Model Information Type
 
-struct TranscriptionModel: Identifiable {
-    let id: String
-    let name: String
-    let size: String
-    let language: String
-    let type: UnifiedTranscriptionService.ServiceType
-    let downloaded: Bool
+public struct TranscriptionModel: Identifiable {
+    public let id: String
+    public let name: String
+    public let size: String
+    public let language: String
+    public let type: UnifiedTranscriptionService.ServiceType
+    public let downloaded: Bool
 }

@@ -1,17 +1,17 @@
 import Foundation
 import AVFoundation
 
-final class BergetTranscriptionService: Sendable {
+public final class BergetTranscriptionService: Sendable {
     private let apiKey: String
     private let baseURL = "https://api.berget.ai/v1"
     private let model: String
 
-    init(apiKey: String, model: String = "KBLab/kb-whisper-large") {
+    public init(apiKey: String, model: String = "KBLab/kb-whisper-large") {
         self.apiKey = apiKey
         self.model = model
     }
     
-    func transcribe(
+    public func transcribe(
         audioURL: URL,
         language: String? = nil,
         onProgress: (@Sendable (String) -> Void)? = nil,
@@ -228,13 +228,13 @@ final class BergetTranscriptionService: Sendable {
     }
 }
 
-enum CloudTranscriptionError: LocalizedError {
+public enum CloudTranscriptionError: LocalizedError {
     case invalidResponse
     case httpError(Int)
     case apiError(String)
     case fileNotFound
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidResponse:
             return "Invalid response from server"

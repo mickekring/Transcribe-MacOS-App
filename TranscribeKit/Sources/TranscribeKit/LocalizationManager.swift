@@ -1,15 +1,15 @@
 import SwiftUI
 
-class LocalizationManager: ObservableObject {
-    nonisolated(unsafe) static let shared = LocalizationManager()
+public class LocalizationManager: ObservableObject {
+    nonisolated(unsafe) public static let shared = LocalizationManager()
     
-    @AppStorage("appLanguage") var appLanguage: String = "en" {
+    @AppStorage("appLanguage") public var appLanguage: String = "en" {
         didSet {
             updateLanguage()
         }
     }
     
-    @Published var currentLanguage: String = "en"
+    @Published public var currentLanguage: String = "en"
     
     private init() {
         // First launch (no stored choice): follow the system language.
@@ -31,13 +31,13 @@ class LocalizationManager: ObservableObject {
         }
     }
     
-    func updateLanguage() {
+    public func updateLanguage() {
         currentLanguage = appLanguage
         // Force UI refresh
         objectWillChange.send()
     }
     
-    func localizedString(_ key: String) -> String {
+    public func localizedString(_ key: String) -> String {
         let bundle = languageBundle()
         return NSLocalizedString(key, bundle: bundle, comment: "")
     }
@@ -52,7 +52,7 @@ class LocalizationManager: ObservableObject {
 }
 
 // Convenience function for localization
-func localized(_ key: String) -> String {
+public func localized(_ key: String) -> String {
     LocalizationManager.shared.localizedString(key)
 }
 

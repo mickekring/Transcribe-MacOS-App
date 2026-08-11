@@ -1,4 +1,5 @@
 import SwiftUI
+import TranscribeKit
 import AppKit
 
 // MARK: - Adaptive Color Helpers

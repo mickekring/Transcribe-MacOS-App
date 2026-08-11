@@ -1,4 +1,5 @@
 import Cocoa
+import TranscribeKit
 import SwiftUI
 import os
 
