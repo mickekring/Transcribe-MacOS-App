@@ -62,6 +62,9 @@ struct TranscribeRunView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
+                // Follow the growing transcript (chat-style); a manual
+                // scroll up releases the bottom anchor until scrolled back.
+                .defaultScrollAnchor(.bottom)
 
                 if isDone || failed {
                     Button(isDone ? "Klar" : "Stäng") { dismiss() }

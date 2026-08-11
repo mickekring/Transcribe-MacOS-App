@@ -53,12 +53,10 @@ struct TranscriptDetailView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "person.2")
+                        Label("Byt namn på talare", systemImage: "person.2")
                     }
                 }
-                ShareLink(item: displayedText) {
-                    Image(systemName: "square.and.arrow.up")
-                }
+                ShareLink(item: displayedText)
             }
         }
         .alert("Byt namn på \(renamingSpeaker.map(speakerLabel) ?? "")",
