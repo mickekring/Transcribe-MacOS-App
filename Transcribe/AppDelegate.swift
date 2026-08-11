@@ -43,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Must run before the first model load (the launch prewarm) so
         // CoreML writes its ANE cache through the protected location.
-        protectANECache()
+        ANECacheProtector.protect()
 
         // Clean up any leftover files from previous session (in case of force quit)
         cleanupTemporaryFiles(isStartup: true)
@@ -51,94 +51,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusBar()
     }
 
-    /// Protects CoreML's ANE specialization cache from cache purges.
-    ///
-    /// CoreML stores compiled-for-Neural-Engine model code (minutes of build
-    /// time per large model) under this sandbox's Caches directory, which
-    /// macOS and cleaner utilities treat as disposable. This relocates the
-    /// cache into Application Support (treated as user data) and leaves a
-    /// symlink at the original path — CoreML follows it transparently. If a
-    /// purge deletes the symlink, it is recreated here on next launch and the
-    /// compiled models survive. Also prunes cache entries for older macOS
-    /// builds, which are orphaned by OS updates (the cache is keyed by build).
-    private func protectANECache() {
-        let logger = Logger(subsystem: "com.mickekring.transcribe", category: "ANECache")
-        let fm = FileManager.default
-        guard let bundleId = Bundle.main.bundleIdentifier,
-              let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first,
-              let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-
-        let linkURL = caches
-            .appendingPathComponent(bundleId)
-            .appendingPathComponent("com.apple.e5rt.e5bundlecache")
-        let homeURL = appSupport
-            .appendingPathComponent(bundleId)
-            .appendingPathComponent("ANECache")
-
-        do {
-            try fm.createDirectory(at: homeURL, withIntermediateDirectories: true)
-            try fm.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-            let linkPath = linkURL.path
-            var isDirectory: ObjCBool = false
-            let attributes = try? fm.attributesOfItem(atPath: linkPath)
-            let isSymlink = (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink
-
-            if isSymlink {
-                // Recreate if broken or pointing elsewhere
-                let target = try? fm.destinationOfSymbolicLink(atPath: linkPath)
-                if target != homeURL.path {
-                    try fm.removeItem(at: linkURL)
-                    try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
-                    logger.info("Recreated ANE cache symlink")
-                }
-            } else if fm.fileExists(atPath: linkPath, isDirectory: &isDirectory), isDirectory.boolValue {
-                // Real cache directory from before this protection existed:
-                // merge its contents into the protected home, then replace
-                // the directory with the symlink.
-                for buildDir in try fm.contentsOfDirectory(at: linkURL, includingPropertiesForKeys: nil) {
-                    let destBuild = homeURL.appendingPathComponent(buildDir.lastPathComponent)
-                    if !fm.fileExists(atPath: destBuild.path) {
-                        try fm.moveItem(at: buildDir, to: destBuild)
-                    } else {
-                        for entry in try fm.contentsOfDirectory(at: buildDir, includingPropertiesForKeys: nil) {
-                            let destEntry = destBuild.appendingPathComponent(entry.lastPathComponent)
-                            if !fm.fileExists(atPath: destEntry.path) {
-                                try fm.moveItem(at: entry, to: destEntry)
-                            }
-                        }
-                    }
-                }
-                try fm.removeItem(at: linkURL)
-                try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
-                logger.info("Migrated ANE cache to Application Support and linked it")
-            } else {
-                // Nothing at the cache path yet (fresh install or purged)
-                try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
-                logger.info("Created ANE cache symlink")
-            }
-
-            // Prune entries orphaned by macOS updates (keyed by OS build)
-            var osVersionSize = 0
-            sysctlbyname("kern.osversion", nil, &osVersionSize, nil, 0)
-            var osVersionChars = [CChar](repeating: 0, count: osVersionSize)
-            sysctlbyname("kern.osversion", &osVersionChars, &osVersionSize, nil, 0)
-            let currentBuild = String(cString: osVersionChars)
-            if !currentBuild.isEmpty {
-                for buildDir in (try? fm.contentsOfDirectory(at: homeURL, includingPropertiesForKeys: nil)) ?? [] {
-                    if buildDir.lastPathComponent != currentBuild {
-                        try? fm.removeItem(at: buildDir)
-                        logger.info("Pruned stale ANE cache for OS build \(buildDir.lastPathComponent, privacy: .public)")
-                    }
-                }
-            }
-        } catch {
-            // Best effort: on any failure CoreML just uses the default path
-            // and behavior is the pre-protection status quo.
-            logger.error("ANE cache protection failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-    
     func applicationWillTerminate(_ notification: Notification) {
         cleanupTemporaryFiles(isStartup: false)
     }
