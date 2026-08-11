@@ -75,6 +75,8 @@ struct RecordView: View {
                 }
                 .padding(.bottom, 40)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.surfaceBackground)
             .navigationTitle("Spela in")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -94,7 +96,7 @@ struct RecordView: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.quaternary)
                 Capsule()
-                    .fill(recording.isPaused ? Color.orange : Color.green)
+                    .fill(recording.isPaused ? Color.orange : Color.primaryAccent)
                     .frame(width: geo.size.width * CGFloat(recording.level))
                     .animation(.linear(duration: 0.1), value: recording.level)
             }

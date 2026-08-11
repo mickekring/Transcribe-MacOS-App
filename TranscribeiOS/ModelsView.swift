@@ -8,11 +8,20 @@ struct ModelsView: View {
     @AppStorage("selectedTranscriptionModel") private var selectedModel = "kb_whisper-small-coreml"
     @AppStorage("iosDiarize") private var diarize = true
     @AppStorage("iosLanguage") private var language = "sv"
+    @AppStorage("appColorScheme") private var appColorScheme = "dark"
 
     private let models = ModelManager.kbModels + ModelManager.nbModels
 
     var body: some View {
         Form {
+            Section("Utseende") {
+                Picker("Tema", selection: $appColorScheme) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Text(theme.label).tag(theme.rawValue)
+                    }
+                }
+            }
+
             Section("Transkribering") {
                 Picker("Språk", selection: $language) {
                     Text("Svenska").tag("sv")
@@ -35,6 +44,8 @@ struct ModelsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.surfaceBackground)
         .navigationTitle("Modeller")
     }
 
@@ -51,7 +62,7 @@ struct ModelsView: View {
             if modelManager.isModelDownloaded(model) {
                 if selectedModel == model {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundColor(.primaryAccent)
                 } else {
                     Button("Använd") { selectedModel = model }
                         .buttonStyle(.bordered)

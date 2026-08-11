@@ -25,6 +25,7 @@ struct HomeView: View {
                             NavigationLink(value: record.id) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(record.title)
+                                        .foregroundColor(.textPrimary)
                                         .lineLimit(1)
                                     HStack {
                                         Text(record.date, style: .date)
@@ -35,9 +36,10 @@ struct HomeView: View {
                                         }
                                     }
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundColor(.textSecondary)
                                 }
                             }
+                            .listRowBackground(Color.cardBackground)
                         }
                         .onDelete { offsets in
                             for offset in offsets {
@@ -45,8 +47,10 @@ struct HomeView: View {
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)
                 }
             }
+            .background(Color.surfaceBackground)
             .navigationTitle("Transcribe")
             .navigationDestination(for: UUID.self) { id in
                 if let record = store.records.first(where: { $0.id == id }) {

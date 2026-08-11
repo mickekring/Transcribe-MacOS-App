@@ -61,6 +61,8 @@ struct TranscribeRunView: View {
                         .padding(.bottom)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.surfaceBackground)
             .navigationTitle(job.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

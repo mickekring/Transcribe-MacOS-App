@@ -22,10 +22,12 @@ struct TranscriptDetailView: View {
         ScrollView {
             Text(displayedText)
                 .font(.callout)
+                .foregroundColor(.textPrimary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }
+        .background(Color.surfaceBackground)
         .navigationTitle(record.title)
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top) {
