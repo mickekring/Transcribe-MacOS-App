@@ -97,24 +97,59 @@ public class ModelManager: ObservableObject {
     /// Returns the persisted local folder path for a previously downloaded model, or nil if not yet downloaded.
     public func cachedModelFolder(for modelId: String) -> String? {
         let paths = loadModelFolderPaths()
-        guard let path = paths[modelId] else { return nil }
-        
-        // Verify the folder still exists on disk
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard let stored = paths[modelId] else { return nil }
+
+        guard let resolved = resolveStoredPath(stored) else {
             // Model folder was deleted externally — clear the stale entry
             removeModelFolderPath(for: modelId)
             return nil
         }
-        return path
+        // Migrate legacy absolute entries to the container-independent form
+        let relative = Self.relativeToAppSupport(resolved)
+        if relative != stored {
+            var updated = paths
+            updated[modelId] = relative
+            UserDefaults.standard.set(updated, forKey: Self.modelFolderPathsKey)
+        }
+        return resolved
     }
-    
+
     /// Persists the local folder path after a successful model download.
+    /// Stored relative to Application Support: on iOS the app's container
+    /// path changes on every reinstall, so absolute paths go stale even
+    /// though the files survive.
     public func saveModelFolderPath(_ path: String, for modelId: String) {
         var paths = loadModelFolderPaths()
-        paths[modelId] = path
+        paths[modelId] = Self.relativeToAppSupport(path)
         UserDefaults.standard.set(paths, forKey: Self.modelFolderPathsKey)
         downloadedModels.insert(modelId)
+    }
+
+    private static var appSupportDir: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    }
+
+    private static func relativeToAppSupport(_ path: String) -> String {
+        if let range = path.range(of: "/Application Support/") {
+            return String(path[range.upperBound...])
+        }
+        return path
+    }
+
+    /// Resolves a stored path (relative or legacy absolute) to an existing
+    /// absolute path in the current container, or nil if the folder is gone.
+    private func resolveStoredPath(_ stored: String) -> String? {
+        let fm = FileManager.default
+        if stored.hasPrefix("/") {
+            if fm.fileExists(atPath: stored) { return stored }
+            // Container moved (iOS reinstall): re-base the stable suffix
+            // onto the current Application Support directory.
+            let rebased = Self.appSupportDir
+                .appendingPathComponent(Self.relativeToAppSupport(stored)).path
+            return fm.fileExists(atPath: rebased) ? rebased : nil
+        }
+        let resolved = Self.appSupportDir.appendingPathComponent(stored).path
+        return fm.fileExists(atPath: resolved) ? resolved : nil
     }
     
     private func removeModelFolderPath(for modelId: String) {
@@ -132,12 +167,13 @@ public class ModelManager: ObservableObject {
     
     /// Checks all enabled models still exist on disk.
     private func validateDownloadedModels() {
-        let paths = loadModelFolderPaths()
-        for (modelId, path) in paths {
-            if FileManager.default.fileExists(atPath: path) {
+        for modelId in loadModelFolderPaths().keys {
+            // cachedModelFolder resolves relative and legacy absolute paths,
+            // migrates entries, and clears the ones whose folders are gone.
+            if cachedModelFolder(for: modelId) != nil {
                 downloadedModels.insert(modelId)
             } else {
-                removeModelFolderPath(for: modelId)
+                downloadedModels.remove(modelId)
             }
         }
     }

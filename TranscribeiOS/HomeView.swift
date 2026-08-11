@@ -103,6 +103,12 @@ struct HomeView: View {
                     importFile(url)
                 }
             }
+            .task {
+                // Load the selected model into ANE memory in the background
+                // (same as the Mac's launch prewarm) so the first
+                // transcription doesn't pay the ~30s load wait.
+                WhisperKitService.shared.prewarmSelectedModel()
+            }
             .alert("Kunde inte importera",
                    isPresented: Binding(get: { importError != nil },
                                         set: { if !$0 { importError = nil } })) {
