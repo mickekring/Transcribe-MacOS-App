@@ -25,6 +25,8 @@ public struct TranscriptionResult: Identifiable, Codable {
     }
 }
 
+#if os(macOS)
+// CoreAudio HAL device IDs only exist on macOS; iOS uses AVAudioSession routing.
 public struct AudioInputDevice: Identifiable, Hashable {
     public let id: AudioDeviceID
     public let name: String
@@ -34,6 +36,7 @@ public struct AudioInputDevice: Identifiable, Hashable {
         self.name = name
     }
 }
+#endif
 
 public struct TranscriptionSegment: Codable {
     public let id: Int
