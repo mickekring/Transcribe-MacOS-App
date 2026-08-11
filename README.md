@@ -7,7 +7,7 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 > [!NOTE]
-> **An iOS version is in development.** The shared transcription core now lives in the `TranscribeKit` Swift package, and a `TranscribeiOS` target runs KB Whisper and speaker identification on-device on iPhone. It is at a very early, experimental stage — expect it to be unstable and incomplete. The macOS app is unaffected.
+> **An iOS version (1.0) now lives in this repository.** The shared transcription core is the `TranscribeKit` Swift package, and the `TranscribeiOS` target runs KB/NB Whisper and speaker identification on-device on iPhone — see [iOS version](#ios-version) below. It is younger than the macOS app; expect rough edges.
 
 <img width="2776" height="1860" alt="t26_1" src="https://github.com/user-attachments/assets/0511a227-8a77-4a05-ba39-478eecec5b28" />
 
@@ -87,9 +87,15 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 - API keys are stored in the macOS Keychain, not in plaintext
 - No analytics, no tracking, no telemetry — in the app or its dependencies
 
-## iOS version (early development)
+## iOS version
 
-An iOS companion app lives in this repository as the `TranscribeiOS` target, built on `TranscribeKit` — a local Swift package holding the transcription core both apps share (WhisperKit service, diarization, audio preprocessing, model management). It runs KB/NB Whisper and speaker identification fully on-device on the iPhone's Neural Engine. It is at an early, experimental stage — expect instability.
+An iOS companion app (1.0) lives in this repository as the `TranscribeiOS` target, built on `TranscribeKit` — a local Swift package holding the transcription core both apps share (WhisperKit service, diarization, audio preprocessing, model management, cloud transcription). It is younger than the macOS app; expect rough edges.
+
+- **On-device transcription** — KB/NB Whisper on the iPhone's Neural Engine (KB Whisper Small runs at ~15x realtime, Medium at ~5.5x on an iPhone 17 Pro), with the same tuned speaker identification as the Mac app
+- **Record or import** — built-in recorder with live waveform, pause/resume, and Bluetooth mic support; import any audio/video via the Files picker
+- **Library** — transcriptions persist on the phone with speaker renaming, share-sheet export of text or the original audio, and Files-app access to recordings
+- **Cloud transcription (optional)** — the same Berget AI models as the Mac app, with server-side diarization; API key stored in the Keychain
+- **Localized** — Swedish, Norwegian, and English UI with dark/light/system themes
 
 **Privacy on iOS** follows the same principle as the Mac app — nothing leaves the device:
 
