@@ -6,6 +6,9 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 ![macOS](https://img.shields.io/badge/macOS-26+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+> [!NOTE]
+> **An iOS version is in development.** The shared transcription core now lives in the `TranscribeKit` Swift package, and a `TranscribeiOS` target runs KB Whisper and speaker identification on-device on iPhone. It is at a very early, experimental stage — expect it to be unstable and incomplete. The macOS app is unaffected.
+
 <img width="2776" height="1860" alt="t26_1" src="https://github.com/user-attachments/assets/0511a227-8a77-4a05-ba39-478eecec5b28" />
 
 <img width="2776" height="1860" alt="t26_2" src="https://github.com/user-attachments/assets/5cb9ace4-92c4-4e36-9f3b-a3a2aa521044" />
