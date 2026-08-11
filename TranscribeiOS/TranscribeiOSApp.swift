@@ -11,6 +11,33 @@ struct TranscribeiOSApp: App {
         // pressure, which would throw away the multi-minute ANE model
         // specialization. Must run before the first model load.
         ANECacheProtector.protect()
+
+        Self.excludeLocalDataFromBackup()
+    }
+
+    /// Privacy: nothing recorded or transcribed leaves the phone. The app's
+    /// Documents and Application Support folders are included in iCloud/
+    /// computer backups by default — exclude them so recordings and
+    /// transcripts stay strictly on-device. Models and the ANE cache are
+    /// excluded too (multi-GB and re-downloadable/rebuildable; Apple's
+    /// guidelines want those out of backups regardless).
+    private static func excludeLocalDataFromBackup() {
+        let fm = FileManager.default
+        var targets = [
+            RecordingService.recordingsDirectory(),
+            TranscriptStore.directory
+        ]
+        if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+           let bundleId = Bundle.main.bundleIdentifier {
+            targets.append(appSupport.appendingPathComponent(bundleId))
+        }
+        for target in targets {
+            try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+            var url = target
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? url.setResourceValues(values)
+        }
     }
 
     var body: some Scene {

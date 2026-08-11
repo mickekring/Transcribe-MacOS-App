@@ -46,7 +46,7 @@ struct TranscriptRecord: Codable, Identifiable {
 final class TranscriptStore: ObservableObject {
     @Published private(set) var records: [TranscriptRecord] = []
 
-    private static var directory: URL {
+    static var directory: URL {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Transcripts", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
