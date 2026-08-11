@@ -62,6 +62,9 @@ struct HomeView: View {
                         }
                     }
                     .scrollContentBackground(.hidden)
+                    // Pull the list up under the subheading — the default
+                    // scroll content inset leaves them looking disconnected
+                    .contentMargins(.top, 6, for: .scrollContent)
                 }
             }
             .background(Color.surfaceBackground)
@@ -202,9 +205,9 @@ struct HomeView: View {
             ZStack {
                 Circle()
                     .fill(LinearGradient.accentGradient)
-                    .frame(width: 68, height: 68)
+                    .frame(width: 92, height: 92)
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 30, weight: .medium))
+                    .font(.system(size: 42, weight: .medium))
                     // Matches the app icon in dark mode; white keeps the
                     // contrast on the green in light mode
                     .foregroundColor(scheme == .dark ? .black : .white)
