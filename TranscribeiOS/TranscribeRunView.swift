@@ -16,6 +16,7 @@ struct TranscribeRunView: View {
     let job: AudioJob
     @ObservedObject var store: TranscriptStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var localization = LocalizationManager.shared
 
     @AppStorage("selectedTranscriptionModel") private var selectedModel = "kb_whisper-small-coreml"
     @AppStorage("iosDiarize") private var diarize = true
@@ -51,7 +52,7 @@ struct TranscribeRunView: View {
                         .padding(.horizontal, 32)
                 }
                 if let rtf {
-                    Text(String(format: "%.2fx realtid", rtf))
+                    Text(String(format: localized("ios_realtime_factor"), String(format: "%.2f", rtf)))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -67,7 +68,7 @@ struct TranscribeRunView: View {
                 .defaultScrollAnchor(.bottom)
 
                 if isDone || failed {
-                    Button(isDone ? "Klar" : "Stäng") { dismiss() }
+                    Button(isDone ? localized("ios_done") : localized("ios_close")) { dismiss() }
                         .buttonStyle(.borderedProminent)
                         .padding(.bottom)
                 }
@@ -79,7 +80,7 @@ struct TranscribeRunView: View {
             .toolbar {
                 if !isDone && !failed {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Avbryt") {
+                        Button(localized("cancel")) {
                             WhisperKitService.shared.cancelTranscription()
                             dismiss()
                         }
@@ -107,8 +108,8 @@ struct TranscribeRunView: View {
             // Same heuristic as the Mac app: a load running past 10s means
             // the cache is being built.
             let modelName = ModelManager.shared.displayName(for: selectedModel)
-            status = "Laddar \(modelName) till minnet…"
-            statusInfo = "Tar oftast under en minut."
+            status = String(format: localized("ios_loading_model_memory"), modelName)
+            statusInfo = localized("ios_loading_model_info")
             let loadStart = Date()
             let heartbeat = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(10))
@@ -117,8 +118,8 @@ struct TranscribeRunView: View {
                     let clock = elapsed >= 60
                         ? "\(elapsed / 60) min \(elapsed % 60) s"
                         : "\(elapsed) s"
-                    status = "Anpassar \(modelName) för din iPhone (\(clock))"
-                    statusInfo = "Modellen optimeras för telefonens Neural Engine. Det görs bara första gången den används och kan ta flera minuter."
+                    status = String(format: localized("ios_optimizing_model"), modelName, clock)
+                    statusInfo = localized("ios_optimizing_info")
                     try? await Task.sleep(for: .seconds(1))
                 }
             }
@@ -131,7 +132,7 @@ struct TranscribeRunView: View {
             }
             statusInfo = ""
 
-            status = "Transkriberar…"
+            status = localized("ios_transcribing")
             let start = Date()
             var segments: [TranscriptionSegmentData] = []
             for try await update in WhisperKitService.shared.transcribe(
@@ -141,7 +142,7 @@ struct TranscribeRunView: View {
             ) {
                 transcript = update.text
                 progress = update.progress
-                status = "Transkriberar… \(Int(update.progress * 100))%"
+                status = String(format: localized("ios_transcribing_pct"), Int(update.progress * 100))
                 if update.isComplete {
                     segments = update.segments
                 }
@@ -151,7 +152,7 @@ struct TranscribeRunView: View {
 
             var turns: [SpeakerTurn]? = nil
             if diarize {
-                status = "Identifierar talare…"
+                status = localized("ios_identifying_speakers")
                 turns = try await DiarizationService.shared.diarize(fileURL: job.url) { p in
                     Task { @MainActor in progress = p }
                 }
@@ -170,10 +171,10 @@ struct TranscribeRunView: View {
                 speakerNames: [:]
             )
             store.add(record)
-            status = "Klar och sparad"
+            status = localized("ios_done_saved")
             isDone = true
         } catch {
-            status = "Fel: \(error.localizedDescription)"
+            status = String(format: localized("ios_error"), error.localizedDescription)
             failed = true
         }
     }

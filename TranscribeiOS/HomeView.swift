@@ -5,6 +5,7 @@ import TranscribeKit
 /// record with the microphone, or import an audio/video file.
 struct HomeView: View {
     @StateObject private var store = TranscriptStore()
+    @ObservedObject private var localization = LocalizationManager.shared
     @AppStorage("iosLanguage") private var language = "sv"
     @AppStorage("iosDiarize") private var diarize = true
     @State private var showRecorder = false
@@ -14,21 +15,23 @@ struct HomeView: View {
 
     private var languageLabel: String {
         switch language {
-        case "sv": return "Svenska"
-        case "no": return "Norska"
-        case "en": return "Engelska"
-        default: return "Automatiskt"
+        case "sv": return localized("language_swedish")
+        case "no": return localized("language_norwegian")
+        case "en": return localized("language_english")
+        default: return localized("ios_language_auto")
         }
     }
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                header
+
                 if store.records.isEmpty {
                     ContentUnavailableView(
-                        "Inga transkriberingar än",
+                        localized("ios_empty_title"),
                         systemImage: "waveform",
-                        description: Text("Spela in eller importera en ljudfil för att komma igång.")
+                        description: Text(localized("ios_empty_description"))
                     )
                 } else {
                     List {
@@ -62,12 +65,6 @@ struct HomeView: View {
                 }
             }
             .background(Color.surfaceBackground)
-            .navigationTitle("Transcribe")
-            .navigationDestination(for: UUID.self) { id in
-                if let record = store.records.first(where: { $0.id == id }) {
-                    TranscriptDetailView(record: record, store: store)
-                }
-            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
@@ -77,6 +74,11 @@ struct HomeView: View {
                     }
                 }
             }
+            .navigationDestination(for: UUID.self) { id in
+                if let record = store.records.first(where: { $0.id == id }) {
+                    TranscriptDetailView(record: record, store: store)
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 12) {
                     // Per-transcription options live here, not in settings —
@@ -84,11 +86,11 @@ struct HomeView: View {
                     // in before you hit record.
                     HStack {
                         Menu {
-                            Picker("Språk", selection: $language) {
-                                Text("Svenska").tag("sv")
-                                Text("Norska").tag("no")
-                                Text("Engelska").tag("en")
-                                Text("Automatiskt").tag("auto")
+                            Picker(localized("language"), selection: $language) {
+                                Text(localized("language_swedish")).tag("sv")
+                                Text(localized("language_norwegian")).tag("no")
+                                Text(localized("language_english")).tag("en")
+                                Text(localized("ios_language_auto")).tag("auto")
                             }
                         } label: {
                             HStack(spacing: 6) {
@@ -103,7 +105,7 @@ struct HomeView: View {
                         Spacer()
 
                         Toggle(isOn: $diarize) {
-                            Label("Talare", systemImage: "person.2")
+                            Label(localized("ios_speakers"), systemImage: "person.2")
                                 .font(.subheadline)
                         }
                         .toggleStyle(.switch)
@@ -122,7 +124,7 @@ struct HomeView: View {
                         Button {
                             showRecorder = true
                         } label: {
-                            Label("Spela in", systemImage: "mic.fill")
+                            Label(localized("ios_record"), systemImage: "mic.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -131,7 +133,7 @@ struct HomeView: View {
                         Button {
                             showImporter = true
                         } label: {
-                            Label("Importera", systemImage: "square.and.arrow.down")
+                            Label(localized("ios_import"), systemImage: "square.and.arrow.down")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -155,20 +157,48 @@ struct HomeView: View {
                     importFile(url)
                 }
             }
-            .task {
-                // Load the selected model into ANE memory in the background
-                // (same as the Mac's launch prewarm) so the first
-                // transcription doesn't pay the ~30s load wait.
-                WhisperKitService.shared.prewarmSelectedModel()
-            }
-            .alert("Kunde inte importera",
+            .alert(localized("ios_import_failed"),
                    isPresented: Binding(get: { importError != nil },
                                         set: { if !$0 { importError = nil } })) {
                 Button("OK") { importError = nil }
             } message: {
                 Text(importError ?? "")
             }
+            .task {
+                // Load the selected model into ANE memory in the background
+                // (same as the Mac's launch prewarm) so the first
+                // transcription doesn't pay the ~30s load wait.
+                WhisperKitService.shared.prewarmSelectedModel()
+            }
         }
+    }
+
+    private var header: some View {
+        VStack(spacing: 14) {
+            Text(localized("ios_app_title"))
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.textPrimary)
+
+            Image("LogoIcon")
+                .resizable()
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(Color.borderLight, lineWidth: 0.5)
+                )
+                .shadow(color: Color.primaryAccent.opacity(0.35), radius: 18, y: 4)
+
+            Text(localized("ios_latest_transcriptions"))
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.textSecondary)
+                .textCase(.uppercase)
+                .font(.caption)
+                .padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
     }
 
     /// Copies the picked file into Documents/Recordings — the security-scoped

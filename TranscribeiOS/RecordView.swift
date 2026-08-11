@@ -1,9 +1,11 @@
 import SwiftUI
+import TranscribeKit
 
 /// Full-screen recording UI: scrolling waveform, elapsed time,
 /// pause/resume, stop.
 struct RecordView: View {
     @StateObject private var recording = RecordingService()
+    @ObservedObject private var localization = LocalizationManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var permissionDenied = false
 
@@ -40,7 +42,7 @@ struct RecordView: View {
                         .padding(.top, 16)
                 }
                 if permissionDenied {
-                    Text("Ge Transcribe tillgång till mikrofonen i Inställningar → Integritet.")
+                    Text(localized("ios_mic_permission"))
                         .font(.callout)
                         .foregroundColor(.textSecondary)
                         .multilineTextAlignment(.center)
@@ -55,11 +57,11 @@ struct RecordView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.surfaceBackground)
-            .navigationTitle("Spela in")
+            .navigationTitle(localized("ios_record"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Avbryt") {
+                    Button(localized("cancel")) {
                         recording.discard()
                         dismiss()
                     }
@@ -72,7 +74,7 @@ struct RecordView: View {
     private var statusLine: some View {
         Group {
             if recording.isPaused {
-                Label("Pausad", systemImage: "pause.fill")
+                Label(localized("ios_paused"), systemImage: "pause.fill")
                     .foregroundStyle(.orange)
             } else if recording.isRecording {
                 HStack(spacing: 6) {
@@ -80,11 +82,11 @@ struct RecordView: View {
                         .fill(.red)
                         .frame(width: 8, height: 8)
                         .opacity(0.6 + 0.4 * Double(recording.level))
-                    Text("Spelar in")
+                    Text(localized("ios_recording"))
                         .foregroundColor(.textSecondary)
                 }
             } else {
-                Text("Redo att spela in")
+                Text(localized("ios_ready_to_record"))
                     .foregroundColor(.textTertiary)
             }
         }

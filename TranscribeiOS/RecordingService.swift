@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import TranscribeKit
 
 /// Microphone recording via AVAudioSession/AVAudioRecorder (the iOS
 /// counterpart of the Mac app's AudioRecorderManager, which uses CoreAudio
@@ -54,7 +55,7 @@ final class RecordingService: NSObject, ObservableObject {
             let rec = try AVAudioRecorder(url: url, settings: settings)
             rec.isMeteringEnabled = true
             guard rec.record() else {
-                errorMessage = "Inspelningen kunde inte startas."
+                errorMessage = localized("ios_recording_failed")
                 return
             }
             recorder = rec
@@ -67,7 +68,7 @@ final class RecordingService: NSObject, ObservableObject {
                 Task { @MainActor in self?.tick() }
             }
         } catch {
-            errorMessage = "Inspelningen kunde inte startas: \(error.localizedDescription)"
+            errorMessage = localized("ios_recording_failed") + " " + error.localizedDescription
         }
     }
 

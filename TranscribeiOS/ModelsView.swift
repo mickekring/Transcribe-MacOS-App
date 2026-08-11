@@ -13,34 +13,34 @@ struct ModelsView: View {
 
     var body: some View {
         Form {
-            Section("App") {
-                Picker("Tema", selection: $appColorScheme) {
+            Section(localized("ios_app_section")) {
+                Picker(localized("ios_theme"), selection: $appColorScheme) {
                     ForEach(AppTheme.allCases) { theme in
                         Text(theme.label).tag(theme.rawValue)
                     }
                 }
-                Picker("Språk i appen", selection: $localization.appLanguage) {
+                Picker(localized("ios_app_language"), selection: $localization.appLanguage) {
                     Text("Svenska").tag("sv")
-                    Text("Norska").tag("no")
+                    Text("Norsk").tag("no")
                     Text("English").tag("en")
                 }
             }
 
-            Section("Modeller") {
+            Section(localized("ios_models")) {
                 ForEach(models, id: \.self) { model in
                     modelRow(model)
                 }
             }
 
             Section {
-                Text("Modellerna körs helt lokalt på telefonens Neural Engine. Första gången en modell används byggs en cache — det kan ta flera minuter beroende på modellstorlek.")
+                Text(localized("ios_models_footnote"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .scrollContentBackground(.hidden)
         .background(Color.surfaceBackground)
-        .navigationTitle("Inställningar")
+        .navigationTitle(localized("ios_settings"))
     }
 
     @ViewBuilder
@@ -58,7 +58,7 @@ struct ModelsView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.primaryAccent)
                 } else {
-                    Button("Använd") { selectedModel = model }
+                    Button(localized("ios_use_model")) { selectedModel = model }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
@@ -91,7 +91,7 @@ struct ModelsView: View {
                 Button(role: .destructive) {
                     modelManager.deleteModel(model)
                 } label: {
-                    Label("Ta bort", systemImage: "trash")
+                    Label(localized("ios_delete"), systemImage: "trash")
                 }
             }
         }

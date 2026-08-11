@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import TranscribeKit
 
 // The Mac app's Supabase-inspired palette (Transcribe/ColorExtensions.swift),
 // ported to UIKit dynamic providers so the same names work in iOS views.
@@ -98,9 +99,9 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .dark: return "Mörkt"
-        case .light: return "Ljust"
-        case .system: return "System"
+        case .dark: return localized("ios_theme_dark")
+        case .light: return localized("ios_theme_light")
+        case .system: return localized("ios_theme_system")
         }
     }
 }
