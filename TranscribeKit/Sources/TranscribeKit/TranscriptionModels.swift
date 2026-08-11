@@ -85,7 +85,7 @@ public struct TextProcessingPrompt: Identifiable, Codable, Equatable {
 }
 // MARK: - Streaming segment data (UI-facing)
 
-public struct TranscriptionSegmentData {
+public struct TranscriptionSegmentData: Codable, Sendable {
     public let start: Double
     public let end: Double
     public let text: String
@@ -99,7 +99,7 @@ public struct TranscriptionSegmentData {
     }
 }
 
-public struct WordTimestamp {
+public struct WordTimestamp: Codable, Sendable {
     public let word: String
     public let start: Double
     public let end: Double

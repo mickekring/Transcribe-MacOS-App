@@ -4,7 +4,7 @@ import SpeakerKit
 import os
 
 /// A contiguous span of audio attributed to one speaker.
-public struct SpeakerTurn: Sendable {
+public struct SpeakerTurn: Sendable, Codable {
     public let speakerId: Int
     public let start: Double
     public let end: Double
