@@ -319,3 +319,12 @@
 "ios_cloud_transcribing" = "Transkriberar i molnet…";
 "ios_api_key_missing" = "API-nyckel för Berget saknas. Lägg till den i Inställningar.";
 "ios_eval_badge" = "test";
+
+"ios_summarize" = "Bearbeta med AI";
+"ios_llm_downloading" = "Laddar ner språkmodell… %d%%";
+"ios_llm_loading" = "Laddar språkmodell…";
+"ios_llm_generating" = "Skriver…";
+"ios_llm_done" = "Klar";
+"ios_llm_prompt_label" = "Prompt";
+"ios_llm_stats" = "Modell laddad på %@ s · %@ tokens/s";
+"ios_llm_download_note" = "Gemma 4 (ca 1,5 GB) laddas ner första gången och körs sedan helt lokalt på telefonen.";

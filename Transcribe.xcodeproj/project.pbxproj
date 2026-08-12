@@ -11,6 +11,7 @@
 		4042913A2E793C6C00DB2587 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 404291392E793C6C00DB2587 /* YouTubeKit */; };
 		4087E8D52E769BAF00C23FC9 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4087E8D42E769BAF00C23FC9 /* Accelerate.framework */; };
 		40C0FFEE000000000000A00B /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A00A /* TranscribeKit */; };
+		40C0FFEE000000000000A00F /* Gemma4Swift in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A00E /* Gemma4Swift */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
 		40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC32E75F6ED00E0B532 /* TranscribeKit */; };
 		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
@@ -87,6 +88,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				40C0FFEE000000000000A00B /* TranscribeKit in Frameworks */,
+				40C0FFEE000000000000A00F /* Gemma4Swift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -175,6 +177,7 @@
 			name = TranscribeiOS;
 			packageProductDependencies = (
 				40C0FFEE000000000000A00A /* TranscribeKit */,
+				40C0FFEE000000000000A00E /* Gemma4Swift */,
 			);
 			productName = TranscribeiOS;
 			productReference = 40C0FFEE000000000000A002 /* TranscribeiOS.app */;
@@ -292,6 +295,7 @@
 			mainGroup = 40DACE442E75861E00E0B532;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				40C0FFEE000000000000A00D /* XCRemoteSwiftPackageReference "gemma-4-swift-mlx" */,
 				40DACEC22E75F6ED00E0B532 /* XCLocalSwiftPackageReference "TranscribeKit" */,
 				40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				404291382E793C6C00DB2587 /* XCRemoteSwiftPackageReference "YouTubeKit" */,
@@ -392,6 +396,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TranscribeiOS/TranscribeiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RW3JS6CR99;
@@ -427,6 +432,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TranscribeiOS/TranscribeiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RW3JS6CR99;
@@ -814,6 +820,14 @@
 				minimumVersion = 0.2.9;
 			};
 		};
+		40C0FFEE000000000000A00D /* XCRemoteSwiftPackageReference "gemma-4-swift-mlx" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/VincentGourbin/gemma-4-swift-mlx";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
@@ -833,6 +847,11 @@
 		40C0FFEE000000000000A00A /* TranscribeKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TranscribeKit;
+		};
+		40C0FFEE000000000000A00E /* Gemma4Swift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 40C0FFEE000000000000A00D /* XCRemoteSwiftPackageReference "gemma-4-swift-mlx" */;
+			productName = Gemma4Swift;
 		};
 		40DACEB52E75F6ED00E0B532 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;

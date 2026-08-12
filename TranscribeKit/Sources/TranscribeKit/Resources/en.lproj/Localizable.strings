@@ -319,3 +319,12 @@
 "ios_cloud_transcribing" = "Transcribing in the cloud…";
 "ios_api_key_missing" = "Berget API key missing. Add it in Settings.";
 "ios_eval_badge" = "eval";
+
+"ios_summarize" = "Process with AI";
+"ios_llm_downloading" = "Downloading language model… %d%%";
+"ios_llm_loading" = "Loading language model…";
+"ios_llm_generating" = "Writing…";
+"ios_llm_done" = "Done";
+"ios_llm_prompt_label" = "Prompt";
+"ios_llm_stats" = "Model loaded in %@ s · %@ tokens/s";
+"ios_llm_download_note" = "Gemma 4 (about 1.5 GB) downloads on first use and then runs entirely on-device.";

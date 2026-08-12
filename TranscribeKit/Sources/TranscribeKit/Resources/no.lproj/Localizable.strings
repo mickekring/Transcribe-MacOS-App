@@ -317,3 +317,12 @@
 "ios_cloud_transcribing" = "Transkriberer i skyen…";
 "ios_api_key_missing" = "API-nøkkel for Berget mangler. Legg den til i Innstillinger.";
 "ios_eval_badge" = "test";
+
+"ios_summarize" = "Bearbeid med AI";
+"ios_llm_downloading" = "Laster ned språkmodell… %d%%";
+"ios_llm_loading" = "Laster språkmodell…";
+"ios_llm_generating" = "Skriver…";
+"ios_llm_done" = "Ferdig";
+"ios_llm_prompt_label" = "Prompt";
+"ios_llm_stats" = "Modell lastet på %@ s · %@ tokens/s";
+"ios_llm_download_note" = "Gemma 4 (ca. 1,5 GB) lastes ned første gang og kjører deretter helt lokalt på telefonen.";

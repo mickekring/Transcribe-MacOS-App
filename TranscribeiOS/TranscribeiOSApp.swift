@@ -31,6 +31,10 @@ struct TranscribeiOSApp: App {
            let bundleId = Bundle.main.bundleIdentifier {
             targets.append(appSupport.appendingPathComponent(bundleId))
         }
+        // MLX/swift-transformers downloads LLM weights under Documents/huggingface
+        if let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+            targets.append(documents.appendingPathComponent("huggingface"))
+        }
         for target in targets {
             try? fm.createDirectory(at: target, withIntermediateDirectories: true)
             var url = target

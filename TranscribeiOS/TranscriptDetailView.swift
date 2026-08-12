@@ -14,6 +14,7 @@ struct TranscriptDetailView: View {
     @State private var newName = ""
     @State private var renamingTitle = false
     @State private var newTitle = ""
+    @State private var showSummarize = false
 
     private var displayedText: String {
         if showSpeakers, let speakerText = record.speakerTranscript {
@@ -48,6 +49,12 @@ struct TranscriptDetailView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showSummarize = true
+                } label: {
+                    Label(localized("ios_summarize"), systemImage: "sparkles")
+                }
+
                 Menu {
                     Button {
                         newTitle = record.title
@@ -84,6 +91,9 @@ struct TranscriptDetailView: View {
                     Label(localized("save_copy"), systemImage: "square.and.arrow.up")
                 }
             }
+        }
+        .sheet(isPresented: $showSummarize) {
+            SummarizeView(transcriptText: displayedText)
         }
         .alert(String(format: localized("ios_rename_speaker_title"),
                       renamingSpeaker.map(speakerLabel) ?? ""),
