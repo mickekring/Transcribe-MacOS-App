@@ -343,3 +343,5 @@
 "ios_cloud_models_header" = "Cloud models";
 "ios_on" = "On";
 "ios_off" = "Off";
+
+"ios_llm_thinking" = "The model is thinking…";

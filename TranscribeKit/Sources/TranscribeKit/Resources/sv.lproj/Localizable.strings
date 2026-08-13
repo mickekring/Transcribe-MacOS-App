@@ -343,3 +343,5 @@
 "ios_cloud_models_header" = "Molnmodeller";
 "ios_on" = "På";
 "ios_off" = "Av";
+
+"ios_llm_thinking" = "Modellen tänker…";

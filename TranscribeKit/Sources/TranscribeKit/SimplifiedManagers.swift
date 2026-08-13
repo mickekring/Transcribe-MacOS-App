@@ -305,7 +305,7 @@ public class SettingsManager: ObservableObject {
                 - Identifiera och lyft fram de viktigaste ämnena, diskussionerna och slutsatserna
                 - Filtrera bort utfyllnadsord, upprepningar och irrelevanta sidospår
                 - Skriv på samma språk som transkriberingen
-                - Håll sammanfattningen till ungefär 15–25% av originaltextens längd
+                - Var noggrann och fullständig – utelämna inget ämne, resonemang eller besked som förekommer i transkriberingen. Låt sammanfattningens längd styras av innehållet, inte av något ordantal
                 - Använd ett neutralt, professionellt och lättläst språk
                 - Lägg inte till tolkningar eller information som inte finns i källtexten
 
@@ -362,8 +362,7 @@ public class SettingsManager: ObservableObject {
                 - Varje punkt ska vara självbärande – begriplig utan att man läst transkriberingen
                 - Formulera punkterna i fullständiga meningar, inte fragmentariska nyckelord
                 - Skriv på samma språk som transkriberingen
-                - Sträva efter 5–10 punkter beroende på transkriberingens längd och innehåll – varken fler eller färre än innehållet motiverar
-                - Prioritera kvalitet framför kvantitet: en träffsäker punkt är bättre än tre utfyllnadspunkter
+                - Ta med så många punkter som innehållet motiverar – utelämna inget väsentligt, men fyll inte ut med oviktiga punkter
                 - Lägg inte till tolkningar eller information som inte finns i källtexten
 
                 **Struktur:**

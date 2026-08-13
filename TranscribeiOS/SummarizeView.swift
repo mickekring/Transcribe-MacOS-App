@@ -73,6 +73,13 @@ struct SummarizeView: View {
                         .foregroundColor(.textTertiary)
                 }
 
+                if isWorking && output.contains("<think>") && Self.stripThinking(output).isEmpty {
+                    // Reasoning models emit hidden thinking before the answer
+                    Text(localized("ios_llm_thinking"))
+                        .font(.caption)
+                        .foregroundColor(.textTertiary)
+                }
+
                 if isEditing {
                     TextEditor(text: $output)
                         .font(.callout)
@@ -83,7 +90,7 @@ struct SummarizeView: View {
                         .padding(.horizontal)
                 } else {
                     ScrollView {
-                        MarkdownText(output)
+                        MarkdownText(Self.stripThinking(output))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                     }
@@ -243,6 +250,21 @@ struct SummarizeView: View {
         return LocalLLMModel.byId(selectedLLM)?.shortName ?? selectedLLM
     }
 
+    /// Removes reasoning-model deliberation (<think>…</think> blocks; an
+    /// unterminated block hides everything after it).
+    static func stripThinking(_ text: String) -> String {
+        var result = text
+        while let start = result.range(of: "<think>") {
+            if let end = result.range(of: "</think>",
+                                      range: start.upperBound..<result.endIndex) {
+                result.removeSubrange(start.lowerBound..<end.upperBound)
+            } else {
+                result.removeSubrange(start.lowerBound..<result.endIndex)
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Markdown rendering
 
     /// Lightweight Markdown renderer for LLM output: headers, bullet and
@@ -350,12 +372,15 @@ struct SummarizeView: View {
         statusInfo = ""
         status = localized("ios_llm_generating")
 
-        // Gemma has no separate system role — instruction and content
-        // go in one user turn, same shape LLMService uses for Berget.
+        // Gemma has no separate system role — instruction and content go in
+        // one user turn, same shape LLMService uses for Berget. Qwen thinks
+        // by default; the /no_think soft switch turns reasoning off so it
+        // answers instead of deliberating for minutes.
+        let noThink = model.repo.lowercased().contains("qwen") ? "\n/no_think" : ""
         let fullPrompt = """
         \(prompt.prompt)
 
-        \(transcriptText)
+        \(transcriptText)\(noThink)
         """
 
         let generationStart = Date()
@@ -365,8 +390,12 @@ struct SummarizeView: View {
             try Task.checkCancellation()
             output += token
             tokenCount += 1
+            // Hard cap: a runaway generation (reasoning loops) grows the KV
+            // cache without bound and eventually jetsams the app
+            if tokenCount >= 8192 { break }
         }
         let generationSeconds = Date().timeIntervalSince(generationStart)
+        output = Self.stripThinking(output)
 
         let tokensPerSecond = generationSeconds > 0
             ? Double(tokenCount) / generationSeconds : 0
