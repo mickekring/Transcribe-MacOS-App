@@ -116,6 +116,10 @@ struct TranscribeRunView: View {
                 return
             }
 
+            // A resident LLM (3+ GB) plus Whisper overflows the ~6 GB app
+            // budget — the mirror image of the LLM load freeing Whisper.
+            LLMRuntime.release()
+
             // Two distinct waits, two distinct messages: loading an already-
             // optimized model into memory takes seconds; the first-ever load
             // of a model builds the Neural Engine cache and takes minutes.

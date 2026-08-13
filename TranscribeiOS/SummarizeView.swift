@@ -6,11 +6,12 @@ import MLXHuggingFace
 import HuggingFace
 import Tokenizers
 
-/// On-device text processing with Gemma 4 E2B (4-bit) via MLX.
-/// Spike goals: measure model load time, generation speed, and memory
-/// headroom on-device, and judge Swedish summary quality against Berget.
+/// On-device (Gemma/Qwen via MLX) or cloud (Berget) text processing of a
+/// transcript. Outputs persist on the record — reopening shows the latest
+/// generated text per prompt — and can be edited in place.
 struct SummarizeView: View {
-    let transcriptText: String
+    let record: TranscriptRecord
+    @ObservedObject var store: TranscriptStore
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var localization = LocalizationManager.shared
 
@@ -24,10 +25,20 @@ struct SummarizeView: View {
     @State private var output = ""
     @State private var isWorking = false
     @State private var isDone = false
+    @State private var isEditing = false
     @State private var stats: String?
+    @State private var currentProcessedId: UUID?
     @State private var generationTask: Task<Void, Never>?
 
     @MainActor private static var loadedOnce = false
+
+    private var transcriptText: String {
+        record.speakerTranscript ?? record.text
+    }
+
+    private var selectedPrompt: TextProcessingPrompt? {
+        prompts.first { $0.id == selectedPromptId } ?? prompts.first
+    }
 
     var body: some View {
         NavigationStack {
@@ -39,7 +50,7 @@ struct SummarizeView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
-                .disabled(isWorking)
+                .disabled(isWorking || isEditing)
 
                 if isWorking || !status.isEmpty {
                     HStack(spacing: 10) {
@@ -62,25 +73,28 @@ struct SummarizeView: View {
                         .foregroundColor(.textTertiary)
                 }
 
-                ScrollView {
-                    MarkdownText(output)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
+                if isEditing {
+                    TextEditor(text: $output)
+                        .font(.callout)
+                        .foregroundColor(.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.cardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.horizontal)
+                } else {
+                    ScrollView {
+                        MarkdownText(output)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                    }
+                    .defaultScrollAnchor(.bottom)
                 }
-                .defaultScrollAnchor(.bottom)
 
                 HStack(spacing: 10) {
                     llmPicker
                         .menuStyle(.button)
-                        .disabled(isWorking)
+                        .disabled(isWorking || isEditing)
                         .frame(maxWidth: .infinity)
-
-                    if isDone {
-                        ShareLink(item: output) {
-                            Image(systemName: "square.and.arrow.up")
-                                .frame(minWidth: 24)
-                        }
-                    }
 
                     Button {
                         if isWorking {
@@ -93,6 +107,7 @@ struct SummarizeView: View {
                               systemImage: isWorking ? "stop.circle" : "sparkles")
                             .frame(maxWidth: .infinity)
                     }
+                    .disabled(isEditing)
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -112,31 +127,93 @@ struct SummarizeView: View {
                         dismiss()
                     }
                 }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if !output.isEmpty && !isWorking {
+                        Button {
+                            if isEditing { saveEdit() }
+                            isEditing.toggle()
+                        } label: {
+                            Image(systemName: isEditing ? "checkmark" : "pencil")
+                        }
+                        if !isEditing {
+                            ShareLink(item: output) {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
+                    }
+                }
             }
             .onAppear {
                 if selectedPromptId == nil { selectedPromptId = prompts.first?.id }
                 llmDownloads.refresh()
-                if !Self.loadedOnce && !selectedLLM.hasPrefix("berget:") {
+                loadStoredOutput()
+                if output.isEmpty && !Self.loadedOnce && !selectedLLM.hasPrefix("berget:") {
                     statusInfo = localized("ios_llm_download_note")
                 }
             }
+            .onChange(of: selectedPromptId) { _, _ in
+                guard !isWorking, !isEditing else { return }
+                loadStoredOutput()
+            }
         }
     }
+
+    // MARK: - Persistence
+
+    /// Shows the latest saved output for the selected prompt, if any.
+    private func loadStoredOutput() {
+        guard let prompt = selectedPrompt,
+              let stored = store.records.first(where: { $0.id == record.id })?
+                  .latestProcessed(promptName: prompt.name) else {
+            output = ""
+            isDone = false
+            currentProcessedId = nil
+            stats = nil
+            status = ""
+            return
+        }
+        output = stored.text
+        currentProcessedId = stored.id
+        isDone = true
+        stats = nil
+        status = ""
+    }
+
+    private func saveGenerated(promptName: String) {
+        let entry = ProcessedText(id: UUID(), promptName: promptName,
+                                  model: selectedLLM, date: Date(), text: output)
+        currentProcessedId = entry.id
+        store.modify(record.id) { rec in
+            rec.processedTexts = (rec.processedTexts ?? []) + [entry]
+        }
+    }
+
+    private func saveEdit() {
+        guard let id = currentProcessedId else {
+            if let prompt = selectedPrompt { saveGenerated(promptName: prompt.name) }
+            return
+        }
+        store.modify(record.id) { rec in
+            if let index = rec.processedTexts?.firstIndex(where: { $0.id == id }) {
+                rec.processedTexts?[index].text = output
+            }
+        }
+    }
+
+    // MARK: - LLM selection
 
     /// Picker over available LLMs: downloaded local models plus Berget's
     /// catalog when a key is configured.
     private var llmPicker: some View {
         Menu {
-            Section(localized("ios_local_models_header")) {
-                Picker("", selection: $selectedLLM) {
+            Picker("", selection: $selectedLLM) {
+                Section(localized("ios_local_models_header")) {
                     ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
                         Label(model.name, systemImage: "cpu").tag(model.id)
                     }
                 }
-            }
-            if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
-                Section(localized("ios_cloud_models_header")) {
-                    Picker("", selection: $selectedLLM) {
+                if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
+                    Section(localized("ios_cloud_models_header")) {
                         ForEach(bergetCatalog.llmModels) { model in
                             Label(model.name, systemImage: "cloud").tag("berget:\(model.id)")
                         }
@@ -154,6 +231,7 @@ struct SummarizeView: View {
             .font(.subheadline)
             .frame(maxWidth: .infinity)
         }
+        .menuOrder(.fixed)
     }
 
     private var selectedLLMLabel: String {
@@ -164,6 +242,8 @@ struct SummarizeView: View {
         }
         return LocalLLMModel.byId(selectedLLM)?.shortName ?? selectedLLM
     }
+
+    // MARK: - Markdown rendering
 
     /// Lightweight Markdown renderer for LLM output: headers, bullet and
     /// numbered lists as blocks, inline **bold**/*italic* via AttributedString.
@@ -223,12 +303,15 @@ struct SummarizeView: View {
         }
     }
 
+    // MARK: - Generation
+
     private func run() {
-        guard let prompt = prompts.first(where: { $0.id == selectedPromptId }) ?? prompts.first else { return }
+        guard let prompt = selectedPrompt else { return }
         isWorking = true
         isDone = false
         output = ""
         stats = nil
+        currentProcessedId = nil
 
         generationTask = Task {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -239,6 +322,7 @@ struct SummarizeView: View {
                 } else {
                     try await runLocal(prompt: prompt)
                 }
+                saveGenerated(promptName: prompt.name)
                 status = localized("ios_llm_done")
                 isDone = true
             } catch is CancellationError {

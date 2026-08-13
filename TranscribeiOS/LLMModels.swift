@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXHuggingFace
@@ -147,5 +148,9 @@ enum LLMRuntime {
     static func release() {
         container = nil
         loadedRepo = nil
+        // Dropping the container returns buffers to MLX's Metal cache, not
+        // to the OS — without this the app's footprint stays ~3.5 GB and
+        // the next Whisper load gets jetsammed.
+        MLX.GPU.clearCache()
     }
 }

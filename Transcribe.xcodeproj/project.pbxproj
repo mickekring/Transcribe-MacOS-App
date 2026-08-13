@@ -16,6 +16,7 @@
 		40C0FFEE000000000000A013 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A011 /* MLXHuggingFace */; };
 		40C0FFEE000000000000A018 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A016 /* Tokenizers */; };
 		40C0FFEE000000000000A019 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A017 /* HuggingFace */; };
+		40C0FFEE000000000000A01C /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 40C0FFEE000000000000A01B /* MLX */; };
 		40DACEB62E75F6ED00E0B532 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEB52E75F6ED00E0B532 /* WhisperKit */; };
 		40DACEC42E75F6ED00E0B532 /* TranscribeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC32E75F6ED00E0B532 /* TranscribeKit */; };
 		40F1D5482FFC33D80087B48A /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 40DACEC02E75F6ED00E0B532 /* SpeakerKit */; };
@@ -97,6 +98,7 @@
 				40C0FFEE000000000000A013 /* MLXHuggingFace in Frameworks */,
 				40C0FFEE000000000000A018 /* Tokenizers in Frameworks */,
 				40C0FFEE000000000000A019 /* HuggingFace in Frameworks */,
+				40C0FFEE000000000000A01C /* MLX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -190,6 +192,7 @@
 				40C0FFEE000000000000A011 /* MLXHuggingFace */,
 				40C0FFEE000000000000A016 /* Tokenizers */,
 				40C0FFEE000000000000A017 /* HuggingFace */,
+				40C0FFEE000000000000A01B /* MLX */,
 			);
 			productName = TranscribeiOS;
 			productReference = 40C0FFEE000000000000A002 /* TranscribeiOS.app */;
@@ -307,6 +310,7 @@
 			mainGroup = 40DACE442E75861E00E0B532;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				40C0FFEE000000000000A01A /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				40C0FFEE000000000000A014 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				40C0FFEE000000000000A015 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				40C0FFEE000000000000A00D /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
@@ -866,6 +870,14 @@
 				minimumVersion = 1.0.0;
 			};
 		};
+		40C0FFEE000000000000A01A /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.31.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -916,6 +928,11 @@
 		40DACEC32E75F6ED00E0B532 /* TranscribeKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TranscribeKit;
+		};
+		40C0FFEE000000000000A01B /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 40C0FFEE000000000000A01A /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

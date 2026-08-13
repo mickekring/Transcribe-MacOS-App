@@ -4,6 +4,15 @@ import TranscribeKit
 /// A finished transcription kept in the phone's library. Unlike the Mac app
 /// (which treats everything as temporary), the phone keeps recordings and
 /// transcripts in Documents so a meeting captured on the go isn't lost.
+/// An LLM-generated text (summary, action points, …) saved on a record.
+struct ProcessedText: Codable, Identifiable {
+    var id: UUID
+    var promptName: String
+    var model: String
+    var date: Date
+    var text: String
+}
+
 struct TranscriptRecord: Codable, Identifiable {
     var id: UUID
     var title: String
@@ -16,6 +25,13 @@ struct TranscriptRecord: Codable, Identifiable {
     var segments: [TranscriptionSegmentData]?
     var turns: [SpeakerTurn]?
     var speakerNames: [Int: String]
+    /// LLM outputs, newest last
+    var processedTexts: [ProcessedText]?
+
+    /// Latest saved LLM output for a given prompt (e.g. "Sammanfattning").
+    func latestProcessed(promptName: String) -> ProcessedText? {
+        processedTexts?.last { $0.promptName == promptName }
+    }
 
     /// Speaker-labeled transcript via the shared tuned pipeline, honoring
     /// user-assigned names. Nil when diarization wasn't run.
@@ -77,6 +93,17 @@ final class TranscriptStore: ObservableObject {
             records[index] = record
         }
         persist(record)
+    }
+
+    /// Mutates the *stored* version of a record — safer than update() when
+    /// multiple views hold copies, since it can't clobber newer fields.
+    /// Returns the record after mutation.
+    @discardableResult
+    func modify(_ id: UUID, _ mutate: (inout TranscriptRecord) -> Void) -> TranscriptRecord? {
+        guard var record = records.first(where: { $0.id == id }) else { return nil }
+        mutate(&record)
+        update(record)
+        return record
     }
 
     func delete(_ record: TranscriptRecord) {

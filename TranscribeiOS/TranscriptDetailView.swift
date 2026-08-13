@@ -96,10 +96,7 @@ struct TranscriptDetailView: View {
             }
         }
         .sheet(isPresented: $showSummarize) {
-            // Always hand the LLM the speaker-labeled transcript when it
-            // exists (same as the Mac) — who said what is context the
-            // summary should use, regardless of which tab is showing.
-            SummarizeView(transcriptText: record.speakerTranscript ?? record.text)
+            SummarizeView(record: record, store: store)
         }
         .alert(String(format: localized("ios_rename_speaker_title"),
                       renamingSpeaker.map(speakerLabel) ?? ""),
@@ -108,11 +105,16 @@ struct TranscriptDetailView: View {
             TextField(localized("ios_name"), text: $newName)
             Button(localized("save")) {
                 if let id = renamingSpeaker {
-                    record.speakerNames[id] = newName.trimmingCharacters(in: .whitespaces)
-                    if record.speakerNames[id]?.isEmpty == true {
-                        record.speakerNames.removeValue(forKey: id)
+                    let trimmed = newName.trimmingCharacters(in: .whitespaces)
+                    if let updated = store.modify(record.id, { rec in
+                        if trimmed.isEmpty {
+                            rec.speakerNames.removeValue(forKey: id)
+                        } else {
+                            rec.speakerNames[id] = trimmed
+                        }
+                    }) {
+                        record = updated
                     }
-                    store.update(record)
                 }
                 renamingSpeaker = nil
             }
@@ -122,9 +124,9 @@ struct TranscriptDetailView: View {
             TextField(localized("ios_name"), text: $newTitle)
             Button(localized("save")) {
                 let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty {
-                    record.title = trimmed
-                    store.update(record)
+                if !trimmed.isEmpty,
+                   let updated = store.modify(record.id, { $0.title = trimmed }) {
+                    record = updated
                 }
                 renamingTitle = false
             }

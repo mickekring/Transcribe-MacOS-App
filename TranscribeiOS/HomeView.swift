@@ -117,17 +117,15 @@ struct HomeView: View {
                     // a key) are listed.
                     HStack(spacing: 8) {
                         Menu {
-                            Section(localized("ios_local_models_header")) {
-                                Picker("", selection: $selectedModel) {
+                            Picker("", selection: $selectedModel) {
+                                Section(localized("ios_local_models_header")) {
                                     ForEach(availableLocalModels, id: \.self) { id in
                                         Label(modelManager.displayName(for: id), systemImage: "cpu")
                                             .tag(id)
                                     }
                                 }
-                            }
-                            if !availableCloudModels.isEmpty {
-                                Section(localized("ios_cloud_models_header")) {
-                                    Picker("", selection: $selectedModel) {
+                                if !availableCloudModels.isEmpty {
+                                    Section(localized("ios_cloud_models_header")) {
                                         ForEach(availableCloudModels, id: \.self) { id in
                                             Label(modelManager.displayName(for: id), systemImage: "cloud")
                                                 .tag(id)
@@ -147,6 +145,7 @@ struct HomeView: View {
                             .font(.subheadline)
                             .frame(maxWidth: .infinity)
                         }
+                        .menuOrder(.fixed)
                         .frame(maxWidth: .infinity)
 
                         Menu {
@@ -168,6 +167,7 @@ struct HomeView: View {
                             .font(.subheadline)
                             .frame(maxWidth: .infinity)
                         }
+                        .menuOrder(.fixed)
                         .frame(maxWidth: .infinity)
 
                         // Speaker identification: filled green when on
