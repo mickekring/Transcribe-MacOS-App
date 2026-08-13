@@ -38,7 +38,7 @@ final class RecordingService: NSObject, ObservableObject {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .default,
-                                    options: [.allowBluetooth, .defaultToSpeaker])
+                                    options: [.allowBluetoothHFP, .defaultToSpeaker])
             try session.setActive(true)
 
             let formatter = DateFormatter()
