@@ -63,10 +63,7 @@ struct SummarizeView: View {
                 }
 
                 ScrollView {
-                    Text(output)
-                        .font(.callout)
-                        .foregroundColor(.textPrimary)
-                        .textSelection(.enabled)
+                    MarkdownText(output)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
@@ -108,6 +105,64 @@ struct SummarizeView: View {
                     statusInfo = localized("ios_llm_download_note")
                 }
             }
+        }
+    }
+
+    /// Lightweight Markdown renderer for LLM output: headers, bullet and
+    /// numbered lists as blocks, inline **bold**/*italic* via AttributedString.
+    /// Cheap enough to re-render on every streamed token.
+    private struct MarkdownText: View {
+        let text: String
+
+        init(_ text: String) { self.text = text }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                    render(line)
+                }
+            }
+            .textSelection(.enabled)
+        }
+
+        @ViewBuilder
+        private func render(_ line: String) -> some View {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("### ") {
+                Text(inline(String(trimmed.dropFirst(4))))
+                    .font(.callout.weight(.semibold))
+                    .foregroundColor(.textPrimary)
+                    .padding(.top, 4)
+            } else if trimmed.hasPrefix("## ") {
+                Text(inline(String(trimmed.dropFirst(3))))
+                    .font(.headline)
+                    .foregroundColor(.textPrimary)
+                    .padding(.top, 6)
+            } else if trimmed.hasPrefix("# ") {
+                Text(inline(String(trimmed.dropFirst(2))))
+                    .font(.title3.bold())
+                    .foregroundColor(.textPrimary)
+                    .padding(.top, 6)
+            } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•").foregroundColor(.primaryAccent)
+                    Text(inline(String(trimmed.dropFirst(2))))
+                        .font(.callout)
+                        .foregroundColor(.textPrimary)
+                }
+                .padding(.leading, 4)
+            } else if !trimmed.isEmpty {
+                Text(inline(trimmed))
+                    .font(.callout)
+                    .foregroundColor(.textPrimary)
+            }
+        }
+
+        private func inline(_ line: String) -> AttributedString {
+            (try? AttributedString(
+                markdown: line,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            )) ?? AttributedString(line)
         }
     }
 

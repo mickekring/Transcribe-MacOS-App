@@ -93,7 +93,10 @@ struct TranscriptDetailView: View {
             }
         }
         .sheet(isPresented: $showSummarize) {
-            SummarizeView(transcriptText: displayedText)
+            // Always hand the LLM the speaker-labeled transcript when it
+            // exists (same as the Mac) — who said what is context the
+            // summary should use, regardless of which tab is showing.
+            SummarizeView(transcriptText: record.speakerTranscript ?? record.text)
         }
         .alert(String(format: localized("ios_rename_speaker_title"),
                       renamingSpeaker.map(speakerLabel) ?? ""),
