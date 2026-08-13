@@ -32,12 +32,14 @@ struct HomeView: View {
 
     /// Only models that can actually run right now: downloaded local models
     /// plus cloud models when a Berget key is configured.
-    private var availableModels: [String] {
-        let local = (ModelManager.kbModels + ModelManager.nbModels)
+    private var availableLocalModels: [String] {
+        (ModelManager.kbModels + ModelManager.nbModels)
             .filter { modelManager.isModelDownloaded($0) }
-        let hasKey = !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty
-        let cloud = hasKey ? bergetCatalog.asrModels.map { "berget:\($0.id)" } : []
-        return local + cloud
+    }
+
+    private var availableCloudModels: [String] {
+        guard !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty else { return [] }
+        return bergetCatalog.asrModels.map { "berget:\($0.id)" }
     }
 
     /// Compact name for the options bar: "KB Whisper Small" → "KB Small".
@@ -113,13 +115,24 @@ struct HomeView: View {
                     // model, language, and speakers visible at the moment of
                     // choice. Only runnable models (downloaded or cloud with
                     // a key) are listed.
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Menu {
-                            Picker(localized("ios_models"), selection: $selectedModel) {
-                                ForEach(availableModels, id: \.self) { id in
-                                    Label(modelManager.displayName(for: id),
-                                          systemImage: id.hasPrefix("berget:") ? "cloud" : "cpu")
-                                        .tag(id)
+                            Section(localized("ios_local_models_header")) {
+                                Picker("", selection: $selectedModel) {
+                                    ForEach(availableLocalModels, id: \.self) { id in
+                                        Label(modelManager.displayName(for: id), systemImage: "cpu")
+                                            .tag(id)
+                                    }
+                                }
+                            }
+                            if !availableCloudModels.isEmpty {
+                                Section(localized("ios_cloud_models_header")) {
+                                    Picker("", selection: $selectedModel) {
+                                        ForEach(availableCloudModels, id: \.self) { id in
+                                            Label(modelManager.displayName(for: id), systemImage: "cloud")
+                                                .tag(id)
+                                        }
+                                    }
                                 }
                             }
                         } label: {
@@ -127,13 +140,14 @@ struct HomeView: View {
                                 Image(systemName: selectedModel.hasPrefix("berget:") ? "cloud" : "cpu")
                                 Text(shortModelName(selectedModel))
                                     .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
                                 Image(systemName: "chevron.up.chevron.down")
                                     .font(.caption2)
                             }
                             .font(.subheadline)
+                            .frame(maxWidth: .infinity)
                         }
-
-                        Spacer(minLength: 4)
+                        .frame(maxWidth: .infinity)
 
                         Menu {
                             Picker(localized("language"), selection: $language) {
@@ -146,29 +160,38 @@ struct HomeView: View {
                             HStack(spacing: 5) {
                                 Image(systemName: "globe")
                                 Text(shortLanguageLabel)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
                                 Image(systemName: "chevron.up.chevron.down")
                                     .font(.caption2)
                             }
                             .font(.subheadline)
+                            .frame(maxWidth: .infinity)
                         }
+                        .frame(maxWidth: .infinity)
 
                         // Speaker identification: filled green when on
                         Button {
                             diarize.toggle()
                         } label: {
-                            Image(systemName: "person.2")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(diarize ? Color.primaryAccent : Color.elevatedSurface,
-                                            in: Capsule())
-                                .foregroundColor(diarize ? .black : .textSecondary)
-                                .overlay(
-                                    Capsule().strokeBorder(
-                                        diarize ? Color.clear : Color.borderLight, lineWidth: 0.5)
-                                )
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.2")
+                                Text(diarize ? localized("ios_on") : localized("ios_off"))
+                                    .lineLimit(1)
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(diarize ? Color.primaryAccent : Color.elevatedSurface,
+                                        in: Capsule())
+                            .foregroundColor(diarize ? .black : .textSecondary)
+                            .overlay(
+                                Capsule().strokeBorder(
+                                    diarize ? Color.clear : Color.borderLight, lineWidth: 0.5)
+                            )
                         }
                         .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

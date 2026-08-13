@@ -69,15 +69,17 @@ struct SummarizeView: View {
                 }
                 .defaultScrollAnchor(.bottom)
 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     llmPicker
+                        .menuStyle(.button)
                         .disabled(isWorking)
+                        .frame(maxWidth: .infinity)
 
                     if isDone {
                         ShareLink(item: output) {
                             Image(systemName: "square.and.arrow.up")
+                                .frame(minWidth: 24)
                         }
-                        .buttonStyle(.bordered)
                     }
 
                     Button {
@@ -91,8 +93,9 @@ struct SummarizeView: View {
                               systemImage: isWorking ? "stop.circle" : "sparkles")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.bordered)
                 .controlSize(.large)
                 .buttonBorderShape(.roundedRectangle(radius: 12))
                 .padding(.horizontal)
@@ -124,13 +127,19 @@ struct SummarizeView: View {
     /// catalog when a key is configured.
     private var llmPicker: some View {
         Menu {
-            Picker(localized("ios_ai_section"), selection: $selectedLLM) {
-                ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
-                    Label(model.name, systemImage: "cpu").tag(model.id)
+            Section(localized("ios_local_models_header")) {
+                Picker("", selection: $selectedLLM) {
+                    ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
+                        Label(model.name, systemImage: "cpu").tag(model.id)
+                    }
                 }
-                if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
-                    ForEach(bergetCatalog.llmModels) { model in
-                        Label(model.name, systemImage: "cloud").tag("berget:\(model.id)")
+            }
+            if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
+                Section(localized("ios_cloud_models_header")) {
+                    Picker("", selection: $selectedLLM) {
+                        ForEach(bergetCatalog.llmModels) { model in
+                            Label(model.name, systemImage: "cloud").tag("berget:\(model.id)")
+                        }
                     }
                 }
             }
@@ -143,6 +152,7 @@ struct SummarizeView: View {
                     .font(.caption2)
             }
             .font(.subheadline)
+            .frame(maxWidth: .infinity)
         }
     }
 

@@ -17,12 +17,14 @@ struct LocalLLMModel: Identifiable {
     let shortName: String
     let sizeLabel: String
 
-    // E4B is deliberately absent: its 4-bit weights alone are 5.15 GB
-    // against the ~6 GB per-app ceiling — it jetsams on load. Berget's
-    // cloud models are the bigger-model option on the phone.
+    // Gemma 4 E4B is deliberately absent: its 4-bit weights alone are
+    // 5.15 GB against the ~6 GB per-app ceiling — it jetsams on load.
+    // Berget's cloud models are the bigger-model option on the phone.
     static let all = [
         LocalLLMModel(id: "e2b", repo: "mlx-community/gemma-4-e2b-it-4bit",
-                      name: "Gemma 4 E2B", shortName: "E2B", sizeLabel: "3,6 GB")
+                      name: "Gemma 4 E2B", shortName: "Gemma E2B", sizeLabel: "3,6 GB"),
+        LocalLLMModel(id: "qwen4b", repo: "mlx-community/Qwen3.5-4B-4bit",
+                      name: "Qwen 3.5 4B", shortName: "Qwen 4B", sizeLabel: "3,1 GB")
     ]
 
     static func byId(_ id: String) -> LocalLLMModel? {

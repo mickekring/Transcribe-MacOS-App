@@ -338,3 +338,8 @@
 "ios_lang_short_auto" = "Auto";
 
 "ios_process" = "Bearbeta";
+
+"ios_local_models_header" = "Lokala modeller";
+"ios_cloud_models_header" = "Molnmodeller";
+"ios_on" = "På";
+"ios_off" = "Av";
