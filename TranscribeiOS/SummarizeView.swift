@@ -373,19 +373,22 @@ struct SummarizeView: View {
         status = localized("ios_llm_generating")
 
         // Gemma has no separate system role — instruction and content go in
-        // one user turn, same shape LLMService uses for Berget. Qwen thinks
-        // by default; the /no_think soft switch turns reasoning off so it
-        // answers instead of deliberating for minutes.
-        let noThink = model.repo.lowercased().contains("qwen") ? "\n/no_think" : ""
+        // one user turn, same shape LLMService uses for Berget.
         let fullPrompt = """
         \(prompt.prompt)
 
-        \(transcriptText)\(noThink)
+        \(transcriptText)
         """
+
+        // Qwen thinks by default and ignores the /no_think soft switch in
+        // 3.5 — the chat template's enable_thinking argument is the real
+        // control, passed through ChatSession's additionalContext.
+        let templateContext: [String: any Sendable]? =
+            model.repo.lowercased().contains("qwen") ? ["enable_thinking": false] : nil
 
         let generationStart = Date()
         var tokenCount = 0
-        let session = ChatSession(container)
+        let session = ChatSession(container, additionalContext: templateContext)
         for try await token in session.streamResponse(to: fullPrompt) {
             try Task.checkCancellation()
             output += token
