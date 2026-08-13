@@ -328,3 +328,11 @@
 "ios_llm_prompt_label" = "Prompt";
 "ios_llm_stats" = "Modell laddad på %@ s · %@ tokens/s";
 "ios_llm_download_note" = "Gemma 4 (ca 1,5 GB) laddas ner första gången och körs sedan helt lokalt på telefonen.";
+
+"ios_ai_section" = "AI-bearbetning";
+"ios_enable_llm" = "Aktivera AI-bearbetning";
+"ios_llm_local_models_note" = "Lokala modeller körs helt på telefonen. Molnmodeller kräver Berget-nyckel.";
+"ios_lang_short_sv" = "Sve";
+"ios_lang_short_no" = "Nor";
+"ios_lang_short_en" = "Eng";
+"ios_lang_short_auto" = "Auto";

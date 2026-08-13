@@ -68,9 +68,18 @@ struct TranscribeRunView: View {
                 .defaultScrollAnchor(.bottom)
 
                 if isDone || failed {
-                    Button(isDone ? localized("ios_done") : localized("ios_close")) { dismiss() }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.bottom)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Label(isDone ? localized("ios_done") : localized("ios_close"),
+                              systemImage: isDone ? "checkmark" : "xmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .buttonBorderShape(.roundedRectangle(radius: 12))
+                    .padding(.horizontal)
+                    .padding(.bottom)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

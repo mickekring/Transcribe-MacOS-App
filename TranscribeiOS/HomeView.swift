@@ -6,8 +6,11 @@ import TranscribeKit
 struct HomeView: View {
     @StateObject private var store = TranscriptStore()
     @ObservedObject private var localization = LocalizationManager.shared
+    @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
     @AppStorage("iosLanguage") private var language = "sv"
     @AppStorage("iosDiarize") private var diarize = true
+    @AppStorage("selectedTranscriptionModel") private var selectedModel = "kb_whisper-small-coreml"
     @State private var showRecorder = false
     @State private var showImporter = false
     @State private var job: AudioJob?
@@ -18,13 +21,30 @@ struct HomeView: View {
     private static let buildNumber =
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
 
-    private var languageLabel: String {
+    private var shortLanguageLabel: String {
         switch language {
-        case "sv": return localized("language_swedish")
-        case "no": return localized("language_norwegian")
-        case "en": return localized("language_english")
-        default: return localized("ios_language_auto")
+        case "sv": return localized("ios_lang_short_sv")
+        case "no": return localized("ios_lang_short_no")
+        case "en": return localized("ios_lang_short_en")
+        default: return localized("ios_lang_short_auto")
         }
+    }
+
+    /// Only models that can actually run right now: downloaded local models
+    /// plus cloud models when a Berget key is configured.
+    private var availableModels: [String] {
+        let local = (ModelManager.kbModels + ModelManager.nbModels)
+            .filter { modelManager.isModelDownloaded($0) }
+        let hasKey = !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty
+        let cloud = hasKey ? bergetCatalog.asrModels.map { "berget:\($0.id)" } : []
+        return local + cloud
+    }
+
+    /// Compact name for the options bar: "KB Whisper Small" → "KB Small".
+    private func shortModelName(_ id: String) -> String {
+        modelManager.displayName(for: id)
+            .replacingOccurrences(of: "Whisper ", with: "")
+            .replacingOccurrences(of: " (Berget)", with: "")
     }
 
     var body: some View {
@@ -90,9 +110,31 @@ struct HomeView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 12) {
                     // Per-transcription options live here, not in settings —
-                    // you should see what language you're about to transcribe
-                    // in before you hit record.
-                    HStack {
+                    // model, language, and speakers visible at the moment of
+                    // choice. Only runnable models (downloaded or cloud with
+                    // a key) are listed.
+                    HStack(spacing: 12) {
+                        Menu {
+                            Picker(localized("ios_models"), selection: $selectedModel) {
+                                ForEach(availableModels, id: \.self) { id in
+                                    Label(modelManager.displayName(for: id),
+                                          systemImage: id.hasPrefix("berget:") ? "cloud" : "cpu")
+                                        .tag(id)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: selectedModel.hasPrefix("berget:") ? "cloud" : "cpu")
+                                Text(shortModelName(selectedModel))
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                            }
+                            .font(.subheadline)
+                        }
+
+                        Spacer(minLength: 4)
+
                         Menu {
                             Picker(localized("language"), selection: $language) {
                                 Text(localized("language_swedish")).tag("sv")
@@ -101,23 +143,32 @@ struct HomeView: View {
                                 Text(localized("ios_language_auto")).tag("auto")
                             }
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 5) {
                                 Image(systemName: "globe")
-                                Text(languageLabel)
+                                Text(shortLanguageLabel)
                                 Image(systemName: "chevron.up.chevron.down")
                                     .font(.caption2)
                             }
                             .font(.subheadline)
                         }
 
-                        Spacer()
-
-                        Toggle(isOn: $diarize) {
-                            Label(localized("ios_speakers"), systemImage: "person.2")
-                                .font(.subheadline)
+                        // Speaker identification: filled green when on
+                        Button {
+                            diarize.toggle()
+                        } label: {
+                            Image(systemName: "person.2")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(diarize ? Color.primaryAccent : Color.elevatedSurface,
+                                            in: Capsule())
+                                .foregroundColor(diarize ? .black : .textSecondary)
+                                .overlay(
+                                    Capsule().strokeBorder(
+                                        diarize ? Color.clear : Color.borderLight, lineWidth: 0.5)
+                                )
                         }
-                        .toggleStyle(.switch)
-                        .fixedSize()
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

@@ -842,14 +842,6 @@
 				minimumVersion = 3.31.4;
 			};
 		};
-		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
-			};
-		};
 		40C0FFEE000000000000A014 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/huggingface/swift-transformers";
@@ -864,6 +856,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.9.0;
+			};
+		};
+		40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -893,6 +893,16 @@
 			package = 40C0FFEE000000000000A00D /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXHuggingFace;
 		};
+		40C0FFEE000000000000A016 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 40C0FFEE000000000000A014 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
+		40C0FFEE000000000000A017 /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 40C0FFEE000000000000A015 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
+		};
 		40DACEB52E75F6ED00E0B532 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 40DACEB42E75F6ED00E0B532 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
@@ -906,16 +916,6 @@
 		40DACEC32E75F6ED00E0B532 /* TranscribeKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = TranscribeKit;
-		};
-		40C0FFEE000000000000A016 /* Tokenizers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 40C0FFEE000000000000A014 /* XCRemoteSwiftPackageReference "swift-transformers" */;
-			productName = Tokenizers;
-		};
-		40C0FFEE000000000000A017 /* HuggingFace */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 40C0FFEE000000000000A015 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
-			productName = HuggingFace;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

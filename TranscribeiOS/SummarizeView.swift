@@ -14,6 +14,7 @@ struct SummarizeView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var localization = LocalizationManager.shared
 
+    @AppStorage("iosSelectedLLM") private var selectedLLM = "e2b"
     @State private var prompts = SettingsManager.defaultPrompts()
     @State private var selectedPromptId: UUID?
     @State private var status = ""
@@ -24,9 +25,6 @@ struct SummarizeView: View {
     @State private var stats: String?
     @State private var generationTask: Task<Void, Never>?
 
-    /// One container per app session — the model stays resident between runs.
-    /// Each run gets a fresh ChatSession so prompts don't inherit history.
-    @MainActor private static var container: ModelContainer?
     @MainActor private static var loadedOnce = false
 
     var body: some View {
@@ -73,18 +71,26 @@ struct SummarizeView: View {
                     if isDone {
                         ShareLink(item: output) {
                             Label(localized("save_copy"), systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
                     }
-                    Button(isWorking ? localized("cancel") : localized("ios_summarize")) {
+                    Button {
                         if isWorking {
                             generationTask?.cancel()
                         } else {
                             run()
                         }
+                    } label: {
+                        Label(isWorking ? localized("cancel") : localized("ios_summarize"),
+                              systemImage: isWorking ? "stop.circle" : "sparkles")
+                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                 }
+                .controlSize(.large)
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .padding(.horizontal)
                 .padding(.bottom)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -177,48 +183,11 @@ struct SummarizeView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             defer { UIApplication.shared.isIdleTimerDisabled = false }
             do {
-                let loadStart = Date()
-                if Self.container == nil {
-                    status = localized("ios_llm_loading")
-                    Self.container = try await #huggingFaceLoadModelContainer(
-                        configuration: ModelConfiguration(id: "mlx-community/gemma-4-e2b-it-4bit")
-                    ) { progress in
-                        Task { @MainActor in
-                            status = String(format: localized("ios_llm_downloading"),
-                                            Int(progress.fractionCompleted * 100))
-                        }
-                    }
+                if selectedLLM.hasPrefix("berget:") {
+                    try await runBerget(prompt: prompt)
+                } else {
+                    try await runLocal(prompt: prompt)
                 }
-                let loadSeconds = Date().timeIntervalSince(loadStart)
-                statusInfo = ""
-
-                guard let container = Self.container else { return }
-                status = localized("ios_llm_generating")
-
-                // Gemma has no separate system role — instruction and content
-                // go in one user turn, same shape LLMService uses for Berget.
-                let fullPrompt = """
-                \(prompt.prompt)
-
-                \(transcriptText)
-                """
-
-                let generationStart = Date()
-                var tokenCount = 0
-                let session = ChatSession(container)
-                for try await token in session.streamResponse(to: fullPrompt) {
-                    try Task.checkCancellation()
-                    output += token
-                    tokenCount += 1
-                }
-                let generationSeconds = Date().timeIntervalSince(generationStart)
-
-                let tokensPerSecond = generationSeconds > 0
-                    ? Double(tokenCount) / generationSeconds : 0
-                stats = String(format: localized("ios_llm_stats"),
-                               String(format: "%.1f", loadSeconds),
-                               String(format: "%.1f", tokensPerSecond))
-                Self.loadedOnce = true
                 status = localized("ios_llm_done")
                 isDone = true
             } catch is CancellationError {
@@ -228,5 +197,69 @@ struct SummarizeView: View {
             }
             isWorking = false
         }
+    }
+
+    private func runLocal(prompt: TextProcessingPrompt) async throws {
+        let model = LocalLLMModel.byId(selectedLLM) ?? LocalLLMModel.all[0]
+        let loadStart = Date()
+        if LLMRuntime.loadedRepo != model.repo {
+            status = localized("ios_llm_loading")
+        }
+        let container = try await LLMRuntime.loadContainer(repo: model.repo) { fraction in
+            Task { @MainActor in
+                status = String(format: localized("ios_llm_downloading"),
+                                Int(fraction * 100))
+            }
+        }
+        let loadSeconds = Date().timeIntervalSince(loadStart)
+        statusInfo = ""
+        status = localized("ios_llm_generating")
+
+        // Gemma has no separate system role — instruction and content
+        // go in one user turn, same shape LLMService uses for Berget.
+        let fullPrompt = """
+        \(prompt.prompt)
+
+        \(transcriptText)
+        """
+
+        let generationStart = Date()
+        var tokenCount = 0
+        let session = ChatSession(container)
+        for try await token in session.streamResponse(to: fullPrompt) {
+            try Task.checkCancellation()
+            output += token
+            tokenCount += 1
+        }
+        let generationSeconds = Date().timeIntervalSince(generationStart)
+
+        let tokensPerSecond = generationSeconds > 0
+            ? Double(tokenCount) / generationSeconds : 0
+        stats = String(format: localized("ios_llm_stats"),
+                       String(format: "%.1f", loadSeconds),
+                       String(format: "%.1f", tokensPerSecond))
+        Self.loadedOnce = true
+    }
+
+    private func runBerget(prompt: TextProcessingPrompt) async throws {
+        let model = String(selectedLLM.dropFirst("berget:".count))
+        let apiKey = KeychainHelper.get("bergetAPIKey") ?? ""
+        guard !apiKey.isEmpty else {
+            status = localized("ios_api_key_missing")
+            return
+        }
+        statusInfo = ""
+        status = localized("ios_llm_generating")
+        for try await token in LLMService().streamCompletion(
+            systemPrompt: prompt.prompt,
+            userMessage: transcriptText,
+            provider: .berget,
+            model: model,
+            apiKey: apiKey
+        ) {
+            try Task.checkCancellation()
+            output += token
+        }
+        stats = nil
     }
 }

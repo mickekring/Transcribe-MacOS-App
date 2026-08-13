@@ -15,6 +15,7 @@ struct TranscriptDetailView: View {
     @State private var renamingTitle = false
     @State private var newTitle = ""
     @State private var showSummarize = false
+    @AppStorage("iosLLMEnabled") private var llmEnabled = true
 
     private var displayedText: String {
         if showSpeakers, let speakerText = record.speakerTranscript {
@@ -49,10 +50,12 @@ struct TranscriptDetailView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showSummarize = true
-                } label: {
-                    Label(localized("ios_summarize"), systemImage: "sparkles")
+                if llmEnabled {
+                    Button {
+                        showSummarize = true
+                    } label: {
+                        Label(localized("ios_summarize"), systemImage: "sparkles")
+                    }
                 }
 
                 Menu {
