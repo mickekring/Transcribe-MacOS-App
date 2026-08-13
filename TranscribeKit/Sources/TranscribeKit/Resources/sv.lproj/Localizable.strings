@@ -327,7 +327,7 @@
 "ios_llm_done" = "Klar";
 "ios_llm_prompt_label" = "Prompt";
 "ios_llm_stats" = "Modell laddad på %@ s · %@ tokens/s";
-"ios_llm_download_note" = "Gemma 4 (ca 1,5 GB) laddas ner första gången och körs sedan helt lokalt på telefonen.";
+"ios_llm_download_note" = "Gemma 4 (ca 3,6 GB) laddas ner första gången och körs sedan helt lokalt på telefonen.";
 
 "ios_ai_section" = "AI-bearbetning";
 "ios_enable_llm" = "Aktivera AI-bearbetning";
@@ -336,3 +336,5 @@
 "ios_lang_short_no" = "Nor";
 "ios_lang_short_en" = "Eng";
 "ios_lang_short_auto" = "Auto";
+
+"ios_process" = "Bearbeta";

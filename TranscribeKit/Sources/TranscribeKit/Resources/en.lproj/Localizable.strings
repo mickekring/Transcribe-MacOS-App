@@ -327,7 +327,7 @@
 "ios_llm_done" = "Done";
 "ios_llm_prompt_label" = "Prompt";
 "ios_llm_stats" = "Model loaded in %@ s · %@ tokens/s";
-"ios_llm_download_note" = "Gemma 4 (about 1.5 GB) downloads on first use and then runs entirely on-device.";
+"ios_llm_download_note" = "Gemma 4 (about 3.6 GB) downloads on first use and then runs entirely on-device.";
 
 "ios_ai_section" = "AI processing";
 "ios_enable_llm" = "Enable AI processing";
@@ -336,3 +336,5 @@
 "ios_lang_short_no" = "Nor";
 "ios_lang_short_en" = "Eng";
 "ios_lang_short_auto" = "Auto";
+
+"ios_process" = "Process";

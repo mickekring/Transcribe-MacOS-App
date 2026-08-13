@@ -15,6 +15,8 @@ struct SummarizeView: View {
     @ObservedObject private var localization = LocalizationManager.shared
 
     @AppStorage("iosSelectedLLM") private var selectedLLM = "e2b"
+    @ObservedObject private var llmDownloads = LLMDownloadManager.shared
+    @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
     @State private var prompts = SettingsManager.defaultPrompts()
     @State private var selectedPromptId: UUID?
     @State private var status = ""
@@ -67,14 +69,17 @@ struct SummarizeView: View {
                 }
                 .defaultScrollAnchor(.bottom)
 
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    llmPicker
+                        .disabled(isWorking)
+
                     if isDone {
                         ShareLink(item: output) {
-                            Label(localized("save_copy"), systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity)
+                            Image(systemName: "square.and.arrow.up")
                         }
                         .buttonStyle(.bordered)
                     }
+
                     Button {
                         if isWorking {
                             generationTask?.cancel()
@@ -82,7 +87,7 @@ struct SummarizeView: View {
                             run()
                         }
                     } label: {
-                        Label(isWorking ? localized("cancel") : localized("ios_summarize"),
+                        Label(isWorking ? localized("cancel") : localized("ios_process"),
                               systemImage: isWorking ? "stop.circle" : "sparkles")
                             .frame(maxWidth: .infinity)
                     }
@@ -107,11 +112,47 @@ struct SummarizeView: View {
             }
             .onAppear {
                 if selectedPromptId == nil { selectedPromptId = prompts.first?.id }
-                if !Self.loadedOnce {
+                llmDownloads.refresh()
+                if !Self.loadedOnce && !selectedLLM.hasPrefix("berget:") {
                     statusInfo = localized("ios_llm_download_note")
                 }
             }
         }
+    }
+
+    /// Picker over available LLMs: downloaded local models plus Berget's
+    /// catalog when a key is configured.
+    private var llmPicker: some View {
+        Menu {
+            Picker(localized("ios_ai_section"), selection: $selectedLLM) {
+                ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
+                    Label(model.name, systemImage: "cpu").tag(model.id)
+                }
+                if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
+                    ForEach(bergetCatalog.llmModels) { model in
+                        Label(model.name, systemImage: "cloud").tag("berget:\(model.id)")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: selectedLLM.hasPrefix("berget:") ? "cloud" : "cpu")
+                Text(selectedLLMLabel)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private var selectedLLMLabel: String {
+        if selectedLLM.hasPrefix("berget:") {
+            let apiId = String(selectedLLM.dropFirst("berget:".count))
+            return bergetCatalog.llmModels.first { $0.id == apiId }?.name
+                ?? apiId.components(separatedBy: "/").last ?? apiId
+        }
+        return LocalLLMModel.byId(selectedLLM)?.shortName ?? selectedLLM
     }
 
     /// Lightweight Markdown renderer for LLM output: headers, bullet and

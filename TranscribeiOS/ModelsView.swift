@@ -11,9 +11,8 @@ struct ModelsView: View {
     @AppStorage("appColorScheme") private var appColorScheme = "dark"
     @AppStorage("iosLLMEnabled") private var llmEnabled = true
     @AppStorage("iosSelectedLLM") private var selectedLLM = "e2b"
+    @ObservedObject private var llmDownloads = LLMDownloadManager.shared
     @State private var bergetKey = KeychainHelper.get("bergetAPIKey") ?? ""
-    @State private var llmDownloadProgress: [String: Double] = [:]
-    @State private var downloadedLLMs: Set<String> = []
 
     private let models = ModelManager.kbModels + ModelManager.nbModels
 
@@ -94,32 +93,10 @@ struct ModelsView: View {
                 }
             }
         }
-        .onAppear { refreshDownloadedLLMs() }
+        .onAppear { llmDownloads.refresh() }
         .scrollContentBackground(.hidden)
         .background(Color.surfaceBackground)
         .navigationTitle(localized("ios_settings"))
-    }
-
-    private func refreshDownloadedLLMs() {
-        downloadedLLMs = Set(LocalLLMModel.all.filter(\.isDownloaded).map(\.id))
-    }
-
-    private func downloadLLM(_ model: LocalLLMModel) {
-        llmDownloadProgress[model.id] = 0
-        Task {
-            do {
-                _ = try await LLMRuntime.loadContainer(repo: model.repo) { fraction in
-                    Task { @MainActor in llmDownloadProgress[model.id] = fraction }
-                }
-                // Downloaded and verified loadable; free the memory — the
-                // summarize view loads the selected model on demand.
-                LLMRuntime.release()
-            } catch {
-                // Row falls back to the download button on failure
-            }
-            llmDownloadProgress[model.id] = nil
-            refreshDownloadedLLMs()
-        }
     }
 
     @ViewBuilder
@@ -134,7 +111,7 @@ struct ModelsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if let progress = llmDownloadProgress[model.id] {
+            if let progress = llmDownloads.progress[model.id] {
                 HStack(spacing: 8) {
                     ProgressView(value: progress)
                         .frame(width: 60)
@@ -142,7 +119,7 @@ struct ModelsView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-            } else if downloadedLLMs.contains(model.id) {
+            } else if llmDownloads.downloaded.contains(model.id) {
                 if selectedLLM == model.id {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.primaryAccent)
@@ -153,7 +130,7 @@ struct ModelsView: View {
                 }
             } else {
                 Button {
-                    downloadLLM(model)
+                    llmDownloads.download(model)
                 } label: {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
@@ -162,10 +139,9 @@ struct ModelsView: View {
             }
         }
         .swipeActions(edge: .trailing) {
-            if downloadedLLMs.contains(model.id) && selectedLLM != model.id {
+            if llmDownloads.downloaded.contains(model.id) && selectedLLM != model.id {
                 Button(role: .destructive) {
-                    model.delete()
-                    refreshDownloadedLLMs()
+                    llmDownloads.delete(model)
                 } label: {
                     Label(localized("ios_delete"), systemImage: "trash")
                 }

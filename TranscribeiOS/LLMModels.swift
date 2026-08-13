@@ -14,45 +14,105 @@ struct LocalLLMModel: Identifiable {
     let id: String
     let repo: String
     let name: String
+    let shortName: String
     let sizeLabel: String
 
+    // E4B is deliberately absent: its 4-bit weights alone are 5.15 GB
+    // against the ~6 GB per-app ceiling — it jetsams on load. Berget's
+    // cloud models are the bigger-model option on the phone.
     static let all = [
         LocalLLMModel(id: "e2b", repo: "mlx-community/gemma-4-e2b-it-4bit",
-                      name: "Gemma 4 E2B", sizeLabel: "1,5 GB"),
-        LocalLLMModel(id: "e4b", repo: "mlx-community/gemma-4-e4b-it-4bit",
-                      name: "Gemma 4 E4B", sizeLabel: "4,5 GB")
+                      name: "Gemma 4 E2B", shortName: "E2B", sizeLabel: "3,6 GB")
     ]
 
     static func byId(_ id: String) -> LocalLLMModel? {
         all.first { $0.id == id }
     }
+}
 
-    var isDownloaded: Bool {
-        Self.snapshotDirectory(repo: repo) != nil
+/// Downloads and tracks on-device LLM weights. A singleton so downloads
+/// survive navigation — start one, go transcribe something, the progress
+/// is still here when you come back.
+///
+/// The hub client stores snapshots under Library/Caches/huggingface/hub
+/// in HF hub layout (models--org--repo/…); TranscribeiOSApp relocates that
+/// directory into Application Support behind a symlink so iOS storage
+/// purges can't silently evict gigabytes of weights.
+@MainActor
+final class LLMDownloadManager: ObservableObject {
+    static let shared = LLMDownloadManager()
+
+    @Published private(set) var progress: [String: Double] = [:]
+    @Published private(set) var downloaded: Set<String> = []
+
+    private init() {
+        refresh()
     }
 
-    /// Locates a downloaded snapshot under Documents/huggingface (where the
-    /// hub client stores weights) by repo name + safetensors presence.
-    static func snapshotDirectory(repo: String) -> URL? {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let base = docs.appendingPathComponent("huggingface")
-        guard let enumerator = FileManager.default.enumerator(
-            at: base, includingPropertiesForKeys: [.isDirectoryKey]) else { return nil }
-        let repoName = repo.components(separatedBy: "/").last ?? repo
-        for case let url as URL in enumerator {
-            if url.lastPathComponent == repoName,
-               let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path),
-               contents.contains(where: { $0.hasSuffix(".safetensors") }) {
+    nonisolated static var hubRootDir: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("huggingface")
+            .resolvingSymlinksInPath()
+    }
+
+    /// The repo's snapshot directory in HF hub-cache layout, or nil if not
+    /// present. Checks the standard hub/ location first, then searches the
+    /// whole huggingface root in case the client's layout differs.
+    nonisolated static func snapshotDir(repo: String) -> URL? {
+        let fm = FileManager.default
+        let dirName = "models--" + repo.replacingOccurrences(of: "/", with: "--")
+        let standard = hubRootDir.appendingPathComponent("hub").appendingPathComponent(dirName)
+        if fm.fileExists(atPath: standard.path) { return standard }
+        if let enumerator = fm.enumerator(at: hubRootDir, includingPropertiesForKeys: [.isDirectoryKey]) {
+            for case let url as URL in enumerator where url.lastPathComponent == dirName {
                 return url
             }
         }
         return nil
     }
 
-    func delete() {
-        if let dir = Self.snapshotDirectory(repo: repo) {
+    nonisolated static func hasSnapshot(repo: String) -> Bool {
+        guard let dir = snapshotDir(repo: repo),
+              let enumerator = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { return false }
+        for case let url as URL in enumerator where url.pathExtension == "safetensors" {
+            return true
+        }
+        return false
+    }
+
+    func refresh() {
+        downloaded = Set(LocalLLMModel.all
+            .filter { Self.hasSnapshot(repo: $0.repo) }
+            .map(\.id))
+    }
+
+    func download(_ model: LocalLLMModel) {
+        guard progress[model.id] == nil else { return }
+        progress[model.id] = 0
+        Task {
+            do {
+                // Download-only: no model loading, no memory spike
+                let client = HubClient()
+                _ = try await client.downloadSnapshot(of: Repo.ID(stringLiteral: model.repo), kind: .model) { p in
+                    Task { @MainActor in
+                        LLMDownloadManager.shared.progress[model.id] = p.fractionCompleted
+                    }
+                }
+            } catch {
+                // Row falls back to the download button
+            }
+            progress[model.id] = nil
+            refresh()
+        }
+    }
+
+    func delete(_ model: LocalLLMModel) {
+        if let dir = Self.snapshotDir(repo: model.repo) {
             try? FileManager.default.removeItem(at: dir)
         }
+        LLMRuntime.release()
+        refresh()
     }
 }
 
@@ -68,11 +128,10 @@ enum LLMRuntime {
                               progress: @escaping @Sendable (Double) -> Void) async throws -> ModelContainer {
         if let container, loadedRepo == repo { return container }
         release()
-        // E4B (~4.5 GB) plus a resident Whisper model overflows the ~6 GB
-        // per-app budget — free Whisper first; it reloads on next use.
-        if repo.contains("e4b") {
-            WhisperKitService.shared.unloadModel()
-        }
+        // E2B's weights are 3.55 GB; together with a resident Whisper model
+        // that crowds the ~6 GB per-app budget — free Whisper first, it
+        // reloads on the next transcription.
+        WhisperKitService.shared.unloadModel()
         let loaded = try await #huggingFaceLoadModelContainer(
             configuration: ModelConfiguration(id: repo)
         ) { p in

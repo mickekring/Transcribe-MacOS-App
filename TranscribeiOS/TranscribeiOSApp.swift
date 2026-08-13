@@ -12,7 +12,50 @@ struct TranscribeiOSApp: App {
         // specialization. Must run before the first model load.
         ANECacheProtector.protect()
 
+        Self.protectHubCache()
         Self.excludeLocalDataFromBackup()
+    }
+
+    /// The HuggingFace hub client stores LLM weights under
+    /// Library/Caches/huggingface — purgeable, meaning iOS could evict
+    /// gigabytes of model weights under storage pressure. Relocate to
+    /// Application Support (backup-excluded below) behind a symlink,
+    /// exactly like the ANE cache protection.
+    private static func protectHubCache() {
+        let fm = FileManager.default
+        guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first,
+              let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+              let bundleId = Bundle.main.bundleIdentifier else { return }
+
+        let linkURL = caches.appendingPathComponent("huggingface")
+        let homeURL = appSupport.appendingPathComponent(bundleId).appendingPathComponent("HuggingFaceLLM")
+
+        do {
+            try fm.createDirectory(at: homeURL, withIntermediateDirectories: true)
+            let attributes = try? fm.attributesOfItem(atPath: linkURL.path)
+            let isSymlink = (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink
+
+            if isSymlink {
+                if (try? fm.destinationOfSymbolicLink(atPath: linkURL.path)) != homeURL.path {
+                    try fm.removeItem(at: linkURL)
+                    try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
+                }
+            } else if fm.fileExists(atPath: linkURL.path) {
+                // Real directory from before protection: merge and replace
+                for entry in try fm.contentsOfDirectory(at: linkURL, includingPropertiesForKeys: nil) {
+                    let dest = homeURL.appendingPathComponent(entry.lastPathComponent)
+                    if !fm.fileExists(atPath: dest.path) {
+                        try fm.moveItem(at: entry, to: dest)
+                    }
+                }
+                try fm.removeItem(at: linkURL)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
+            } else {
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: homeURL)
+            }
+        } catch {
+            // Best effort — without protection the client just uses Caches
+        }
     }
 
     /// Privacy: nothing recorded or transcribed leaves the phone. The app's
@@ -30,10 +73,6 @@ struct TranscribeiOSApp: App {
         if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
            let bundleId = Bundle.main.bundleIdentifier {
             targets.append(appSupport.appendingPathComponent(bundleId))
-        }
-        // MLX/swift-transformers downloads LLM weights under Documents/huggingface
-        if let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
-            targets.append(documents.appendingPathComponent("huggingface"))
         }
         for target in targets {
             try? fm.createDirectory(at: target, withIntermediateDirectories: true)
