@@ -1,6 +1,10 @@
 import SwiftUI
 import TranscribeKit
-import Gemma4Swift
+import MLXLLM
+import MLXLMCommon
+import MLXHuggingFace
+import HuggingFace
+import Tokenizers
 
 /// On-device text processing with Gemma 4 E2B (4-bit) via MLX.
 /// Spike goals: measure model load time, generation speed, and memory
@@ -20,8 +24,9 @@ struct SummarizeView: View {
     @State private var stats: String?
     @State private var generationTask: Task<Void, Never>?
 
-    /// One pipeline per app session — the model stays resident between runs.
-    @MainActor private static var pipeline: Gemma4Pipeline?
+    /// One container per app session — the model stays resident between runs.
+    /// Each run gets a fresh ChatSession so prompts don't inherit history.
+    @MainActor private static var container: ModelContainer?
     @MainActor private static var loadedOnce = false
 
     var body: some View {
@@ -118,21 +123,21 @@ struct SummarizeView: View {
             defer { UIApplication.shared.isIdleTimerDisabled = false }
             do {
                 let loadStart = Date()
-                if Self.pipeline == nil {
+                if Self.container == nil {
                     status = localized("ios_llm_loading")
-                    let pipeline = Gemma4Pipeline()
-                    try await pipeline.load(.e2b4bit, downloadIfNeeded: true) { progress in
+                    Self.container = try await #huggingFaceLoadModelContainer(
+                        configuration: ModelConfiguration(id: "mlx-community/gemma-4-e2b-it-4bit")
+                    ) { progress in
                         Task { @MainActor in
                             status = String(format: localized("ios_llm_downloading"),
-                                            Int(progress.fraction * 100))
+                                            Int(progress.fractionCompleted * 100))
                         }
                     }
-                    Self.pipeline = pipeline
                 }
                 let loadSeconds = Date().timeIntervalSince(loadStart)
                 statusInfo = ""
 
-                guard let pipeline = Self.pipeline else { return }
+                guard let container = Self.container else { return }
                 status = localized("ios_llm_generating")
 
                 // Gemma has no separate system role — instruction and content
@@ -145,8 +150,8 @@ struct SummarizeView: View {
 
                 let generationStart = Date()
                 var tokenCount = 0
-                let stream = try pipeline.chatStream(prompt: fullPrompt)
-                for try await token in stream {
+                let session = ChatSession(container)
+                for try await token in session.streamResponse(to: fullPrompt) {
                     try Task.checkCancellation()
                     output += token
                     tokenCount += 1
