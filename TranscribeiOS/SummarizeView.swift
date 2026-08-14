@@ -246,18 +246,15 @@ struct SummarizeView: View {
     /// catalog when a key is configured.
     private var llmPicker: some View {
         Menu {
-            Picker("", selection: $selectedLLM) {
-                Section(localized("ios_local_models_header")) {
-                    ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
-                        Label(model.name, systemImage: "cpu").tag(model.id)
-                    }
-                }
-                if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
-                    Section(localized("ios_cloud_models_header")) {
-                        ForEach(bergetCatalog.llmModels) { model in
-                            Label(model.name, systemImage: "cloud").tag("berget:\(model.id)")
-                        }
-                    }
+            Text(localized("ios_local_models_header"))
+            ForEach(LocalLLMModel.all.filter { llmDownloads.downloaded.contains($0.id) }) { model in
+                llmMenuButton(id: model.id, name: model.name, icon: "cpu")
+            }
+            if !(KeychainHelper.get("bergetAPIKey") ?? "").isEmpty {
+                Divider()
+                Text(localized("ios_cloud_models_header"))
+                ForEach(bergetCatalog.llmModels) { model in
+                    llmMenuButton(id: "berget:\(model.id)", name: model.name, icon: "cloud")
                 }
             }
         } label: {
@@ -272,6 +269,15 @@ struct SummarizeView: View {
             .frame(maxWidth: .infinity)
         }
         .menuOrder(.fixed)
+    }
+
+    @ViewBuilder
+    private func llmMenuButton(id: String, name: String, icon: String) -> some View {
+        Button {
+            selectedLLM = id
+        } label: {
+            Label(name, systemImage: selectedLLM == id ? "checkmark" : icon)
+        }
     }
 
     private var selectedLLMLabel: String {

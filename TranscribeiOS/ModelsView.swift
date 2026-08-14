@@ -1,8 +1,9 @@
 import SwiftUI
 import TranscribeKit
 
-/// Model management and transcription settings: download/delete KB & NB
-/// models, pick the default, language, and diarization default.
+/// Settings: app appearance/language, local model management (download/
+/// delete only — model *selection* happens on the home screen and in the
+/// AI sheet), and the Berget cloud catalog.
 struct ModelsView: View {
     @ObservedObject private var modelManager = ModelManager.shared
     @ObservedObject private var localization = LocalizationManager.shared
@@ -31,19 +32,32 @@ struct ModelsView: View {
                 }
             }
 
-            Section(localized("ios_models")) {
+            Section {
                 ForEach(models, id: \.self) { model in
-                    modelRow(model)
+                    transcriptionModelRow(model)
                 }
+            } header: {
+                Text(localized("ios_local_transcription_models"))
+            } footer: {
+                Text(localized("ios_models_footnote"))
             }
 
             Section {
-                Text(localized("ios_models_footnote"))
+                Toggle(localized("ios_enable_llm"), isOn: $llmEnabled)
+                if llmEnabled {
+                    ForEach(LocalLLMModel.all) { model in
+                        localLLMRow(model)
+                    }
+                }
+            } header: {
+                Text(localized("ios_local_llm_models"))
+            }
+
+            Section {
+                Text(localized("ios_cloud_hint"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
 
-            Section {
                 SecureField(localized("ios_api_key"), text: $bergetKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -54,36 +68,24 @@ struct ModelsView: View {
                     .onSubmit { refreshCatalog() }
 
                 if !bergetKey.isEmpty {
-                    ForEach(bergetCatalog.asrModels) { model in
-                        cloudModelRow(model)
+                    if !bergetCatalog.asrModels.isEmpty {
+                        subheader(localized("ios_berget_asr_header"))
+                        ForEach(bergetCatalog.asrModels) { model in
+                            bergetRow(name: modelManager.displayName(for: "berget:\(model.id)"),
+                                      isStable: model.isStable)
+                        }
                     }
-                }
-            } header: {
-                Text(localized("ios_cloud_models"))
-            } footer: {
-                Text(localized("ios_cloud_hint"))
-            }
-            .task { refreshCatalog() }
-
-            Section {
-                Toggle(localized("ios_enable_llm"), isOn: $llmEnabled)
-                if llmEnabled {
-                    ForEach(LocalLLMModel.all) { model in
-                        localLLMRow(model)
-                    }
-                    if !bergetKey.isEmpty {
+                    if llmEnabled && !bergetCatalog.llmModels.isEmpty {
+                        subheader(localized("ios_berget_llm_header"))
                         ForEach(bergetCatalog.llmModels) { model in
-                            bergetLLMRow(model)
+                            bergetRow(name: model.name, isStable: model.isStable)
                         }
                     }
                 }
             } header: {
-                Text(localized("ios_ai_section"))
-            } footer: {
-                if llmEnabled {
-                    Text(localized("ios_llm_local_models_note"))
-                }
+                Text(localized("ios_berget_section"))
             }
+            .task { refreshCatalog() }
 
             Section {
                 NavigationLink {
@@ -99,116 +101,24 @@ struct ModelsView: View {
         .navigationTitle(localized("ios_settings"))
     }
 
-    @ViewBuilder
-    private func localLLMRow(_ model: LocalLLMModel) -> some View {
-        HStack {
-            Image(systemName: "cpu")
-                .foregroundColor(.textSecondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.name)
-                Text(model.sizeLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let progress = llmDownloads.progress[model.id] {
-                HStack(spacing: 8) {
-                    ProgressView(value: progress)
-                        .frame(width: 60)
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            } else if llmDownloads.downloaded.contains(model.id) {
-                if selectedLLM == model.id {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.primaryAccent)
-                } else {
-                    Button(localized("ios_use_model")) { selectedLLM = model.id }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-            } else {
-                Button {
-                    llmDownloads.download(model)
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .swipeActions(edge: .trailing) {
-            if llmDownloads.downloaded.contains(model.id) && selectedLLM != model.id {
-                Button(role: .destructive) {
-                    llmDownloads.delete(model)
-                } label: {
-                    Label(localized("ios_delete"), systemImage: "trash")
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func bergetLLMRow(_ model: BergetModel) -> some View {
-        let modelId = "berget:\(model.id)"
-        HStack {
-            Image(systemName: "cloud")
-                .foregroundColor(.textSecondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.name)
-                if !model.isStable {
-                    Text(localized("ios_eval_badge"))
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-            Spacer()
-            if selectedLLM == modelId {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.primaryAccent)
-            } else {
-                Button(localized("ios_use_model")) { selectedLLM = modelId }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            }
-        }
-    }
-
     private func refreshCatalog() {
         guard !bergetKey.isEmpty else { return }
         let key = bergetKey
         Task { await bergetCatalog.refresh(apiKey: key) }
     }
 
-    @ViewBuilder
-    private func cloudModelRow(_ model: BergetModel) -> some View {
-        let modelId = "berget:\(model.id)"
-        HStack {
-            Image(systemName: "cloud")
-                .foregroundColor(.textSecondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(modelManager.displayName(for: modelId))
-                if !model.isStable {
-                    Text(localized("ios_eval_badge"))
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-            Spacer()
-            if selectedModel == modelId {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.primaryAccent)
-            } else {
-                Button(localized("ios_use_model")) { selectedModel = modelId }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            }
-        }
+    private func subheader(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.textSecondary)
+            .textCase(.uppercase)
+            .listRowSeparator(.hidden, edges: .top)
     }
 
+    // MARK: - Rows
+
     @ViewBuilder
-    private func modelRow(_ model: String) -> some View {
+    private func transcriptionModelRow(_ model: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(modelManager.displayName(for: model))
@@ -218,14 +128,8 @@ struct ModelsView: View {
             }
             Spacer()
             if modelManager.isModelDownloaded(model) {
-                if selectedModel == model {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.primaryAccent)
-                } else {
-                    Button(localized("ios_use_model")) { selectedModel = model }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.primaryAccent)
             } else if modelManager.isDownloading[model] == true {
                 HStack(spacing: 8) {
                     ProgressView(value: modelManager.downloadProgress[model] ?? 0)
@@ -251,13 +155,77 @@ struct ModelsView: View {
             }
         }
         .swipeActions(edge: .trailing) {
-            if modelManager.isModelDownloaded(model) && selectedModel != model {
+            if modelManager.isModelDownloaded(model) {
                 Button(role: .destructive) {
                     modelManager.deleteModel(model)
+                    // Don't leave the home picker pointing at deleted weights
+                    if selectedModel == model {
+                        selectedModel = "kb_whisper-small-coreml"
+                    }
                 } label: {
                     Label(localized("ios_delete"), systemImage: "trash")
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func localLLMRow(_ model: LocalLLMModel) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.name)
+                Text(model.sizeLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let progress = llmDownloads.progress[model.id] {
+                HStack(spacing: 8) {
+                    ProgressView(value: progress)
+                        .frame(width: 60)
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            } else if llmDownloads.downloaded.contains(model.id) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.primaryAccent)
+            } else {
+                Button {
+                    llmDownloads.download(model)
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            if llmDownloads.downloaded.contains(model.id) {
+                Button(role: .destructive) {
+                    llmDownloads.delete(model)
+                    if selectedLLM == model.id {
+                        selectedLLM = "e2b"
+                    }
+                } label: {
+                    Label(localized("ios_delete"), systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bergetRow(name: String, isStable: Bool) -> some View {
+        HStack {
+            Image(systemName: "cloud")
+                .foregroundColor(.textSecondary)
+            Text(name)
+            if !isStable {
+                Text(localized("ios_eval_badge"))
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            Spacer()
         }
     }
 }

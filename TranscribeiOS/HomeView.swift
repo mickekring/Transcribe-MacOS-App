@@ -42,6 +42,16 @@ struct HomeView: View {
         return bergetCatalog.asrModels.map { "berget:\($0.id)" }
     }
 
+    @ViewBuilder
+    private func modelMenuButton(_ id: String, icon: String) -> some View {
+        Button {
+            selectedModel = id
+        } label: {
+            Label(modelManager.displayName(for: id),
+                  systemImage: selectedModel == id ? "checkmark" : icon)
+        }
+    }
+
     /// Compact name for the options bar: "KB Whisper Small" → "KB Small".
     private func shortModelName(_ id: String) -> String {
         modelManager.displayName(for: id)
@@ -117,20 +127,18 @@ struct HomeView: View {
                     // a key) are listed.
                     HStack(spacing: 8) {
                         Menu {
-                            Picker("", selection: $selectedModel) {
-                                Section(localized("ios_local_models_header")) {
-                                    ForEach(availableLocalModels, id: \.self) { id in
-                                        Label(modelManager.displayName(for: id), systemImage: "cpu")
-                                            .tag(id)
-                                    }
-                                }
-                                if !availableCloudModels.isEmpty {
-                                    Section(localized("ios_cloud_models_header")) {
-                                        ForEach(availableCloudModels, id: \.self) { id in
-                                            Label(modelManager.displayName(for: id), systemImage: "cloud")
-                                                .tag(id)
-                                        }
-                                    }
+                            // Plain Text rows render as guaranteed gray
+                            // headers in menus (Section headers don't
+                            // always render on iOS)
+                            Text(localized("ios_local_models_header"))
+                            ForEach(availableLocalModels, id: \.self) { id in
+                                modelMenuButton(id, icon: "cpu")
+                            }
+                            if !availableCloudModels.isEmpty {
+                                Divider()
+                                Text(localized("ios_cloud_models_header"))
+                                ForEach(availableCloudModels, id: \.self) { id in
+                                    modelMenuButton(id, icon: "cloud")
                                 }
                             }
                         } label: {

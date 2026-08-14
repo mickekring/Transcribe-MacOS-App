@@ -356,3 +356,9 @@
 
 "ios_info_generation_time" = "Genereringstid";
 "ios_info_speed" = "Hastighet";
+
+"ios_local_transcription_models" = "Lokale transkripsjonsmodeller";
+"ios_local_llm_models" = "Lokale språkmodeller";
+"ios_berget_section" = "Skymodeller fra Berget AI";
+"ios_berget_asr_header" = "Transkripsjon";
+"ios_berget_llm_header" = "Språkmodeller";

@@ -358,3 +358,9 @@
 
 "ios_info_generation_time" = "Generation time";
 "ios_info_speed" = "Speed";
+
+"ios_local_transcription_models" = "Local transcription models";
+"ios_local_llm_models" = "Local language models";
+"ios_berget_section" = "Cloud models from Berget AI";
+"ios_berget_asr_header" = "Transcription";
+"ios_berget_llm_header" = "Language models";
