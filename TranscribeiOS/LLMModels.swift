@@ -135,6 +135,11 @@ enum LLMRuntime {
         // that crowds the ~6 GB per-app budget — free Whisper first, it
         // reloads on the next transcription.
         WhisperKitService.shared.unloadModel()
+        // Without a cache limit MLX parks every intermediate buffer from
+        // prompt processing in its Metal cache — on a long transcript that
+        // alone grows by gigabytes. 64 MB keeps generation fast while
+        // returning the rest to the OS.
+        MLX.Memory.cacheLimit = 64 * 1024 * 1024
         let loaded = try await #huggingFaceLoadModelContainer(
             configuration: ModelConfiguration(id: repo)
         ) { p in

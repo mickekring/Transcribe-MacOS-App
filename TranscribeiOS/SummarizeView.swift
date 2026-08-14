@@ -386,9 +386,19 @@ struct SummarizeView: View {
         let templateContext: [String: any Sendable]? =
             model.repo.lowercased().contains("qwen") ? ["enable_thinking": false] : nil
 
+        // Long transcripts are the memory hazard: the KV cache grows ~linearly
+        // with prompt length (a 47-min meeting is ~15k tokens ≈ gigabytes at
+        // fp16). 8-bit KV quantization halves that at negligible quality
+        // cost, and maxTokens bounds the generation side.
+        var parameters = GenerateParameters()
+        parameters.kvBits = 8
+        parameters.maxTokens = 8192
+
         let generationStart = Date()
         var tokenCount = 0
-        let session = ChatSession(container, additionalContext: templateContext)
+        let session = ChatSession(container,
+                                  generateParameters: parameters,
+                                  additionalContext: templateContext)
         for try await token in session.streamResponse(to: fullPrompt) {
             try Task.checkCancellation()
             output += token
