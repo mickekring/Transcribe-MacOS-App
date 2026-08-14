@@ -18,12 +18,17 @@ struct LocalLLMModel: Identifiable {
     let shortName: String
     let sizeLabel: String
 
-    // Gemma 4 E4B is deliberately absent: its 4-bit weights alone are
-    // 5.15 GB against the ~6 GB per-app ceiling — it jetsams on load.
-    // Berget's cloud models are the bigger-model option on the phone.
+    // E4B is an experiment against the ~6 GB per-app ceiling: its 4-bit
+    // weights are 5.15 GB on disk, but like E2B it's a PLE architecture
+    // (per-layer embeddings stream from storage), so resident memory should
+    // land well below file size — E2B runs at 2.87 GB against a 3.55 GB
+    // file. It crashed under the old memory regime; retrying with the
+    // Whisper swap, 64 MB cache limit, and 8-bit KV in place.
     static let all = [
         LocalLLMModel(id: "e2b", repo: "mlx-community/gemma-4-e2b-it-4bit",
                       name: "Gemma 4 E2B", shortName: "Gemma E2B", sizeLabel: "3,6 GB"),
+        LocalLLMModel(id: "e4b", repo: "mlx-community/gemma-4-e4b-it-4bit",
+                      name: "Gemma 4 E4B", shortName: "Gemma E4B", sizeLabel: "5,2 GB"),
         LocalLLMModel(id: "qwen4b", repo: "mlx-community/Qwen3.5-4B-4bit",
                       name: "Qwen 3.5 4B", shortName: "Qwen 4B", sizeLabel: "3,1 GB")
     ]
