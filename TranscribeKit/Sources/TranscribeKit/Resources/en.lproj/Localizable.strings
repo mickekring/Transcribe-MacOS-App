@@ -355,3 +355,6 @@
 "ios_info_realtime" = "Realtime factor";
 "ios_info_speakers" = "Speakers";
 "ios_info_audio_file" = "Audio file";
+
+"ios_info_generation_time" = "Generation time";
+"ios_info_speed" = "Speed";

@@ -355,3 +355,6 @@
 "ios_info_realtime" = "Realtidsfaktor";
 "ios_info_speakers" = "Talare";
 "ios_info_audio_file" = "Ljudfil";
+
+"ios_info_generation_time" = "Genereringstid";
+"ios_info_speed" = "Hastighet";

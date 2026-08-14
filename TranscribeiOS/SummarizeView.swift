@@ -30,6 +30,7 @@ struct SummarizeView: View {
     @State private var lastTokensPerSecond: Double?
     @State private var lastSeconds: Double?
     @State private var currentProcessedId: UUID?
+    @State private var showInfo = false
     @State private var generationTask: Task<Void, Never>?
 
     @MainActor private static var loadedOnce = false
@@ -137,6 +138,13 @@ struct SummarizeView: View {
                     }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
+                    if currentProcessed != nil && !isWorking && !isEditing {
+                        Button {
+                            showInfo = true
+                        } label: {
+                            Label(localized("ios_info"), systemImage: "info.circle")
+                        }
+                    }
                     if !output.isEmpty && !isWorking {
                         Button {
                             if isEditing { saveEdit() }
@@ -164,6 +172,12 @@ struct SummarizeView: View {
                 guard !isWorking, !isEditing else { return }
                 loadStoredOutput()
             }
+            .sheet(isPresented: $showInfo) {
+                if let entry = currentProcessed {
+                    ProcessedInfoView(entry: entry)
+                        .presentationDetents([.medium])
+                }
+            }
         }
     }
 
@@ -184,7 +198,7 @@ struct SummarizeView: View {
         output = stored.text
         currentProcessedId = stored.id
         isDone = true
-        stats = Self.metaLine(for: stored)
+        stats = nil
         status = ""
     }
 
@@ -211,22 +225,19 @@ struct SummarizeView: View {
         }
     }
 
-    /// "Gemma 4 E2B · 30,7 tokens/s · 14 aug. 2026 09:41" for stored outputs.
-    static func metaLine(for entry: ProcessedText) -> String {
-        var parts: [String] = []
-        if entry.model.hasPrefix("berget:") {
-            let apiId = String(entry.model.dropFirst("berget:".count))
-            parts.append(apiId.components(separatedBy: "/").last ?? apiId)
-        } else {
-            parts.append(LocalLLMModel.byId(entry.model)?.name ?? entry.model)
+    /// The stored entry currently displayed, fetched fresh from the store.
+    private var currentProcessed: ProcessedText? {
+        guard let id = currentProcessedId else { return nil }
+        return store.records.first { $0.id == record.id }?
+            .processedTexts?.first { $0.id == id }
+    }
+
+    static func modelName(_ model: String) -> String {
+        if model.hasPrefix("berget:") {
+            let apiId = String(model.dropFirst("berget:".count))
+            return apiId.components(separatedBy: "/").last ?? apiId
         }
-        if let tps = entry.tokensPerSecond {
-            parts.append(String(format: "%.1f tokens/s", tps))
-        } else if let seconds = entry.seconds {
-            parts.append(String(format: "%.0f s", seconds))
-        }
-        parts.append(entry.date.formatted(date: .abbreviated, time: .shortened))
-        return parts.joined(separator: " · ")
+        return LocalLLMModel.byId(model)?.name ?? model
     }
 
     // MARK: - LLM selection
@@ -467,5 +478,37 @@ struct SummarizeView: View {
         lastTokensPerSecond = nil
         lastSeconds = Date().timeIntervalSince(start)
         stats = nil
+    }
+}
+
+/// Metadata sheet for a stored LLM output — mirrors the transcript info sheet.
+struct ProcessedInfoView: View {
+    let entry: ProcessedText
+    @ObservedObject private var localization = LocalizationManager.shared
+
+    var body: some View {
+        NavigationStack {
+            List {
+                LabeledContent(localized("ios_info_date"),
+                               value: entry.date.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent(localized("ios_info_model"),
+                               value: SummarizeView.modelName(entry.model))
+                LabeledContent(localized("ios_llm_prompt_label"), value: entry.promptName)
+                if let tps = entry.tokensPerSecond {
+                    LabeledContent(localized("ios_info_speed"),
+                                   value: String(format: "%.1f tokens/s", tps))
+                }
+                if let seconds = entry.seconds, seconds > 0 {
+                    LabeledContent(localized("ios_info_generation_time"),
+                                   value: seconds >= 60
+                                       ? String(format: "%d min %d s", Int(seconds) / 60, Int(seconds) % 60)
+                                       : String(format: "%.0f s", seconds))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.surfaceBackground)
+            .navigationTitle(localized("ios_info"))
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
