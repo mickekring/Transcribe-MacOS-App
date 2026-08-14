@@ -18,12 +18,12 @@ struct LocalLLMModel: Identifiable {
     let shortName: String
     let sizeLabel: String
 
-    // E4B is an experiment against the ~6 GB per-app ceiling: its 4-bit
-    // weights are 5.15 GB on disk, but like E2B it's a PLE architecture
-    // (per-layer embeddings stream from storage), so resident memory should
-    // land well below file size — E2B runs at 2.87 GB against a 3.55 GB
-    // file. It crashed under the old memory regime; retrying with the
-    // Whisper swap, 64 MB cache limit, and 8-bit KV in place.
+    // All three verified on an iPhone 17 Pro against the ~6 GB per-app
+    // ceiling (requires the Whisper swap, 64 MB MLX cache limit, and 8-bit
+    // KV): E2B runs at ~2.9 GB resident, Qwen ~3.3 GB, E4B ~4.2 GB
+    // (peaking ~5.0 GB on a 47-min transcript) — the Gemma models' file
+    // sizes exceed their resident sizes because per-layer embeddings
+    // stream from storage.
     static let all = [
         LocalLLMModel(id: "e2b", repo: "mlx-community/gemma-4-e2b-it-4bit",
                       name: "Gemma 4 E2B", shortName: "Gemma E2B", sizeLabel: "3,6 GB"),
