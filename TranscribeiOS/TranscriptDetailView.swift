@@ -9,7 +9,15 @@ struct TranscriptDetailView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject private var localization = LocalizationManager.shared
 
-    @State private var showSpeakers = false
+    @State private var showSpeakers: Bool
+
+    init(record: TranscriptRecord, store: TranscriptStore) {
+        _record = State(initialValue: record)
+        self.store = store
+        // Speaker view is the default whenever diarization ran — it's the
+        // richer text and the one most users transcribed for.
+        _showSpeakers = State(initialValue: record.speakerTranscript != nil)
+    }
     @State private var renamingSpeaker: Int?
     @State private var newName = ""
     @State private var renamingTitle = false
@@ -103,7 +111,10 @@ struct TranscriptDetailView: View {
             }
         }
         .sheet(isPresented: $showSummarize) {
-            SummarizeView(record: record, store: store)
+            // The LLM processes exactly the text on screen: the speaker
+            // version from the Talare tab, plain text from the Text tab —
+            // same rule as the share button.
+            SummarizeView(record: record, store: store, sourceText: displayedText)
         }
         .sheet(isPresented: $showInfo) {
             RecordInfoView(record: record)

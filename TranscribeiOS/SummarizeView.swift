@@ -12,6 +12,9 @@ import Tokenizers
 struct SummarizeView: View {
     let record: TranscriptRecord
     @ObservedObject var store: TranscriptStore
+    /// The transcript text as shown when the sheet was opened (speaker or
+    /// plain, matching the visible tab)
+    let sourceText: String
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var localization = LocalizationManager.shared
 
@@ -35,9 +38,7 @@ struct SummarizeView: View {
 
     @MainActor private static var loadedOnce = false
 
-    private var transcriptText: String {
-        record.speakerTranscript ?? record.text
-    }
+    private var transcriptText: String { sourceText }
 
     private var selectedPrompt: TextProcessingPrompt? {
         prompts.first { $0.id == selectedPromptId } ?? prompts.first
