@@ -11,6 +11,10 @@ struct ProcessedText: Codable, Identifiable {
     var model: String
     var date: Date
     var text: String
+    /// Generation speed (local models only)
+    var tokensPerSecond: Double?
+    /// Generation wall time
+    var seconds: Double?
 }
 
 struct TranscriptRecord: Codable, Identifiable {
@@ -27,6 +31,10 @@ struct TranscriptRecord: Codable, Identifiable {
     var speakerNames: [Int: String]
     /// LLM outputs, newest last
     var processedTexts: [ProcessedText]?
+    /// Wall time the transcription took
+    var transcriptionSeconds: Double?
+    /// Transcription language setting used ("sv"/"no"/"en"/"auto")
+    var language: String?
 
     /// Latest saved LLM output for a given prompt (e.g. "Sammanfattning").
     func latestProcessed(promptName: String) -> ProcessedText? {

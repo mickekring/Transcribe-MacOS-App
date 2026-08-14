@@ -345,3 +345,13 @@
 "ios_off" = "Av";
 
 "ios_llm_thinking" = "Modellen tänker…";
+
+"ios_info" = "Info";
+"ios_info_date" = "Datum";
+"ios_info_duration" = "Längd";
+"ios_info_model" = "Modell";
+"ios_info_language" = "Språk";
+"ios_info_transcription_time" = "Transkriberingstid";
+"ios_info_realtime" = "Realtidsfaktor";
+"ios_info_speakers" = "Talare";
+"ios_info_audio_file" = "Ljudfil";

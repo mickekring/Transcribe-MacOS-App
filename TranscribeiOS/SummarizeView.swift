@@ -27,6 +27,8 @@ struct SummarizeView: View {
     @State private var isDone = false
     @State private var isEditing = false
     @State private var stats: String?
+    @State private var lastTokensPerSecond: Double?
+    @State private var lastSeconds: Double?
     @State private var currentProcessedId: UUID?
     @State private var generationTask: Task<Void, Never>?
 
@@ -182,13 +184,15 @@ struct SummarizeView: View {
         output = stored.text
         currentProcessedId = stored.id
         isDone = true
-        stats = nil
+        stats = Self.metaLine(for: stored)
         status = ""
     }
 
     private func saveGenerated(promptName: String) {
         let entry = ProcessedText(id: UUID(), promptName: promptName,
-                                  model: selectedLLM, date: Date(), text: output)
+                                  model: selectedLLM, date: Date(), text: output,
+                                  tokensPerSecond: lastTokensPerSecond,
+                                  seconds: lastSeconds)
         currentProcessedId = entry.id
         store.modify(record.id) { rec in
             rec.processedTexts = (rec.processedTexts ?? []) + [entry]
@@ -205,6 +209,24 @@ struct SummarizeView: View {
                 rec.processedTexts?[index].text = output
             }
         }
+    }
+
+    /// "Gemma 4 E2B · 30,7 tokens/s · 14 aug. 2026 09:41" for stored outputs.
+    static func metaLine(for entry: ProcessedText) -> String {
+        var parts: [String] = []
+        if entry.model.hasPrefix("berget:") {
+            let apiId = String(entry.model.dropFirst("berget:".count))
+            parts.append(apiId.components(separatedBy: "/").last ?? apiId)
+        } else {
+            parts.append(LocalLLMModel.byId(entry.model)?.name ?? entry.model)
+        }
+        if let tps = entry.tokensPerSecond {
+            parts.append(String(format: "%.1f tokens/s", tps))
+        } else if let seconds = entry.seconds {
+            parts.append(String(format: "%.0f s", seconds))
+        }
+        parts.append(entry.date.formatted(date: .abbreviated, time: .shortened))
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - LLM selection
@@ -333,6 +355,8 @@ struct SummarizeView: View {
         isDone = false
         output = ""
         stats = nil
+        lastTokensPerSecond = nil
+        lastSeconds = nil
         currentProcessedId = nil
 
         generationTask = Task {
@@ -412,6 +436,8 @@ struct SummarizeView: View {
 
         let tokensPerSecond = generationSeconds > 0
             ? Double(tokenCount) / generationSeconds : 0
+        lastTokensPerSecond = tokensPerSecond
+        lastSeconds = generationSeconds
         stats = String(format: localized("ios_llm_stats"),
                        String(format: "%.1f", loadSeconds),
                        String(format: "%.1f", tokensPerSecond))
@@ -427,6 +453,7 @@ struct SummarizeView: View {
         }
         statusInfo = ""
         status = localized("ios_llm_generating")
+        let start = Date()
         for try await token in LLMService().streamCompletion(
             systemPrompt: prompt.prompt,
             userMessage: transcriptText,
@@ -437,6 +464,8 @@ struct SummarizeView: View {
             try Task.checkCancellation()
             output += token
         }
+        lastTokensPerSecond = nil
+        lastSeconds = Date().timeIntervalSince(start)
         stats = nil
     }
 }

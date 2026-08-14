@@ -343,3 +343,13 @@
 "ios_off" = "Av";
 
 "ios_llm_thinking" = "Modellen tenker…";
+
+"ios_info" = "Info";
+"ios_info_date" = "Dato";
+"ios_info_duration" = "Lengde";
+"ios_info_model" = "Modell";
+"ios_info_language" = "Språk";
+"ios_info_transcription_time" = "Transkripsjonstid";
+"ios_info_realtime" = "Sanntidsfaktor";
+"ios_info_speakers" = "Talere";
+"ios_info_audio_file" = "Lydfil";

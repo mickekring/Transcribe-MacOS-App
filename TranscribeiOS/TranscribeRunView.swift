@@ -167,6 +167,7 @@ struct TranscribeRunView: View {
             }
             let elapsed = Date().timeIntervalSince(start)
             if duration > 0, elapsed > 0 { rtf = duration / elapsed }
+            let transcriptionSeconds = elapsed
 
             var turns: [SpeakerTurn]? = nil
             if diarize {
@@ -186,7 +187,9 @@ struct TranscribeRunView: View {
                 text: transcript,
                 segments: segments,
                 turns: turns,
-                speakerNames: [:]
+                speakerNames: [:],
+                transcriptionSeconds: transcriptionSeconds,
+                language: language
             )
             store.add(record)
             status = localized("ios_done_saved")
@@ -259,6 +262,7 @@ struct TranscribeRunView: View {
         progress = 1.0
         let elapsed = Date().timeIntervalSince(start)
         if fileDuration > 0, elapsed > 0 { rtf = fileDuration / elapsed }
+        let transcriptionSeconds = elapsed
 
         let record = TranscriptRecord(
             id: UUID(),
@@ -270,7 +274,9 @@ struct TranscribeRunView: View {
             text: transcript,
             segments: segments,
             turns: (diarize && !turns.isEmpty) ? turns : nil,
-            speakerNames: [:]
+            speakerNames: [:],
+            transcriptionSeconds: transcriptionSeconds,
+            language: language
         )
         store.add(record)
         status = localized("ios_done_saved")

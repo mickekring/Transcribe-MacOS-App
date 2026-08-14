@@ -345,3 +345,13 @@
 "ios_off" = "Off";
 
 "ios_llm_thinking" = "The model is thinking…";
+
+"ios_info" = "Info";
+"ios_info_date" = "Date";
+"ios_info_duration" = "Duration";
+"ios_info_model" = "Model";
+"ios_info_language" = "Language";
+"ios_info_transcription_time" = "Transcription time";
+"ios_info_realtime" = "Realtime factor";
+"ios_info_speakers" = "Speakers";
+"ios_info_audio_file" = "Audio file";
