@@ -19,7 +19,7 @@ struct ModelsView: View {
 
     var body: some View {
         Form {
-            Section(localized("ios_app_section")) {
+            Section {
                 Picker(localized("ios_theme"), selection: $appColorScheme) {
                     ForEach(AppTheme.allCases) { theme in
                         Text(theme.label).tag(theme.rawValue)
@@ -30,6 +30,11 @@ struct ModelsView: View {
                     Text("Norsk").tag("no")
                     Text("English").tag("en")
                 }
+            } header: {
+                Text(localized("ios_app_section"))
+            } footer: {
+                // Applies to both transcription and language models below
+                Text(localized("ios_models_footnote"))
             }
 
             Section {
@@ -38,8 +43,6 @@ struct ModelsView: View {
                 }
             } header: {
                 Text(localized("ios_local_transcription_models"))
-            } footer: {
-                Text(localized("ios_models_footnote"))
             }
 
             Section {

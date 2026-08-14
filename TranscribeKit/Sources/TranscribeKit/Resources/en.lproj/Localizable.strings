@@ -282,7 +282,7 @@
 "ios_use_model" = "Use";
 "ios_delete" = "Delete";
 "ios_download" = "Download (%@)";
-"ios_models_footnote" = "Models run entirely on-device on the phone's Neural Engine. The first time a model is used a cache is built — this can take several minutes depending on model size.";
+"ios_models_footnote" = "All local models run entirely on the phone — nothing is sent to the cloud. The first time a transcription model is used a cache is built, which can take several minutes depending on model size.";
 "ios_ready_to_record" = "Ready to record";
 "ios_recording" = "Recording";
 "ios_paused" = "Paused";

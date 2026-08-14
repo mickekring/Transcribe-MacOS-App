@@ -280,7 +280,7 @@
 "ios_use_model" = "Bruk";
 "ios_delete" = "Slett";
 "ios_download" = "Last ned (%@)";
-"ios_models_footnote" = "Modellene kjører helt lokalt på telefonens Neural Engine. Første gang en modell brukes bygges en cache — det kan ta flere minutter avhengig av modellstørrelse.";
+"ios_models_footnote" = "Alle lokale modeller kjører helt på telefonen — ingenting sendes til skyen. Første gang en transkripsjonsmodell brukes, bygges en cache som kan ta flere minutter avhengig av modellstørrelse.";
 "ios_ready_to_record" = "Klar til å spille inn";
 "ios_recording" = "Spiller inn";
 "ios_paused" = "Pauset";

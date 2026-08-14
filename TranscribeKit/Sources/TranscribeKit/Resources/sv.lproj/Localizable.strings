@@ -282,7 +282,7 @@
 "ios_use_model" = "Använd";
 "ios_delete" = "Ta bort";
 "ios_download" = "Ladda ner (%@)";
-"ios_models_footnote" = "Modellerna körs helt lokalt på telefonens Neural Engine. Första gången en modell används byggs en cache — det kan ta flera minuter beroende på modellstorlek.";
+"ios_models_footnote" = "Alla lokala modeller körs helt på telefonen — ingenting skickas till molnet. Första gången en transkriberingsmodell används byggs en cache, vilket kan ta flera minuter beroende på modellstorlek.";
 "ios_ready_to_record" = "Redo att spela in";
 "ios_recording" = "Spelar in";
 "ios_paused" = "Pausad";
