@@ -12,14 +12,17 @@ let package = Package(
         .library(name: "TranscribeKit", targets: ["TranscribeKit"])
     ],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0")
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0"),
+        // Parakeet TDT runtime (CoreML) for Klang Pianissimo
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.17.7")
     ],
     targets: [
         .target(
             name: "TranscribeKit",
             dependencies: [
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
-                .product(name: "SpeakerKit", package: "argmax-oss-swift")
+                .product(name: "SpeakerKit", package: "argmax-oss-swift"),
+                .product(name: "FluidAudio", package: "FluidAudio")
             ],
             resources: [
                 .process("Resources")

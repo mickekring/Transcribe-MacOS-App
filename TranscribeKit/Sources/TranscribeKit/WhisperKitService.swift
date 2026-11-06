@@ -103,6 +103,14 @@ public class WhisperKitService {
     // MARK: - Initialization
     
     public func initialize(modelId: String) async throws {
+        // Klang Pianissimo is a Parakeet model on FluidAudio, not WhisperKit
+        if PianissimoService.handles(modelId) {
+            unloadModel()
+            try await PianissimoService.shared.initialize()
+            return
+        }
+        PianissimoService.shared.unload()
+
         // Coalesce concurrent loads instead of misreporting them as
         // "model not found": await any in-flight initialization.
         while let task = initializationTask {
@@ -225,6 +233,10 @@ public class WhisperKitService {
     /// Cancels an in-flight model download (from either the dropdown download
     /// or a transcription that triggered one).
     public func cancelDownload(modelId: String) {
+        if PianissimoService.handles(modelId) {
+            PianissimoService.shared.cancelDownload()
+            return
+        }
         logger.info("Cancelling download of \(modelId, privacy: .public)")
         userCancelledDownloads.insert(modelId)
         downloadTasks[modelId]?.cancel()
@@ -402,6 +414,10 @@ public class WhisperKitService {
     /// Downloads a model without loading it into memory.
     /// Used when the user selects a non-downloaded model from the dropdown.
     public func downloadOnly(modelId: String) async throws {
+        if PianissimoService.handles(modelId) {
+            try await PianissimoService.shared.downloadOnly()
+            return
+        }
         let modelManager = ModelManager.shared
         
         // Skip if already downloaded or already downloading
@@ -443,11 +459,19 @@ public class WhisperKitService {
     /// Cancels the in-flight transcription, if any. WhisperKit inference
     /// early-stops via the progress callback returning false.
     public func cancelTranscription() {
+        PianissimoService.shared.cancelTranscription()
         activeCancellationFlag?.cancel()
         activeTranscriptionTask?.cancel()
     }
 
     public func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
+        if PianissimoService.handles(modelId) {
+            // Free the Whisper model's memory before loading Pianissimo
+            unloadModel()
+            return PianissimoService.shared.transcribe(fileURL: fileURL)
+        }
+        PianissimoService.shared.unload()
+
         let cancelFlag = TranscriptionCancellationFlag()
         activeCancellationFlag = cancelFlag
 

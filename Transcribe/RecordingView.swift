@@ -19,7 +19,11 @@ struct RecordingView: View {
     @State private var showPermissionAlert = false
     @State private var showLeaveConfirmation = false
     @State private var showRecordingError = false
-    
+    @StateObject private var live = LiveTranscriber()
+    @AppStorage("liveTranscriptionEnabled") private var liveEnabled = true
+
+    private var showsLivePanel: Bool { live.state != .idle }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -67,9 +71,15 @@ struct RecordingView: View {
             )
             
             // Main content
-            VStack(spacing: 40) {
+            VStack(spacing: showsLivePanel ? 24 : 40) {
                 Spacer()
-                
+
+                // Live transcription switch (before recording)
+                if !audioRecorder.isRecording && !audioRecorder.hasRecording {
+                    LiveTranscriptionToggle(isOn: $liveEnabled)
+                        .onChange(of: liveEnabled) { _, _ in prewarmLiveModel() }
+                }
+
                 // Audio input device selector
                 if audioRecorder.inputDevices.count > 1 && !audioRecorder.isRecording {
                     VStack(spacing: 12) {
@@ -178,6 +188,10 @@ struct RecordingView: View {
                     }
                 }
                 
+                if showsLivePanel {
+                    LiveTranscriptPanel(live: live)
+                }
+
                 // Controls when recording is done
                 if audioRecorder.hasRecording && !audioRecorder.isRecording {
                     HStack(spacing: 24) {
@@ -205,6 +219,7 @@ struct RecordingView: View {
                         // Start over button
                         Button(action: {
                             audioRecorder.deleteRecording()
+                            live.cancel()
                             recordingTime = 0
                         }) {
                             HStack(spacing: 8) {
@@ -262,11 +277,13 @@ struct RecordingView: View {
         }
         .onAppear {
             audioRecorder.startInputMonitor()
+            prewarmLiveModel()
         }
         .onDisappear {
             timer?.invalidate()
             audioPlayer?.stop()
             audioRecorder.stopInputMonitor()
+            live.cancel()
         }
         .alert(localized("mic_permission_required"), isPresented: $showPermissionAlert) {
             Button("OK") { }
@@ -283,6 +300,7 @@ struct RecordingView: View {
                     timer = nil
                 }
                 audioRecorder.deleteRecording()
+                live.cancel()
                 appState.showRecordingView = false
             }
         } message: {
@@ -292,6 +310,10 @@ struct RecordingView: View {
         }
         .onChange(of: audioRecorder.isPausedForSleep) { _, isPaused in
             handlePauseStateChange(isPaused: isPaused)
+        }
+        // Recording can also end from inside the manager (resume failure)
+        .onChange(of: audioRecorder.isRecording) { _, recording in
+            if !recording { Task { await live.stop() } }
         }
         .onChange(of: audioRecorder.errorMessage) { _, newValue in
             guard newValue != nil else { return }
@@ -334,9 +356,20 @@ struct RecordingView: View {
     private func beginRecording() {
         timer?.invalidate()
         timer = nil
+        let useLive = liveEnabled && LiveTranscriber.isModelAvailable
+        if useLive {
+            live.start()
+            audioRecorder.liveBufferHandler = { [live] buffer in live.append(buffer) }
+        } else {
+            live.cancel()
+            audioRecorder.liveBufferHandler = nil
+        }
         audioRecorder.startRecording()
         // Only start the display timer if recording actually started.
-        guard audioRecorder.isRecording else { return }
+        guard audioRecorder.isRecording else {
+            live.cancel()
+            return
+        }
         recordingTime = 0
         pausedAccumulated = 0
         pauseStartDate = nil
@@ -363,6 +396,7 @@ struct RecordingView: View {
     
     private func stopRecording() {
         audioRecorder.stopRecording()
+        Task { await live.stop() }
         timer?.invalidate()
         timer = nil
         // Restart input monitor so user can still see levels
@@ -409,6 +443,12 @@ struct RecordingView: View {
         }
     }
     
+    /// Loads Pianissimo ahead of time so live text starts with the recording.
+    private func prewarmLiveModel() {
+        guard liveEnabled, LiveTranscriber.isModelAvailable else { return }
+        Task { try? await PianissimoService.shared.initialize() }
+    }
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
@@ -437,6 +477,11 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
     private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
 
+    /// Receives microphone buffers while recording, for live transcription.
+    /// Set before `startRecording()`; nil disables the live tap.
+    var liveBufferHandler: ((AVAudioPCMBuffer) -> Void)?
+    private var liveEngine: AVAudioEngine?
+
     override init() {
         super.init()
         checkMicrophonePermission()
@@ -450,6 +495,8 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
+        liveEngine?.inputNode.removeTap(onBus: 0)
+        liveEngine?.stop()
         meteringTimer?.invalidate()
         restoreOriginalDevice()
         removeDeviceObserver()
@@ -492,6 +539,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         guard isRecording, let recorder = audioRecorder, !isPausedForSleep else { return }
         recorder.pause()
         stopMetering()
+        stopLiveTap()
         isPausedForSleep = true
     }
 
@@ -501,6 +549,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         isPausedForSleep = false
         if recorder.record() {
             startMetering()
+            startLiveTap()
         } else {
             // Resume failed — stop cleanly so the UI doesn't show an active
             // recording that captures nothing, and surface the error.
@@ -830,6 +879,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
                 isRecording = true
                 hasRecording = false
                 startMetering()
+                startLiveTap()
             }
         } catch {
             // Audio recorder creation failed
@@ -842,6 +892,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
         
         stopMetering()
+        stopLiveTap()
         recordingDuration = recorder.currentTime
         recorder.stop()
         isRecording = false
@@ -856,6 +907,33 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate,
         }
     }
     
+    // MARK: - Live Transcription Tap
+
+    /// A second engine on the same input as the recorder; both can read the
+    /// device concurrently. Buffers go to `liveBufferHandler`.
+    private func startLiveTap() {
+        guard liveEngine == nil, let handler = liveBufferHandler else { return }
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { return }
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            handler(buffer)
+        }
+        do {
+            try engine.start()
+            liveEngine = engine
+        } catch {
+            inputNode.removeTap(onBus: 0)
+        }
+    }
+
+    private func stopLiveTap() {
+        liveEngine?.inputNode.removeTap(onBus: 0)
+        liveEngine?.stop()
+        liveEngine = nil
+    }
+
     func deleteRecording() {
         if let url = recordingURL {
             try? FileManager.default.removeItem(at: url)

@@ -55,6 +55,8 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - `UnifiedTranscriptionService.swift` - Routes between local (WhisperKit) and cloud (Berget) services. Manages model state and active service selection.
 - `BergetTranscriptionService.swift` - Cloud transcription via Berget AI API (requires API key stored in Keychain)
 - `TranscriptionService.swift` - Lightweight streaming wrapper around WhisperKitService
+- `PianissimoService.swift` - Klang Pianissimo (Parakeet TDT) via FluidAudio. Downloads the CoreML conversion `markstrom/pianissimo-sv-coreml` (pinned revision, SHA-256 verified per file), compiles it on device, transcribes with word timings. `WhisperKitService` delegates every call for `klang_pianissimo-sv` here, so callers treat it like any local model.
+- `LiveTranscriber.swift` - Live transcription while recording (Pianissimo). Re-decodes the uncommitted audio tail about once a second (`volatileText`) and commits words once ≥2 s of audio follow them (`confirmedText`). Fed by `RecordingView` (second `AVAudioEngine` tap) and `SystemAudioCaptureService` (`setLiveBufferHandler`, the mixed buffers).
 
 **Audio Processing:**
 - `Services/AudioPreprocessor.swift` - Audio format conversion and preprocessing. Automatically extracts audio from video containers (`.mp4`, `.mov`, etc.) and converts non-native formats to 16kHz mono WAV using `AVAssetReader`/`AVAssetWriter`. Used by both local (WhisperKit) and cloud (Berget) transcription paths.
@@ -70,6 +72,7 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - KB Whisper models (Swedish-optimized): `kb_whisper-base/small/medium/large-coreml`
 - NB Whisper models (Norwegian-optimized): `nb_whisper-tiny/base/small/large-coreml`
 - OpenAI Whisper models: `openai_whisper-base/small/medium/large-v2/large-v3`
+- Klang Pianissimo (Swedish, Parakeet TDT via FluidAudio): `klang_pianissimo-sv`
 - Cloud: Berget ASR models fetched dynamically from /v1/models via `BergetModelCatalog` (KB Whisper Large, NB Whisper Large, Faster Whisper V3; requires API key). Cloud results include server-side diarization (speaker turns).
 
 KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. NB Whisper models load from `digtek/whisperkit-nb-coreml` HuggingFace repo. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch.

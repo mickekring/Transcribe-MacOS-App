@@ -18,6 +18,8 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 - **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded. Supports audio files (WAV, MP3, M4A, FLAC, AAC) and video files (MP4, MOV) -- audio is extracted automatically.
 - **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/KBLab) (the National Library of Sweden), fine-tuned for Swedish speech.
 - **Norwegian-optimized models** -- NB Whisper models from [NbAiLab](https://huggingface.co/NbAiLab) (the National Library of Norway), fine-tuned for Norwegian speech.
+- **Klang Pianissimo** -- [Klang's](https://klang.ai/pianissimo/) Swedish speech model (a fine-tune of NVIDIA Parakeet TDT 0.6B v3), run on-device via [FluidAudio](https://github.com/FluidInference/FluidAudio). Transcribes well over 100x realtime on Apple Silicon.
+- **Live transcription** -- With Klang Pianissimo downloaded, Swedish text appears while you record (microphone or system audio). The recording is still transcribed in full afterwards, with speaker identification.
 - **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
 - **System audio capture** -- Record all audio playing on your Mac (meetings, media, notifications) using ScreenCaptureKit. Optionally mix in your microphone to capture both sides of a meeting. macOS asks for permission on first use.
 - **Speaker identification** -- Diarization labels who said what, with renameable speakers and a known-speaker-count control. Runs locally (SpeakerKit/Pyannote) or server-side with cloud transcriptions.
@@ -62,6 +64,7 @@ The default model (KB Whisper Small) downloads automatically on first launch.
 | KB Whisper Large | ~3 GB | Highest accuracy |
 | NB Whisper Tiny--Large | ~75 MB--3 GB | Norwegian-optimized, four sizes |
 | OpenAI Whisper | Base--Large v3 | General multilingual models |
+| Klang Pianissimo | ~690 MB | Swedish only. Parakeet-based (FluidAudio, not WhisperKit); powers live transcription |
 
 KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://huggingface.co/mickekringai/kb-whisper-coreml) and NB Whisper CoreML models at [digtek/whisperkit-nb-coreml](https://huggingface.co/digtek/whisperkit-nb-coreml) on Hugging Face.
 

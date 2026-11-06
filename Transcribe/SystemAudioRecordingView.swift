@@ -17,7 +17,11 @@ struct SystemAudioRecordingView: View {
     @State private var showPermissionAlert = false
     @State private var pausedAccumulated: TimeInterval = 0
     @State private var pauseStartDate: Date?
-    
+    @StateObject private var live = LiveTranscriber()
+    @AppStorage("liveTranscriptionEnabled") private var liveEnabled = true
+
+    private var showsLivePanel: Bool { live.state != .idle }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -65,7 +69,7 @@ struct SystemAudioRecordingView: View {
             )
             
             // Main content
-            VStack(spacing: 40) {
+            VStack(spacing: showsLivePanel ? 24 : 40) {
                 Spacer()
                 
                 // Info text and mic toggle (before first recording)
@@ -112,6 +116,9 @@ struct SystemAudioRecordingView: View {
                                 }
                             }
                         }
+
+                        LiveTranscriptionToggle(isOn: $liveEnabled)
+                            .onChange(of: liveEnabled) { _, _ in prewarmLiveModel() }
                     }
                 }
                 
@@ -220,6 +227,10 @@ struct SystemAudioRecordingView: View {
                     }
                 }
                 
+                if showsLivePanel {
+                    LiveTranscriptPanel(live: live)
+                }
+
                 // Controls when recording is done
                 if captureService.hasRecording && !captureService.isCapturing {
                     HStack(spacing: 24) {
@@ -247,6 +258,7 @@ struct SystemAudioRecordingView: View {
                         // Start over button
                         Button(action: {
                             captureService.deleteRecording()
+                            live.cancel()
                             recordingTime = 0
                         }) {
                             HStack(spacing: 8) {
@@ -305,6 +317,7 @@ struct SystemAudioRecordingView: View {
         .onAppear {
             Task {
                 do {
+                    prewarmLiveModel()
                     try await captureService.startMonitoring()
                 } catch {
                     await MainActor.run {
@@ -318,6 +331,8 @@ struct SystemAudioRecordingView: View {
             timer?.invalidate()
             audioPlayer?.stop()
             captureService.stopMonitoring()
+            captureService.setLiveBufferHandler(nil)
+            live.cancel()
         }
         .alert(localized("system_audio_error"), isPresented: $showError) {
             Button("OK") { }
@@ -334,6 +349,7 @@ struct SystemAudioRecordingView: View {
                 }
                 captureService.deleteRecording()
                 captureService.stopMonitoring()
+                live.cancel()
                 appState.showSystemAudioView = false
             }
         } message: {
@@ -365,6 +381,8 @@ struct SystemAudioRecordingView: View {
             if !capturing {
                 timer?.invalidate()
                 timer = nil
+                captureService.setLiveBufferHandler(nil)
+                Task { await live.stop() }
             }
         }
         // Mic monitoring failed to start — warn instead of silently
@@ -408,6 +426,13 @@ struct SystemAudioRecordingView: View {
     
     private func startCapture() {
         do {
+            if liveEnabled && LiveTranscriber.isModelAvailable {
+                live.start()
+                captureService.setLiveBufferHandler { [live] buffer in live.append(buffer) }
+            } else {
+                live.cancel()
+                captureService.setLiveBufferHandler(nil)
+            }
             try captureService.startCapture(withMicrophone: micMixingEnabled)
             recordingTime = 0
             pausedAccumulated = 0
@@ -419,6 +444,8 @@ struct SystemAudioRecordingView: View {
                 recordingTime = Date().timeIntervalSince(startDate) - pausedSoFar
             }
         } catch {
+            captureService.setLiveBufferHandler(nil)
+            live.cancel()
             errorMessage = error.localizedDescription
             showError = true
         }
@@ -471,6 +498,12 @@ struct SystemAudioRecordingView: View {
         }
     }
     
+    /// Loads Pianissimo ahead of time so live text starts with the recording.
+    private func prewarmLiveModel() {
+        guard liveEnabled, LiveTranscriber.isModelAvailable else { return }
+        Task { try? await PianissimoService.shared.initialize() }
+    }
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60

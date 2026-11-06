@@ -364,3 +364,13 @@
 "ios_berget_section" = "Molnmodeller från Berget AI";
 "ios_berget_asr_header" = "Transkribering";
 "ios_berget_llm_header" = "Språkmodeller";
+
+/* Live transcription */
+"live_transcription" = "Live-transkribering";
+"live_transcription_subtitle" = "Svensk text medan du spelar in (Klang Pianissimo)";
+"live_transcription_requires_model" = "Kräver modellen Klang Pianissimo";
+"live_preparing" = "Förbereder live-transkribering…";
+"live_listening" = "Lyssnar…";
+"live_finished_hint" = "Förhandsversion – transkribera inspelningen för slutversionen med talare";
+"live_failed" = "Live-transkriberingen misslyckades: %@";
+"live_copied" = "Kopierat";
