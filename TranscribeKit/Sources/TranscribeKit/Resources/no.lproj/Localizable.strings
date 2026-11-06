@@ -362,3 +362,13 @@
 "ios_berget_section" = "Skymodeller fra Berget AI";
 "ios_berget_asr_header" = "Transkripsjon";
 "ios_berget_llm_header" = "Språkmodeller";
+
+/* Live transcription */
+"live_transcription" = "Live-transkripsjon";
+"live_transcription_subtitle" = "Svensk tekst mens du tar opp (Klang Pianissimo)";
+"live_transcription_requires_model" = "Krever modellen Klang Pianissimo";
+"live_preparing" = "Forbereder live-transkripsjon…";
+"live_listening" = "Lytter…";
+"live_finished_hint" = "Forhåndsversjon – transkriber opptaket for endelig versjon med talere";
+"live_failed" = "Live-transkripsjonen mislyktes: %@";
+"live_copied" = "Kopiert";

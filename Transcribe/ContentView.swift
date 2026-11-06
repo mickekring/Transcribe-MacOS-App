@@ -539,6 +539,19 @@ struct ContentView: View {
 
                 Divider().padding(.horizontal, 12).padding(.vertical, 4)
 
+                // Klang Pianissimo (Swedish, Parakeet-based)
+                Text("Klang")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+
+                ForEach(ModelManager.klangModels, id: \.self) { modelId in
+                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
+                }
+
+                Divider().padding(.horizontal, 12).padding(.vertical, 4)
+
                 // NB Whisper models (Norwegian)
                 Text("NB Whisper")
                     .font(.system(size: 11, weight: .medium))
@@ -694,7 +707,7 @@ struct ContentView: View {
     }
     
     func getModelIcon(_ modelId: String) -> String {
-        if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "nb_whisper-") || modelId.starts(with: "openai_whisper-") {
+        if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "nb_whisper-") || modelId.starts(with: "openai_whisper-") || modelId.starts(with: "klang_") {
             return "laptopcomputer"
         } else if modelId.starts(with: "berget") {
             return "cloud"

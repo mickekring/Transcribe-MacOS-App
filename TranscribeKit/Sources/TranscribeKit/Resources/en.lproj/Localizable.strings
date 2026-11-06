@@ -364,3 +364,13 @@
 "ios_berget_section" = "Cloud models from Berget AI";
 "ios_berget_asr_header" = "Transcription";
 "ios_berget_llm_header" = "Language models";
+
+/* Live transcription */
+"live_transcription" = "Live transcription";
+"live_transcription_subtitle" = "Swedish text while you record (Klang Pianissimo)";
+"live_transcription_requires_model" = "Requires the Klang Pianissimo model";
+"live_preparing" = "Preparing live transcription…";
+"live_listening" = "Listening…";
+"live_finished_hint" = "Preview — transcribe the recording for the final version with speakers";
+"live_failed" = "Live transcription failed: %@";
+"live_copied" = "Copied";

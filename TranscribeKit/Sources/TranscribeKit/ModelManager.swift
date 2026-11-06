@@ -24,11 +24,14 @@ public class ModelManager: ObservableObject {
         "openai_whisper-medium",
         "openai_whisper-large-v2",
         "openai_whisper-large-v3",
+        "klang_pianissimo-sv",
     ]
 
     public static let kbModels: [String] = allLocalModels.filter { $0.starts(with: "kb_whisper-") }
     public static let nbModels: [String] = allLocalModels.filter { $0.starts(with: "nb_whisper-") }
     public static let openAIModels: [String] = allLocalModels.filter { $0.starts(with: "openai_whisper-") }
+    /// Parakeet-based models (FluidAudio runtime, not WhisperKit)
+    public static let klangModels: [String] = allLocalModels.filter { $0.starts(with: "klang_") }
 
     private let modelSizes: [String: Int64] = [
         "kb_whisper-base-coreml": 145_000_000,
@@ -44,6 +47,7 @@ public class ModelManager: ObservableObject {
         "openai_whisper-medium": 1_530_000_000,
         "openai_whisper-large-v2": 3_090_000_000,
         "openai_whisper-large-v3": 3_090_000_000,
+        "klang_pianissimo-sv": 688_000_000,
     ]
 
     private static let displayNames: [String: String] = [
@@ -60,6 +64,7 @@ public class ModelManager: ObservableObject {
         "openai_whisper-medium": "Whisper Medium",
         "openai_whisper-large-v2": "Whisper Large v2",
         "openai_whisper-large-v3": "Whisper Large v3",
+        "klang_pianissimo-sv": "Klang Pianissimo",
     ]
     
     /// UserDefaults key for persisted model folder paths
@@ -198,6 +203,7 @@ public class ModelManager: ObservableObject {
         "KBLab/kb-whisper-large": "KB Whisper Large (Berget)",
         "NbAiLab/nb-whisper-large": "NB Whisper Large (Berget)",
         "Systran/faster-whisper-large-v3": "Faster Whisper V3 (Berget)",
+        "klang/pianissimo": "Klang Pianissimo (Berget)",
     ]
     
     // MARK: - Model Deletion

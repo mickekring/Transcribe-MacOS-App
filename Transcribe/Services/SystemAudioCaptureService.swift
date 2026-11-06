@@ -60,6 +60,8 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
     private var micConverter: AVAudioConverter?
     private var micRingBuffer: AudioRingBuffer?
     private var micMixingActive = false  // flag read on audio callback queue
+    /// Receives the recorded (mixed) buffers for live transcription; guarded by `stateLock`
+    private var liveBufferHandler: ((AVAudioPCMBuffer) -> Void)?
     private var originalDefaultDevice: AudioDeviceID?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
 
@@ -331,6 +333,14 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         }
     }
     
+    /// Live transcription receives exactly what is written to the file,
+    /// mic mix included. Pass nil to disable.
+    func setLiveBufferHandler(_ handler: ((AVAudioPCMBuffer) -> Void)?) {
+        stateLock.lock()
+        liveBufferHandler = handler
+        stateLock.unlock()
+    }
+
     // MARK: - Stop Capture
     
     func stopCapture() {
@@ -796,6 +806,7 @@ class SystemAudioCaptureService: NSObject, ObservableObject, @unchecked Sendable
         }
         
         try? audioFile.write(from: pcmBuffer)
+        liveBufferHandler?(pcmBuffer)
     }
     
     // MARK: - Temp Directory
