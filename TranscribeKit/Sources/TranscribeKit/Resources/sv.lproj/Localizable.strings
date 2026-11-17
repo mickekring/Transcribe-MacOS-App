@@ -50,6 +50,14 @@
 "youtube_error_no_response" = "YouTube svarade inte. Försök igen om en stund.";
 "youtube_error_extraction" = "Videon kunde inte läsas från YouTube. YouTube kan ha ändrat något – försök igen senare eller uppdatera appen.";
 /* Settings - General (continued) */
+"models_disk_usage" = "Använt diskutrymme: %@";
+"show_api_key" = "Visa API-nyckeln";
+"hide_api_key" = "Dölj API-nyckeln";
+"ollama_connecting" = "Ansluter…";
+"ollama_connected" = "Ansluten";
+"ollama_connected_no_models" = "Ansluten – inga modeller installerade";
+"ollama_invalid_url" = "Värd-URL:en är ogiltig";
+"ollama_connection_failed" = "Anslutningen misslyckades";
 "general" = "Allmänt";
 "transcription" = "Transkribering";
 "local_models" = "Lokala modeller";

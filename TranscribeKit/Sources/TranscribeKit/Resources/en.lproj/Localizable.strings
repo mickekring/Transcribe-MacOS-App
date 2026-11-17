@@ -50,6 +50,14 @@
 "youtube_error_no_response" = "YouTube didn't respond. Try again in a little while.";
 "youtube_error_extraction" = "The video couldn't be read from YouTube. YouTube may have changed something — try again later, or update the app.";
 /* Settings - General (continued) */
+"models_disk_usage" = "Disk space used: %@";
+"show_api_key" = "Show API key";
+"hide_api_key" = "Hide API key";
+"ollama_connecting" = "Connecting…";
+"ollama_connected" = "Connected";
+"ollama_connected_no_models" = "Connected — no models installed";
+"ollama_invalid_url" = "The host URL isn't valid";
+"ollama_connection_failed" = "Connection failed";
 "general" = "General";
 "transcription" = "Transcription";
 "local_models" = "Local Models";

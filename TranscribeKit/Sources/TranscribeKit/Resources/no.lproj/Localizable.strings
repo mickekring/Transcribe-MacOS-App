@@ -50,6 +50,14 @@
 "youtube_error_no_response" = "YouTube svarte ikke. Prøv igjen om litt.";
 "youtube_error_extraction" = "Videoen kunne ikke leses fra YouTube. YouTube kan ha endret noe – prøv igjen senere eller oppdater appen.";
 /* Settings - General (continued) */
+"models_disk_usage" = "Brukt diskplass: %@";
+"show_api_key" = "Vis API-nøkkelen";
+"hide_api_key" = "Skjul API-nøkkelen";
+"ollama_connecting" = "Kobler til…";
+"ollama_connected" = "Tilkoblet";
+"ollama_connected_no_models" = "Tilkoblet – ingen modeller installert";
+"ollama_invalid_url" = "Verts-URL-en er ugyldig";
+"ollama_connection_failed" = "Tilkoblingen mislyktes";
 "general" = "Generelt";
 "transcription" = "Transkribering";
 "local_models" = "Lokale modeller";
