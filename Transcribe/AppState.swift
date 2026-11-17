@@ -42,7 +42,8 @@ final class AppState: ObservableObject {
     /// A file to open once a pending navigation is confirmed.
     private var pendingScopedOpen = false
 
-    private init() {}
+    /// The app uses `shared`; tests create their own.
+    init() {}
 
     // MARK: - Navigation
 
