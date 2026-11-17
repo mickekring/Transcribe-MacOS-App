@@ -12,7 +12,9 @@ let package = Package(
         .library(name: "TranscribeKit", targets: ["TranscribeKit"])
     ],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0"),
+        // 1.1.1: a cancelled model download no longer looks complete, and
+        // Hugging Face tokens are no longer read from disk unasked
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.1"),
         // Parakeet-family CoreML runtime (Pianissimo, Parakeet v3). `traits: []`
         // opts out of FluidAudio's TTS, diarization and text-normalization
         // subsystems — only the ASR pipeline is used here. Pre-1.0 package, so

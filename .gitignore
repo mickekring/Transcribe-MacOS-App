@@ -53,6 +53,10 @@ playground.xcworkspace
 Packages/
 Package.pins
 Package.resolved
+# Exception: the app's lock file,
+# Transcribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved,
+# is tracked (added with `git add -f`) so every build uses the same, reviewed
+# package versions. Update deliberately, then run the model tests.
 SourcePackages/
 
 # =====================================

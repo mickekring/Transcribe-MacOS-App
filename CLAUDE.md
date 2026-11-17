@@ -203,10 +203,16 @@ Perpetual animations must check `accessibilityReduceMotion`.
 - **Ollama**: Local models, links to `ollama.com` when not running
 - Service layer: `LLMService.swift` handles API calls for both providers
 
-## Dependencies (Package.swift)
+## Dependencies
 
-- `WhisperKit` - On-device speech recognition (CoreML)
-- `YouTubeKit` - YouTube video downloading
+Declared in `TranscribeKit/Package.swift` and the Xcode project; the resolved versions are locked in `Transcribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, which is committed (force-added; `.gitignore` excludes lock files in general).
+
+- `argmax-oss-swift` (WhisperKit, SpeakerKit) - Whisper transcription and diarization (CoreML)
+- `FluidAudio` - Parakeet-family transcription (0.18.x only: pre-1.0, minor versions break API)
+- `YouTubeKit` - YouTube audio; update it when YouTube imports break (each release follows YouTube's changes)
+- `mlx-swift`, `mlx-swift-lm`, `swift-huggingface` - iOS target only (on-device LLM)
+
+To update: delete the lock file, run `xcodebuild -resolvePackageDependencies`, read the release notes, then run the tests with `RUN_MODEL_TESTS=1` (the Whisper and Parakeet model tests catch changed transcripts). The repo-root `Package.swift` is a stale manifest that only the editor's language server reads; the app does not use it.
 
 Keychain access uses the native Security framework (`SimplifiedManagers.swift` → `KeychainHelper`).
 
@@ -231,7 +237,8 @@ xcodebuild test -scheme Transcribe -destination 'platform=macOS' CLANG_COVERAGE_
 
 Test files (Swift Testing, hosted in the app):
 - `TranscribeTests/TranscribeTests.swift` - Model routing, repository-listing validation, transcript segmenting, the live commit policy, Parakeet word timings, that all three string tables have the same keys
-- `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, live, silence). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
+- `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, live, silence, speaker matching). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
+- `TranscribeTests/WhisperIntegrationTests.swift` - KB Whisper Small on synthesised Swedish (same opt-in; skipped if that model is not downloaded). Guards WhisperKit and tokenizer updates.
 - `TranscribeUITests/TranscribeUITests.swift`
 
 The app's own log lines are readable with `/usr/bin/log show --last 5m --info --predicate 'subsystem BEGINSWITH "com.mickekring.transcribe"'` (zsh has a `log` builtin; use the full path).
