@@ -59,7 +59,11 @@ struct RecordingView: View {
             // Before monitoring starts, so a demo run never opens the microphone
             DebugHarness.attach(to: capture, start: { toggleRecording() }, transcribe: { transcribe() })
             #endif
-            capture.startMonitoring()
+            // The meter runs before recording, but only once the user has
+            // allowed the microphone — opening it earlier is what prompts.
+            if AVAudioApplication.shared.recordPermission == .granted {
+                capture.startMonitoring()
+            }
         }
         .onDisappear {
             stopPlayback()
@@ -363,9 +367,11 @@ struct RecordingView: View {
             let sink = live.start(modelId: liveModelId, languageCode: languageManager.selectedLanguage.code)
             capture.setLiveSink(sink)
         }
-        if !capture.startRecording() {
-            capture.setLiveSink(nil)
-            live.reset()
+        Task {
+            if await !capture.startRecording() {
+                capture.setLiveSink(nil)
+                live.reset()
+            }
         }
     }
 

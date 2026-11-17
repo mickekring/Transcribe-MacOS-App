@@ -43,7 +43,13 @@ final class MicrophoneCapture: ObservableObject {
     private static let liveSampleRate = 16_000.0
 
     private var engine: AVAudioEngine?
+    /// The engine start in flight, if any; `true` when it produced a running engine.
+    private var engineStart: Task<Bool, Never>?
+    /// Bumped whenever the wanted engine changes, so a slow start that has
+    /// been superseded discards its result.
+    private var engineGeneration = 0
     private var configurationObserver: NSObjectProtocol?
+    private var wasMonitoringBeforeSleep = false
     private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var deviceListListener: AudioObjectPropertyListenerBlock?
@@ -70,16 +76,13 @@ final class MicrophoneCapture: ObservableObject {
     // MARK: - Monitoring
 
     /// Starts the engine so the level meter moves. Safe to call repeatedly.
+    /// Returns at once; the engine comes up in the background.
     func startMonitoring() {
         #if DEBUG
         guard !usesInjectedAudio else { return }
         #endif
-        guard engine == nil, !isPausedForSleep else { return }
-        do {
-            try startEngine()
-        } catch {
-            errorMessage = String(format: localized("mic_start_failed"), error.localizedDescription)
-        }
+        guard engine == nil, engineStart == nil, !isPausedForSleep else { return }
+        launchEngine(reportFailure: true)
     }
 
     /// Stops the engine. A recording in progress is finalised first.
@@ -94,7 +97,7 @@ final class MicrophoneCapture: ObservableObject {
     /// Starts writing the microphone to a new temporary file.
     /// - Returns: false (with `errorMessage` set) if recording could not start.
     @discardableResult
-    func startRecording() -> Bool {
+    func startRecording() async -> Bool {
         guard !isRecording else { return true }
         errorMessage = nil
         var needsEngine = engine == nil
@@ -102,13 +105,11 @@ final class MicrophoneCapture: ObservableObject {
         if usesInjectedAudio { needsEngine = false }
         #endif
         if needsEngine {
-            do {
-                try startEngine()
-            } catch {
-                errorMessage = String(format: localized("mic_start_failed"), error.localizedDescription)
-                return false
-            }
+            // Wait for a start already under way, or begin one
+            let start = engineStart ?? launchEngine(reportFailure: true)
+            guard await start.value, engine != nil else { return false }
         }
+        guard !isRecording else { return true }
 
         let url = Self.recordingsDirectory().appendingPathComponent("recording_\(UUID().uuidString).m4a")
         do {
@@ -186,30 +187,80 @@ final class MicrophoneCapture: ObservableObject {
 
     // MARK: - Engine
 
-    private func startEngine() throws {
+    /// Builds and starts an engine off the main actor.
+    ///
+    /// Opening the input device talks to the audio server, which can take a
+    /// while (Bluetooth devices) and blocks outright while macOS is showing
+    /// its microphone-permission dialog. Doing that on the main thread froze
+    /// the window behind the dialog.
+    @discardableResult
+    private func launchEngine(reportFailure: Bool) -> Task<Bool, Never> {
+        engineGeneration += 1
+        let generation = engineGeneration
+        let deviceID = selectedDeviceID.flatMap { id in inputDevices.contains { $0.id == id } ? id : nil }
+        let state = tapState
+        let fileRate = Self.fileSampleRate
+        let liveRate = Self.liveSampleRate
+
+        let onReading: @Sendable (TapState.Reading) -> Void = { [weak self] reading in
+            DispatchQueue.main.async {
+                self?.apply(reading)
+            }
+        }
+
+        let task = Task { [weak self] () -> Bool in
+            let result: Result<EngineBox, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    return .success(try Self.makeRunningEngine(deviceID: deviceID, state: state, fileRate: fileRate, liveRate: liveRate, onReading: onReading))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            guard let self else {
+                if case .success(let box) = result { Self.stop(box.engine) }
+                return false
+            }
+            if self.engineStart != nil, self.engineGeneration == generation { self.engineStart = nil }
+            switch result {
+            case .success(let box):
+                // Superseded while starting (stopped, device changed again)
+                guard self.engineGeneration == generation else {
+                    Self.stop(box.engine)
+                    return false
+                }
+                self.adopt(box.engine)
+                return true
+            case .failure(let error):
+                guard self.engineGeneration == generation else { return false }
+                if reportFailure { self.engineFailedToStart(error) }
+                return false
+            }
+        }
+        engineStart = task
+        return task
+    }
+
+    private nonisolated static func makeRunningEngine(
+        deviceID: AudioDeviceID?,
+        state: TapState,
+        fileRate: Double,
+        liveRate: Double,
+        onReading: @escaping @Sendable (TapState.Reading) -> Void
+    ) throws -> EngineBox {
         let engine = AVAudioEngine()
         let input = engine.inputNode
-
-        if let deviceID = selectedDeviceID {
-            // A selected device that has since been unplugged falls back to
-            // the system default rather than failing the recording.
-            if inputDevices.contains(where: { $0.id == deviceID }) {
-                try Self.bind(input, to: deviceID)
-            }
+        if let deviceID {
+            try bind(input, to: deviceID)
         }
 
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw CaptureError.noInputDevice
         }
-        tapState.configure(inputFormat: format, fileSampleRate: Self.fileSampleRate, liveSampleRate: Self.liveSampleRate)
-
-        let state = tapState
-        try Self.installTap(on: input, format: format) { [weak self] buffer in
-            let reading = state.process(buffer)
-            DispatchQueue.main.async {
-                self?.apply(reading)
-            }
+        state.configure(inputFormat: format, fileSampleRate: fileRate, liveSampleRate: liveRate)
+        try installTap(on: input, format: format) { buffer in
+            onReading(state.process(buffer))
         }
 
         engine.prepare()
@@ -219,8 +270,11 @@ final class MicrophoneCapture: ObservableObject {
             input.removeTap(onBus: 0)
             throw error
         }
-        self.engine = engine
+        return EngineBox(engine: engine)
+    }
 
+    private func adopt(_ engine: AVAudioEngine) {
+        self.engine = engine
         // The engine stops itself when the input hardware changes (device
         // unplugged, AirPods connected, sample rate switched). Rebuild it so
         // the recording carries on instead of silently going quiet.
@@ -231,6 +285,15 @@ final class MicrophoneCapture: ObservableObject {
                 self?.restartEngineKeepingRecording()
             }
         }
+    }
+
+    private func engineFailedToStart(_ error: Error) {
+        let wasRecording = isRecording
+        if wasRecording { stopRecording() }
+        audioLevel = 0
+        errorMessage = wasRecording
+            ? localized("mic_lost_during_recording")
+            : String(format: localized("mic_start_failed"), error.localizedDescription)
     }
 
     /// Publishes what the tap thread measured for one buffer.
@@ -245,32 +308,30 @@ final class MicrophoneCapture: ObservableObject {
     }
 
     private func tearDownEngine() {
+        // Invalidates a start that is still in flight
+        engineGeneration += 1
+        engineStart = nil
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
         }
         configurationObserver = nil
         if let engine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
+            Self.stop(engine)
         }
         engine = nil
+    }
+
+    private nonisolated static func stop(_ engine: AVAudioEngine) {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
     }
 
     /// Rebuilds the engine (new device or new hardware format). An open
     /// recording file stays open and keeps receiving audio.
     private func restartEngineKeepingRecording() {
-        guard engine != nil else { return }
+        guard engine != nil || engineStart != nil else { return }
         tearDownEngine()
-        do {
-            try startEngine()
-        } catch {
-            let wasRecording = isRecording
-            if wasRecording { stopRecording() }
-            audioLevel = 0
-            errorMessage = wasRecording
-                ? localized("mic_lost_during_recording")
-                : String(format: localized("mic_start_failed"), error.localizedDescription)
-        }
+        launchEngine(reportFailure: true)
     }
 
     private func handleWriteFailure() {
@@ -279,7 +340,7 @@ final class MicrophoneCapture: ObservableObject {
         errorMessage = localized("recording_write_failed")
     }
 
-    private static func bind(_ input: AVAudioInputNode, to deviceID: AudioDeviceID) throws {
+    private nonisolated static func bind(_ input: AVAudioInputNode, to deviceID: AudioDeviceID) throws {
         var device = deviceID
         func apply(_ unit: AudioUnit?) -> OSStatus {
             guard let unit else { return kAudioUnitErr_Uninitialized }
@@ -299,7 +360,7 @@ final class MicrophoneCapture: ObservableObject {
 
     /// Installs the input tap. macOS 27 has a throwing API; the older call
     /// raises an Objective-C exception on failure, which Swift cannot catch.
-    private static func installTap(
+    private nonisolated static func installTap(
         on node: AVAudioNode,
         format: AVAudioFormat,
         handler: @escaping @Sendable (AVAudioPCMBuffer) -> Void
@@ -363,23 +424,25 @@ final class MicrophoneCapture: ObservableObject {
     /// The engine can't run through sleep. Stop it but keep the file open so
     /// the recording resumes into the same file after wake.
     private func handleWillSleep() {
-        guard engine != nil else { return }
+        guard engine != nil || engineStart != nil else { return }
+        wasMonitoringBeforeSleep = true
         isPausedForSleep = isRecording
         tearDownEngine()
         audioLevel = 0
     }
 
     private func handleDidWake() {
+        guard wasMonitoringBeforeSleep else { return }
+        wasMonitoringBeforeSleep = false
         let wasRecording = isPausedForSleep
         isPausedForSleep = false
-        guard wasRecording || engine == nil else { return }
-        do {
-            try startEngine()
-        } catch {
-            if wasRecording {
-                stopRecording()
-                errorMessage = localized("recording_resume_failed")
-            }
+        let start = launchEngine(reportFailure: !wasRecording)
+        guard wasRecording else { return }
+        Task { [weak self] in
+            guard await !start.value, let self, self.isRecording, self.engine == nil else { return }
+            // Could not resume: keep what was recorded before sleep
+            self.stopRecording()
+            self.errorMessage = localized("recording_resume_failed")
         }
     }
 
@@ -457,6 +520,11 @@ final class MicrophoneCapture: ObservableObject {
             return AudioInputDevice(id: id, name: value as String)
         }
     }
+}
+
+/// Carries a freshly started engine back to the main actor.
+private struct EngineBox: @unchecked Sendable {
+    let engine: AVAudioEngine
 }
 
 // MARK: - Tap-side state

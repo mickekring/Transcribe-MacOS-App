@@ -37,6 +37,10 @@ struct TranscribeApp: App {
         // 16:9 default that fits every supported Mac's screen; the frame
         // autosave takes over once the user resizes.
         .defaultSize(width: 1280, height: 720)
+        // Always open the window at launch. A single-window scene otherwise
+        // restores "closed" if the window was closed (or never shown) when
+        // the app last quit, leaving only the status-bar icon.
+        .defaultLaunchBehavior(.presented)
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
         .commands {

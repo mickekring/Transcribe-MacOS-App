@@ -12,6 +12,10 @@ import TranscribeKit
 ///                                        pipeline (file, meter, live text)
 ///   -debugTranscribeDemo sv|en           synthesise speech to a file and
 ///                                        open it for transcription
+///   -debugRecordSeconds N                on the recording screen, record the
+///                                        real input device for N seconds
+///   -debugInputDevice NAME               with -debugRecordSeconds: pick the
+///                                        input device whose name contains NAME
 ///   -debugShowModelPicker 1              open the model picker at launch
 ///   -debugHold 1                         with -debugLiveDemo: don't stop at
 ///                                        the end of the speech
@@ -73,6 +77,26 @@ enum DebugHarness {
 
     /// Called by the recording screen before it starts its microphone.
     static func attach(to capture: MicrophoneCapture, start: @escaping () -> Void, transcribe: @escaping () -> Void) {
+        let recordSeconds = arguments.double(forKey: "debugRecordSeconds")
+        if recordSeconds > 0 {
+            // The real capture path: engine, device binding, tap, file.
+            let deviceName = arguments.string(forKey: "debugInputDevice")
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                if let deviceName, let device = capture.inputDevices.first(where: { $0.name.localizedCaseInsensitiveContains(deviceName) }) {
+                    capture.selectedDeviceID = device.id
+                }
+                try? await Task.sleep(for: .seconds(1))
+                start()
+                try? await Task.sleep(for: .seconds(recordSeconds))
+                if capture.isRecording { start() }
+                if arguments.bool(forKey: "debugThenTranscribe") {
+                    try? await Task.sleep(for: .seconds(3))
+                    transcribe()
+                }
+            }
+            return
+        }
         guard let code = arguments.string(forKey: "debugLiveDemo") else { return }
         capture.usesInjectedAudio = true
         let hold = arguments.bool(forKey: "debugHold")
