@@ -247,14 +247,27 @@ struct StreamingCallbackStateTests {
         #expect(texts == ["ett två tre fyra fem sex", "ett två tre fyra fem sex sju"])
     }
 
-    @Test func aStragglerFromAnEarlierWindowDoesNotReplaceTheCurrentOne() async throws {
+    @Test func aStragglerFromAnEarlierChunkDoesNotReplaceTheCurrentOne() async throws {
         let harness = Harness()
+        // Chunked audio: window ids are chunk indices, decoded in order
+        harness.state.setChunkLayout(offsets: [0, 400_000], lengths: [400_000, 400_000])
         harness.state.update(windowId: 0, tokenCount: 8, text: " första fönstret", now: time(0))
         harness.state.update(windowId: 1, tokenCount: 5, text: " andra", now: time(1))
         harness.state.update(windowId: 0, tokenCount: 9, text: " första fönstret igen", now: time(2))
         harness.state.update(windowId: 1, tokenCount: 6, text: " andra fönstret", now: time(3))
         let texts = try await harness.yielded().map(\.text)
         #expect(texts == ["första fönstret", "första fönstret andra", "första fönstret andra fönstret"])
+    }
+
+    @Test func inAShortClipEveryChangeOfWindowIdIsANewWindow() async throws {
+        // Without chunking WhisperKit numbers the windows itself, and after
+        // temperature fallbacks that number can step back. Those are still
+        // new windows, not stragglers.
+        let harness = Harness()
+        harness.state.update(windowId: 1, tokenCount: 8, text: " första", now: time(0))
+        harness.state.update(windowId: 0, tokenCount: 6, text: " andra", now: time(1))
+        let texts = try await harness.yielded().map(\.text)
+        #expect(texts == ["första", "första andra"])
     }
 
     @Test func aWindowDecodedAgainFromTheStartIsAccepted() async throws {

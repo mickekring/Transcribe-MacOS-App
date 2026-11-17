@@ -912,11 +912,17 @@ final class StreamingCallbackState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        // With one worker the windows are decoded in order, so a report for
-        // an earlier window is a straggler.
-        guard !isFinished, windowId >= currentWindowId else { return }
+        guard !isFinished else { return }
 
-        if windowId > currentWindowId {
+        if windowId != currentWindowId {
+            // For chunked audio the window id is the index of the chunk, and
+            // with one worker chunks are decoded in order: a report for an
+            // earlier one is a straggler. A clip short enough to need no
+            // chunking numbers its decoding windows itself, and that count
+            // can repeat or step back after temperature fallbacks, so there
+            // any change of id is taken as the next window.
+            if !chunkOffsets.isEmpty, windowId < currentWindowId { return }
+
             if !currentWindowText.isEmpty {
                 finishedText += finishedText.isEmpty ? currentWindowText : " " + currentWindowText
             }
