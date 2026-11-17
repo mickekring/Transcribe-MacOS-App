@@ -4,10 +4,24 @@ import AppKit
 
 // MARK: - Adaptive Color Helpers
 
-private func adaptiveColor(dark: NSColor, light: NSColor) -> Color {
+/// A colour that follows the window's appearance, including the Increase
+/// Contrast variants (which default to the regular colour when not given).
+private func adaptiveColor(
+    dark: NSColor,
+    light: NSColor,
+    darkHighContrast: NSColor? = nil,
+    lightHighContrast: NSColor? = nil
+) -> Color {
     Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        let name = appearance.bestMatch(from: [.darkAqua, .aqua])
-        return name == .darkAqua ? dark : light
+        let match = appearance.bestMatch(from: [
+            .darkAqua, .aqua, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua,
+        ])
+        switch match {
+        case .accessibilityHighContrastDarkAqua: return darkHighContrast ?? dark
+        case .accessibilityHighContrastAqua: return lightHighContrast ?? light
+        case .darkAqua: return dark
+        default: return light
+        }
     }))
 }
 
@@ -20,21 +34,34 @@ private func hex(_ hex: UInt32, alpha: CGFloat = 1.0) -> NSColor {
     )
 }
 
-// MARK: - Color Palette (Supabase-inspired)
+// MARK: - Color Palette
 
 extension Color {
-    // Accent colors — green primary
+    // Accent — the brand green. The light-mode value is darker so that it
+    // reads as text and icons on white (4.9:1) and carries white labels
+    // when used as a fill; the bright green only works on dark surfaces.
     static let primaryAccent = adaptiveColor(
         dark: hex(0x3ECF8E),
-        light: hex(0x2EB57D)
+        light: hex(0x17804F),
+        darkHighContrast: hex(0x6FF0B4),
+        lightHighContrast: hex(0x0B5C36)
     )
     static let secondaryAccent = adaptiveColor(
         dark: hex(0x34B27B),
-        light: hex(0x28966A)
+        light: hex(0x1F8C5B)
     )
     static let tertiaryAccent = adaptiveColor(
         dark: hex(0x2DA874),
-        light: hex(0x249460)
+        light: hex(0x27A06C)
+    )
+    /// The brand green at full brightness in both appearances, for glows,
+    /// meters and other decoration that never carries text.
+    static let brandGreen = Color(nsColor: hex(0x3ECF8E))
+    /// Text and icons placed on a `primaryAccent` fill: dark on the bright
+    /// dark-mode green (white would be 2:1), white on the light-mode green.
+    static let onAccent = adaptiveColor(
+        dark: hex(0x04241A),
+        light: hex(0xFFFFFF)
     )
 
     // Surfaces
@@ -56,31 +83,45 @@ extension Color {
     )
     static let hoverBackground = adaptiveColor(
         dark: hex(0x3ECF8E, alpha: 0.10),
-        light: hex(0x3ECF8E, alpha: 0.08)
+        light: hex(0x17804F, alpha: 0.08)
     )
 
-    // Text
+    // Text. Secondary and tertiary both clear 4.5:1 on their surface;
+    // tertiary is for captions and metadata.
     static let textPrimary = adaptiveColor(
         dark: hex(0xEDEDED),
-        light: hex(0x101015)
+        light: hex(0x101015),
+        darkHighContrast: hex(0xFFFFFF),
+        lightHighContrast: hex(0x000000)
     )
     static let textSecondary = adaptiveColor(
-        dark: hex(0x8B8B8B),
-        light: hex(0x404045)
+        dark: hex(0xA0A0A6),
+        light: hex(0x404045),
+        darkHighContrast: hex(0xD0D0D4),
+        lightHighContrast: hex(0x202024)
     )
     static let textTertiary = adaptiveColor(
-        dark: hex(0x888888),
-        light: hex(0x6E6E75)
+        dark: hex(0x7E7E84),
+        light: hex(0x6A6A71),
+        darkHighContrast: hex(0xB4B4B9),
+        lightHighContrast: hex(0x3A3A40)
     )
 
     // Chrome
     static let borderLight = adaptiveColor(
         dark: NSColor.white.withAlphaComponent(0.08),
-        light: hex(0xE5E5E8)
+        light: hex(0xE5E5E8),
+        darkHighContrast: NSColor.white.withAlphaComponent(0.35),
+        lightHighContrast: hex(0x8A8A90)
     )
     static let shadowColor = adaptiveColor(
         dark: NSColor.black.withAlphaComponent(0.30),
         light: NSColor.black.withAlphaComponent(0.04)
+    )
+    /// Recording / destructive state.
+    static let recordingRed = adaptiveColor(
+        dark: hex(0xFF5A52),
+        light: hex(0xD92D20)
     )
 
     // Gradient anchors
@@ -128,24 +169,27 @@ extension LinearGradient {
     )
 }
 
-// MARK: - Glass Card Modifier
+// MARK: - Content-layer card
 
-struct GlassCard: ViewModifier {
+/// A solid, hairline-bordered surface for content (transcripts, settings
+/// groups, status cards). Content surfaces stay opaque for legibility;
+/// Liquid Glass is reserved for controls that float above them.
+struct ContentCard: ViewModifier {
+    var cornerRadius: CGFloat = Metrics.cardRadius
+
     func body(content: Content) -> some View {
         content
-            .background(.ultraThinMaterial)
-            .background(Color.cardBackground.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.borderLight, lineWidth: 0.5)
             )
     }
 }
 
 extension View {
-    func glassCard() -> some View {
-        modifier(GlassCard())
+    func contentCard(cornerRadius: CGFloat = Metrics.cardRadius) -> some View {
+        modifier(ContentCard(cornerRadius: cornerRadius))
     }
 }
 
@@ -156,8 +200,21 @@ struct AccentSpinner: View {
     var size: CGFloat = 20
     var lineWidth: CGFloat = 2.5
     @State private var isRotating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if reduceMotion {
+            // A steady partial ring still reads as "busy" without spinning
+            ring.opacity(0.9)
+        } else {
+            ring
+                .rotationEffect(.degrees(isRotating ? 360 : 0))
+                .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: isRotating)
+                .onAppear { isRotating = true }
+        }
+    }
+
+    private var ring: some View {
         Circle()
             .trim(from: 0, to: 0.7)
             .stroke(
@@ -165,36 +222,6 @@ struct AccentSpinner: View {
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
             )
             .frame(width: size, height: size)
-            .rotationEffect(.degrees(isRotating ? 360 : 0))
-            .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: isRotating)
-            .onAppear { isRotating = true }
-    }
-}
-
-// MARK: - Visual Effect Background
-
-struct VisualEffectBackground: NSViewRepresentable {
-    var material: NSVisualEffectView.Material
-    var blendingMode: NSVisualEffectView.BlendingMode
-
-    init(
-        material: NSVisualEffectView.Material = .sidebar,
-        blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
-    ) {
-        self.material = material
-        self.blendingMode = blendingMode
-    }
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = blendingMode
-        view.material = material
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
+            .accessibilityHidden(true)
     }
 }

@@ -26,7 +26,7 @@ struct SystemAudioRecordingView: View {
                     if captureService.isCapturing || captureService.hasRecording {
                         showLeaveConfirmation = true
                     } else {
-                        appState.showSystemAudioView = false
+                        appState.goHome()
                     }
                 }) {
                     HStack(spacing: 6) {
@@ -272,9 +272,7 @@ struct SystemAudioRecordingView: View {
                     // Transcribe button
                     Button(action: {
                         if let recordingURL = captureService.recordingURL {
-                            appState.showSystemAudioView = false
-                            appState.currentTranscriptionURL = recordingURL
-                            appState.showTranscriptionView = true
+                            appState.transcribeRecording(at: recordingURL)
                         }
                     }) {
                         HStack(spacing: 8) {
@@ -334,7 +332,7 @@ struct SystemAudioRecordingView: View {
                 }
                 captureService.deleteRecording()
                 captureService.stopMonitoring()
-                appState.showSystemAudioView = false
+                appState.goHome()
             }
         } message: {
             Text(captureService.isCapturing

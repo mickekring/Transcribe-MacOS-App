@@ -5,14 +5,16 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settingsManager: SettingsManager
-    @StateObject private var localizationManager = LocalizationManager.shared
+    @ObservedObject private var localizationManager = LocalizationManager.shared
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var modelManager = ModelManager.shared
     @ObservedObject private var bergetCatalog = BergetModelCatalog.shared
-    @State private var isDraggingFile = false
     @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
     @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
-    @State private var showLanguagePopover = false
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
+    @State private var isDraggingFile = false
     @State private var showModelPopover = false
     @State private var showFileImporter = false
     @State private var showYouTubeView = false
@@ -20,55 +22,51 @@ struct ContentView: View {
     @State private var fileErrorMessage = ""
     @State private var showModelDownloadError = false
     @State private var modelDownloadErrorMessage = ""
+    /// A model the user picked that is still downloading; it becomes the
+    /// selection only if its download succeeds.
+    @State private var modelAwaitingDownload: String?
+
+    private static let defaultModelId = "kb_whisper-small-coreml"
 
     var body: some View {
-        Group {
-            if appState.showRecordingView {
-                RecordingView()
-            } else if appState.showSystemAudioView {
-                SystemAudioRecordingView()
-            } else if appState.showTranscriptionView, let url = appState.currentTranscriptionURL {
-                TranscriptionView(fileURL: url)
-                    .id(url)
-            } else {
-                mainContent
-            }
+        ZStack {
+            // The brand wash is strongest on the home screen and recedes
+            // behind working screens so it never competes with content.
+            AuroraBackdrop(intensity: appState.isHome ? 1 : 0.4)
+            screen
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.surfaceBackground)
         .navigationTitle("")
         .toolbar(removing: .title)
         .toolbar(removing: .sidebarToggle)
+        // No bar behind the toolbar: its items are glass and float over the
+        // content, which runs to the top edge of the window.
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarSpacer(.flexible)
 
             ToolbarItem {
-                languageDropdown
+                languageMenu
             }
-            .sharedBackgroundVisibility(.hidden)
-
             ToolbarItem {
-                modelDropdown
+                modelPicker
             }
-            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarSpacer(.fixed)
 
             ToolbarItem {
                 themeToggle
             }
-            .sharedBackgroundVisibility(.hidden)
-
             ToolbarItem {
-                settingsButton
+                SettingsLink {
+                    Label(localized("settings"), systemImage: "gearshape")
+                }
+                .help(localized("settings"))
             }
-            .sharedBackgroundVisibility(.hidden)
-        }
-        .onDrop(of: [.fileURL], isTargeted: $isDraggingFile) { providers in
-            handleFileDrop(providers)
         }
         .fileImporter(
             isPresented: $showFileImporter,
-            allowedContentTypes: [.audio, .movie, .mp3, .wav, .mpeg4Audio, .quickTimeMovie, .mpeg4Movie],
+            allowedContentTypes: [.audio, .movie],
             allowsMultipleSelection: false
         ) { result in
             switch result {
@@ -92,595 +90,448 @@ struct ContentView: View {
         } message: {
             Text(modelDownloadErrorMessage)
         }
+        .alert(localized("leave_recording"), isPresented: pendingNavigationBinding) {
+            Button(localized("stay"), role: .cancel) {
+                appState.cancelPendingNavigation()
+            }
+            Button(localized("leave"), role: .destructive) {
+                appState.confirmPendingNavigation()
+            }
+        } message: {
+            Text(unsavedWorkMessage)
+        }
         .sheet(isPresented: $showYouTubeView) {
             YouTubeTranscriptionView()
         }
+        // While a recording exists only in this window, closing the window
+        // would discard it without a word.
+        .windowDismissBehavior(holdsRecording ? .disabled : .enabled)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowTranscriptionView"))) { notification in
-            if let userInfo = notification.userInfo,
-               let fileURL = userInfo["fileURL"] as? URL {
+            if let fileURL = notification.userInfo?["fileURL"] as? URL {
                 appState.openFileForTranscription(fileURL)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .startNewRecording)) { _ in
-            newRecording()
+        .onReceive(NotificationCenter.default.publisher(for: .requestOpenFile)) { _ in
+            showFileImporter = true
         }
+        .onAppear {
+            SceneActions.shared.openMainWindow = { openWindow(id: SceneID.main) }
+            SceneActions.shared.openSettings = { openSettings() }
+            #if DEBUG
+            DebugHarness.runLaunchHooks(appState: appState)
+            if UserDefaults.standard.bool(forKey: "debugShowModelPicker") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { showModelPopover = true }
+            }
+            #endif
+        }
+        .onDisappear {
+            appState.mainWindowDidClose()
+        }
+        .onChange(of: settingsManager.localOnlyMode) { _, _ in repairModelSelection() }
+        .onChange(of: settingsManager.bergetKey) { _, _ in repairModelSelection() }
+        .onChange(of: modelManager.downloadedModels) { _, _ in repairModelSelection() }
         .task {
-            // Auto-download default model on first launch if no models are downloaded
-            let defaultModelId = "kb_whisper-small-coreml"
-            if modelManager.downloadedModels.isEmpty && modelManager.isDownloading[defaultModelId] != true {
-                selectedModel = defaultModelId
-                await downloadModel(defaultModelId)
-            }
-            // Load the selected model in the background so the first
-            // transcription doesn't pay the (potentially long) ANE load.
-            LocalModels.prewarmSelectedModel()
+            await launchTasks()
+        }
+    }
 
-            // Migrate the legacy cloud model id and refresh Berget's catalog
-            if selectedModel == "berget-kb-whisper-large" {
-                selectedModel = "berget:KBLab/kb-whisper-large"
-            }
-            if !settingsManager.localOnlyMode {
-                await bergetCatalog.refresh(apiKey: settingsManager.bergetKey)
-            }
+    // MARK: - Screens
+
+    @ViewBuilder
+    private var screen: some View {
+        switch appState.screen {
+        case .home:
+            homeScreen
+        case .recording:
+            RecordingView()
+        case .systemAudio:
+            SystemAudioRecordingView()
+        case .transcription(let url):
+            TranscriptionView(fileURL: url)
+                .id(url)
         }
     }
-    
-    var mainContent: some View {
+
+    private var holdsRecording: Bool {
+        appState.unsavedWork == .recordingInProgress || appState.unsavedWork == .untranscribedRecording
+    }
+
+    private var pendingNavigationBinding: Binding<Bool> {
+        Binding(
+            get: { appState.pendingNavigation != nil },
+            set: { if !$0 { appState.cancelPendingNavigation() } }
+        )
+    }
+
+    private var unsavedWorkMessage: String {
+        switch appState.unsavedWork {
+        case .recordingInProgress: return localized("recording_in_progress_leave")
+        case .untranscribedRecording: return localized("untranscribed_recording_leave")
+        case .unsavedTranscript, .none: return localized("unsaved_transcript_leave")
+        }
+    }
+
+    // MARK: - Home
+
+    private var homeScreen: some View {
         ZStack {
-            // Subtle green radial glow on dark surface
-            Color.surfaceBackground
-                .ignoresSafeArea()
-            
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    Color.primaryAccent.opacity(0.06),
-                    Color.clear
-                ]),
-                center: .top,
-                startRadius: 100,
-                endRadius: 600
-            )
-            .ignoresSafeArea()
-            
             if isDraggingFile {
-                dragOverlay
+                dropOverlay
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else {
-                featureGrid
-            }
-        }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isDraggingFile)
-    }
-    
-    var featureGrid: some View {
-        VStack {
-            Spacer()
-            
-            VStack(spacing: 32) {
-                VStack(spacing: 24) {
-                    Text(localized("transcribe"))
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
-                        .foregroundStyle(LinearGradient.accentGradient)
-                    
-                    Text(localized("drag_drop_hint"))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.textSecondary)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
+                    hero
+                    Spacer(minLength: 24)
+                    footer
                 }
-                
-                primaryFeatures
-            }
-            
-            Spacer()
-            
-            footerSection
-        }
-        .padding(.horizontal, 40)
-        .padding(.vertical, 30)
-    }
-    
-    var footerSection: some View {
-        VStack(spacing: 12) {
-            Text(localizationManager.currentLanguage == "sv" ? "En prototyp av Micke Kring - mickekring.se" : "A prototype by Micke Kring - mickekring.se")
-                .font(.system(size: 12))
-                .foregroundColor(.textSecondary)
-            
-            Button(action: {
-                if let url = URL(string: "https://github.com/mickekring/Transcribe-MacOS-App") {
-                    NSWorkspace.shared.open(url)
-                }
-            }) {
-                Text(localizationManager.currentLanguage == "sv" ? "Hjälp / Support" : "Help / Support")
-                    .font(.system(size: 12))
-                    .foregroundColor(.primaryAccent)
-                    .underline()
-            }
-            .buttonStyle(.plain)
-            
-            // Version and build number
-            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-               let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
-                Text("Version \(version) (\(build))")
-                    .font(.system(size: 12))
-                    .foregroundColor(.textSecondary)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 26)
+                .transition(.opacity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        // Drops are only meaningful here; on other screens a dropped file
+        // would silently replace the work in progress.
+        .onDrop(of: [.fileURL], isTargeted: $isDraggingFile) { providers in
+            handleFileDrop(providers)
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isDraggingFile)
     }
-    
-    var primaryFeatures: some View {
-        HStack(spacing: 20) {
-            FeatureCard(
-                icon: "doc.badge.arrow.up.fill",
-                title: "Öppna filer",
-                action: openFiles
-            )
-            
-            FeatureCard(
-                icon: "mic.circle.fill",
-                title: localized("new_recording"),
-                action: newRecording
-            )
-            
-            FeatureCard(
-                icon: "speaker.wave.3.fill",
-                title: localized("system_audio"),
-                action: { appState.showSystemAudioView = true }
-            )
-            
-            if !settingsManager.localOnlyMode {
-                FeatureCard(
-                    icon: "play.rectangle.fill",
-                    title: "YouTube",
-                    action: {
-                        showYouTubeView = true
+
+    private var hero: some View {
+        VStack(spacing: 36) {
+            VStack(spacing: 14) {
+                Text(localized("transcribe"))
+                    .font(.system(size: 52, weight: .bold, design: .rounded))
+                    .foregroundStyle(LinearGradient.accentGradient)
+                Text(localized("drag_drop_hint"))
+                    .font(.title3)
+                    .foregroundStyle(Color.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            GlassEffectContainer(spacing: 20) {
+                HStack(spacing: 20) {
+                    FeatureTile(icon: "doc.badge.arrow.up", title: localized("open_files"), subtitle: localized("tile_files_sub")) {
+                        showFileImporter = true
                     }
-                )
+                    FeatureTile(icon: "mic", title: localized("new_recording"), subtitle: localized("tile_record_sub")) {
+                        appState.navigate(to: .recording)
+                    }
+                    FeatureTile(icon: "speaker.wave.2", title: localized("system_audio"), subtitle: localized("tile_system_sub")) {
+                        appState.navigate(to: .systemAudio)
+                    }
+                    if !settingsManager.localOnlyMode {
+                        FeatureTile(icon: "play.rectangle", title: "YouTube", subtitle: localized("tile_youtube_sub")) {
+                            showYouTubeView = true
+                        }
+                    }
+                }
+            }
+
+            if let notice = languageMismatchNotice {
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.textSecondary)
+                    .symbolRenderingMode(.multicolor)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .contentCard(cornerRadius: Metrics.controlRadius)
+                    .transition(.opacity)
             }
         }
     }
-    
-    
-    var dragOverlay: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.primaryAccent.opacity(0.4), lineWidth: 1.5)
-                )
-                .shadow(color: Color.primaryAccent.opacity(0.15), radius: 30, y: 10)
-                .padding(40)
-            
-            VStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(Color.primaryAccent.opacity(0.15))
-                        .frame(width: 100, height: 100)
-                    
-                    Image(systemName: "arrow.down.doc.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(LinearGradient.accentGradient)
+
+    private var footer: some View {
+        VStack(spacing: 6) {
+            Text(localized("footer_credit"))
+                .foregroundStyle(Color.textTertiary)
+            HStack(spacing: 10) {
+                Button(localized("help_support")) {
+                    if let url = URL(string: "https://github.com/mickekring/Transcribe-MacOS-App") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
-                
-                VStack(spacing: 8) {
-                    Text(localized("drop_files_here"))
-                        .font(.system(size: 24, weight: .semibold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                    
-                    Text("Release to start transcription")
-                        .font(.system(size: 14))
-                        .foregroundColor(.textSecondary)
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.primaryAccent)
+                .pointerStyle(.link)
+
+                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                   let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+                    Text("·").foregroundStyle(Color.textTertiary)
+                    Text(String(format: localized("version_format"), version, build))
+                        .foregroundStyle(Color.textTertiary)
                 }
             }
         }
+        .font(.caption)
     }
-    
-    var themeToggle: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                appColorScheme = appColorScheme == "dark" ? "light" : "dark"
+
+    private var dropOverlay: some View {
+        VStack(spacing: 22) {
+            Image(systemName: "arrow.down.doc.fill")
+                .font(.system(size: 46))
+                .foregroundStyle(Color.primaryAccent)
+                .frame(width: 104, height: 104)
+                .background(Color.primaryAccent.opacity(0.14), in: Circle())
+            VStack(spacing: 6) {
+                Text(localized("drop_files_here"))
+                    .font(.system(.title, design: .rounded).weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                Text(localized("drop_release_hint"))
+                    .font(.callout)
+                    .foregroundStyle(Color.textSecondary)
             }
-        }) {
-            Image(systemName: appColorScheme == "dark" ? "moon.fill" : "sun.max.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.textSecondary)
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.elevatedSurface)
-                )
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(Color.primaryAccent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [8, 6]))
+        )
+        .padding(36)
+    }
+
+    /// Explains why the chosen model can't transcribe the chosen language,
+    /// before the user finds out from a wrong transcript.
+    private var languageMismatchNotice: String? {
+        let language = languageManager.selectedLanguage
+        guard !ModelManager.supports(languageCode: language.code, modelId: selectedModel) else { return nil }
+        return String(format: localized("language_model_mismatch"), modelManager.displayName(for: selectedModel), language.localizedName)
+    }
+
+    // MARK: - Toolbar items
+
+    private var themeToggle: some View {
+        Button {
+            appColorScheme = appColorScheme == "dark" ? "light" : "dark"
+        } label: {
+            Label(
+                appColorScheme == "dark" ? localized("switch_to_light") : localized("switch_to_dark"),
+                systemImage: appColorScheme == "dark" ? "moon" : "sun.max"
+            )
+        }
         .help(appColorScheme == "dark" ? localized("switch_to_light") : localized("switch_to_dark"))
     }
 
-    var settingsButton: some View {
-        SettingsLink {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.textSecondary)
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.elevatedSurface)
-                )
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 20)
-    }
-    
-    // MARK: - Actions
-    
-    func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first,
-              provider.hasItemConformingToTypeIdentifier("public.file-url") else { return false }
-
-        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { data, error in
-            guard let data = data as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                DispatchQueue.main.async {
-                    self.isDraggingFile = false
-                    self.fileErrorMessage = localized("unsupported_file_type")
-                    self.showFileError = true
+    private var languageMenu: some View {
+        Menu {
+            Picker(localized("language"), selection: languageSelection) {
+                ForEach(TranscriptionLanguage.commonLanguages) { language in
+                    Text(menuTitle(for: language)).tag(language.code)
                 }
-                return
             }
+            .pickerStyle(.inline)
 
-            // Check if it's a supported audio/video file
-            let supportedExtensions = ["mp3", "wav", "m4a", "m4b", "mp4", "ogg", "aac", "mov", "flac", "opus", "webm"]
-            DispatchQueue.main.async {
-                self.isDraggingFile = false
-                if supportedExtensions.contains(url.pathExtension.lowercased()) {
-                    self.appState.openFileForTranscription(url)
+            Picker(localized("more_languages"), selection: languageSelection) {
+                ForEach(TranscriptionLanguage.allLanguages.filter { language in
+                    !TranscriptionLanguage.commonLanguages.contains { $0.id == language.id }
+                }) { language in
+                    Text(menuTitle(for: language)).tag(language.code)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label {
+                Text(languageManager.selectedLanguage.localizedName)
+            } icon: {
+                Image(systemName: "globe")
+            }
+            .labelStyle(.titleAndIcon)
+        }
+        .help(localized("language"))
+        .accessibilityLabel("\(localized("language")): \(languageManager.selectedLanguage.localizedName)")
+    }
+
+    private var languageSelection: Binding<String> {
+        Binding(
+            get: { languageManager.selectedLanguage.code },
+            set: { code in
+                if let language = TranscriptionLanguage.allLanguages.first(where: { $0.code == code }) {
+                    languageManager.selectLanguage(language)
+                }
+            }
+        )
+    }
+
+    private func menuTitle(for language: TranscriptionLanguage) -> String {
+        language.code == "auto" ? language.localizedName : "\(Self.flag(for: language.code))  \(language.localizedName)"
+    }
+
+    private var activeDownload: (modelId: String, progress: Double)? {
+        guard let id = modelManager.isDownloading.first(where: { $0.value })?.key else { return nil }
+        return (id, modelManager.downloadProgress[id] ?? 0)
+    }
+
+    private var modelPicker: some View {
+        Button {
+            showModelPopover.toggle()
+        } label: {
+            Label {
+                if let download = activeDownload {
+                    Text("\(modelManager.displayName(for: download.modelId)) \(Int(download.progress * 100)) %")
+                        .monospacedDigit()
                 } else {
-                    self.fileErrorMessage = localized("unsupported_file_type")
-                    self.showFileError = true
+                    Text(selectedModel.isEmpty ? localized("select_model") : modelManager.displayName(for: selectedModel))
+                }
+            } icon: {
+                if activeDownload != nil {
+                    Image(systemName: "arrow.down.circle")
+                        .symbolEffect(.pulse)
+                } else {
+                    Image(systemName: Self.icon(for: selectedModel))
+                }
+            }
+            .labelStyle(.titleAndIcon)
+        }
+        .help(localized("model"))
+        .accessibilityLabel("\(localized("model")): \(modelManager.displayName(for: selectedModel))")
+        .popover(isPresented: $showModelPopover, arrowEdge: .bottom) {
+            ModelPickerList(
+                selectedModel: selectedModel,
+                awaitingDownload: modelAwaitingDownload,
+                showCloud: !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode,
+                cloudModelIds: bergetCatalog.asrModels.isEmpty
+                    ? ["berget:KBLab/kb-whisper-large"]   // catalog not fetched yet: legacy default
+                    : bergetCatalog.asrModels.map { "berget:\($0.id)" },
+                onSelect: { modelId in
+                    choose(modelId)
+                },
+                onCancelDownload: { modelId in
+                    if modelAwaitingDownload == modelId { modelAwaitingDownload = nil }
+                    LocalModels.cancelDownload(modelId: modelId)
+                }
+            )
+        }
+    }
+
+    // MARK: - Model selection
+
+    private func choose(_ modelId: String) {
+        let isLocal = ModelManager.engine(for: modelId) != .cloud
+        if !isLocal || modelManager.isModelDownloaded(modelId) {
+            selectedModel = modelId
+            modelAwaitingDownload = nil
+            showModelPopover = false
+            LocalModels.prewarmSelectedModel()
+            return
+        }
+        // Not on disk yet: download first and switch only when it is usable,
+        // so a cancelled or failed download never leaves a model selected
+        // that would silently start downloading again at the next transcription.
+        modelAwaitingDownload = modelId
+        guard modelManager.isDownloading[modelId] != true else { return }
+        Task {
+            await downloadModel(modelId)
+            if modelAwaitingDownload == modelId {
+                modelAwaitingDownload = nil
+                if modelManager.isModelDownloaded(modelId) {
+                    selectedModel = modelId
+                    LocalModels.prewarmSelectedModel()
                 }
             }
         }
-        return true
     }
-    
-    func openFiles() {
-        showFileImporter = true
-    }
-    
-    func newRecording() {
-        appState.showRecordingView = true
-    }
-    
-    func downloadModel(_ modelId: String) async {
+
+    private func downloadModel(_ modelId: String) async {
         do {
             try await LocalModels.download(modelId: modelId)
         } catch is CancellationError {
-            // User cancelled from the dropdown — no error alert
+            // User cancelled from the picker — no error alert
         } catch {
             modelDownloadErrorMessage = "\(modelManager.displayName(for: modelId)): \(error.localizedDescription)\n\n\(localized("model_download_retry_hint"))"
             showModelDownloadError = true
         }
     }
-    
-    // MARK: - Dropdown Views
-    
-    var languageDropdown: some View {
-        Button(action: {
-            showLanguagePopover.toggle()
-        }) {
-            HStack(spacing: 6) {
-                if languageManager.selectedLanguage.code == "auto" {
-                    Image(systemName: "globe")
-                        .font(.system(size: 18))
-                        .foregroundStyle(LinearGradient.accentGradient)
-                } else {
-                    Text(getLanguageFlag(languageManager.selectedLanguage.code))
-                        .font(.system(size: 18))
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(localized("language"))
-                        .font(.system(size: 10))
-                        .foregroundColor(.textTertiary)
-                    Text(languageManager.selectedLanguage.localizedName)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.textPrimary)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(minHeight: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.elevatedSurface)
-            )
+
+    /// Keeps the selection pointing at something that can actually run: a
+    /// cloud model needs a key and network permission, a local model must be
+    /// on disk (or on its way).
+    private func repairModelSelection() {
+        let engine = ModelManager.engine(for: selectedModel)
+        let usable: Bool
+        switch engine {
+        case .cloud:
+            usable = !settingsManager.localOnlyMode && !settingsManager.bergetKey.isEmpty
+        case .whisperKit, .parakeet:
+            usable = modelManager.isModelDownloaded(selectedModel) || modelManager.isDownloading[selectedModel] == true
+        case .none:
+            usable = false
         }
-        .buttonStyle(PlainButtonStyle())
-        .popover(isPresented: $showLanguagePopover) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(TranscriptionLanguage.commonLanguages) { language in
-                    Button(action: {
-                        languageManager.selectLanguage(language)
-                        showLanguagePopover = false
-                    }) {
-                        HStack {
-                            if language.code == "auto" {
-                                Image(systemName: "globe")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(LinearGradient.accentGradient)
-                                    .frame(width: 20)
-                            } else {
-                                Text(getLanguageFlag(language.code))
-                                    .font(.system(size: 16))
-                            }
-                            Text(language.localizedName)
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if languageManager.selectedLanguage.id == language.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .onHover { isHovered in
-                        if isHovered {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                }
-                
-                Divider()
-                    .padding(.vertical, 4)
-                
-                Text(localized("more_languages"))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                
-                ForEach(TranscriptionLanguage.allLanguages.filter { lang in
-                    !TranscriptionLanguage.commonLanguages.contains(where: { $0.id == lang.id })
-                }) { language in
-                    Button(action: {
-                        languageManager.selectLanguage(language)
-                        showLanguagePopover = false
-                    }) {
-                        HStack {
-                            Text(getLanguageFlag(language.code))
-                                .font(.system(size: 16))
-                            Text(language.localizedName)
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if languageManager.selectedLanguage.id == language.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .onHover { isHovered in
-                        if isHovered {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .frame(width: 200)
+        guard !usable else { return }
+        // Prefer staying in the same family, then anything downloaded
+        let downloaded = ModelManager.allLocalModels.filter { modelManager.isModelDownloaded($0) }
+        if let replacement = downloaded.first(where: { ModelManager.engine(for: $0) == engine }) ?? downloaded.first {
+            selectedModel = replacement
         }
     }
-    
-    /// Progress percent of the currently active model download, if any.
-    private var activeDownloadPercent: Int? {
-        guard let id = modelManager.isDownloading.first(where: { $0.value })?.key else { return nil }
-        return Int((modelManager.downloadProgress[id] ?? 0) * 100)
-    }
 
-    var modelDropdown: some View {
-        Button(action: {
-            showModelPopover.toggle()
-        }) {
-            HStack(spacing: 6) {
-                if modelManager.isDownloading.values.contains(true) {
-                    ZStack {
-                        AccentSpinner(size: 18, lineWidth: 2)
-                        if let percent = activeDownloadPercent {
-                            Text("\(percent)")
-                                .font(.system(size: 7, weight: .semibold))
-                                .foregroundColor(.primaryAccent)
-                                .monospacedDigit()
-                        }
-                    }
-                } else {
-                    Image(systemName: getModelIcon(selectedModel))
-                        .font(.system(size: 18))
-                        .foregroundStyle(LinearGradient.accentGradient)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(localized("model"))
-                        .font(.system(size: 10))
-                        .foregroundColor(.textTertiary)
-                    Text(selectedModel.isEmpty ? localized("select_model") : modelManager.displayName(for: selectedModel))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(selectedModel.isEmpty ? .textTertiary : .textPrimary)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(minHeight: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.elevatedSurface)
-            )
+    private func launchTasks() async {
+        // Legacy cloud id
+        if selectedModel == "berget-kb-whisper-large" {
+            selectedModel = "berget:KBLab/kb-whisper-large"
         }
-        .buttonStyle(PlainButtonStyle())
-        .popover(isPresented: $showModelPopover) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Parakeet-family models: fast, and the ones that can transcribe live
-                Text(localized("model_group_fast_live"))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
 
-                ForEach(ModelManager.parakeetModels, id: \.self) { modelId in
-                    modelDropdownRow(modelId: modelId, icon: "bolt")
-                }
+        // First launch only: fetch the default model. Never on later
+        // launches — a user who works with cloud models, or who is in
+        // local-only mode, must not have a selection overwritten or a
+        // download started behind their back.
+        let isFirstLaunch = UserDefaults.standard.object(forKey: "selectedTranscriptionModel") == nil
+        if isFirstLaunch, modelManager.downloadedModels.isEmpty, !settingsManager.localOnlyMode {
+            selectedModel = Self.defaultModelId
+            Task { await downloadModel(Self.defaultModelId) }
+        } else {
+            repairModelSelection()
+        }
 
-                Divider().padding(.horizontal, 12).padding(.vertical, 4)
+        // Load the selected model in the background so the first
+        // transcription doesn't pay the (potentially long) ANE load.
+        LocalModels.prewarmSelectedModel()
 
-                // KB Whisper models
-                Text("KB Whisper")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-
-                ForEach(ModelManager.kbModels, id: \.self) { modelId in
-                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
-                }
-
-                Divider().padding(.horizontal, 12).padding(.vertical, 4)
-
-                // NB Whisper models (Norwegian)
-                Text("NB Whisper")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-
-                ForEach(ModelManager.nbModels, id: \.self) { modelId in
-                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
-                }
-
-                Divider().padding(.horizontal, 12).padding(.vertical, 4)
-
-                // OpenAI Whisper models
-                Text("Whisper")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-
-                ForEach(ModelManager.openAIModels, id: \.self) { modelId in
-                    modelDropdownRow(modelId: modelId, icon: "laptopcomputer")
-                }
-                
-                // Cloud models — only with an API key and not in local-only mode
-                if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
-                    Divider().padding(.horizontal, 12).padding(.vertical, 4)
-                    
-                    Text(localized("cloud_models"))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 4)
-
-                    if bergetCatalog.asrModels.isEmpty {
-                        // Catalog not fetched yet (first run offline) — legacy default
-                        modelDropdownRow(modelId: "berget:KBLab/kb-whisper-large", icon: "cloud")
-                    } else {
-                        ForEach(bergetCatalog.asrModels) { model in
-                            modelDropdownRow(modelId: "berget:\(model.id)", icon: "cloud")
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .frame(width: 260)
+        if !settingsManager.localOnlyMode {
+            await bergetCatalog.refresh(apiKey: settingsManager.bergetKey)
         }
     }
-    
-    @ViewBuilder
-    func modelDropdownRow(modelId: String, icon: String) -> some View {
-        let isDownloaded = modelManager.isModelDownloaded(modelId)
-        let isCloud = modelId.starts(with: "berget")
-        let isDownloading = modelManager.isDownloading[modelId] == true
-        let progress = modelManager.downloadProgress[modelId] ?? 0
-        
-        Button(action: {
-            selectedModel = modelId
-            showModelPopover = false
-            
-            // If the model isn't downloaded yet, start downloading immediately
-            if !isDownloaded && !isCloud && !isDownloading {
-                Task {
-                    await downloadModel(modelId)
+
+    // MARK: - File drop
+
+    private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            DispatchQueue.main.async {
+                isDraggingFile = false
+                guard let url, Self.isTranscribable(url) else {
+                    fileErrorMessage = localized("unsupported_file_type")
+                    showFileError = true
+                    return
                 }
+                appState.openFileForTranscription(url)
             }
-        }) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                
-                Text(modelManager.displayName(for: modelId))
-                    .foregroundColor(isDownloaded || isCloud ? .primary : .secondary)
-                
-                if isDownloading {
-                    Spacer()
-                    AccentSpinner(size: 12, lineWidth: 1.5)
-                    Text("\(Int(progress * 100))%")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.primaryAccent)
-                        .monospacedDigit()
-                    Button(action: {
-                        LocalModels.cancelDownload(modelId: modelId)
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundColor(.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(localized("cancel_download"))
-                } else if !isDownloaded && !isCloud {
-                    Text(modelManager.getModelSizeString(modelId))
-                        .font(.system(size: 11))
-                        .foregroundColor(.textTertiary)
-                    Spacer()
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 12))
-                        .foregroundColor(.textTertiary)
-                } else {
-                    Spacer()
-                }
-                
-                if selectedModel == modelId {
-                    Image(systemName: "checkmark")
-                        .foregroundColor(.primaryAccent)
-                        .font(.system(size: 12, weight: .semibold))
-                } else if isDownloaded || isCloud {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.textTertiary)
-                        .font(.system(size: 12))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
-        .onHover { isHovered in
-            if isHovered {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
+        return true
+    }
+
+    /// Same rule as the open panel: anything the system types as audio or a movie.
+    static func isTranscribable(_ url: URL) -> Bool {
+        guard url.isFileURL, let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return type.conforms(to: .audio) || type.conforms(to: .movie)
+    }
+
+    // MARK: - Lookups
+
+    static func icon(for modelId: String) -> String {
+        switch ModelManager.engine(for: modelId) {
+        case .whisperKit: return "laptopcomputer"
+        case .parakeet: return "bolt"
+        case .cloud: return "cloud"
+        case .none: return "cube"
         }
     }
-    
-    func getLanguageFlag(_ code: String) -> String {
+
+    static func flag(for code: String) -> String {
         switch code {
-        case "auto": return "🌐"
         case "sv": return "🇸🇪"
         case "en": return "🇬🇧"
         case "ar": return "🇸🇦"
@@ -701,63 +552,155 @@ struct ContentView: View {
         case "es": return "🇪🇸"
         case "tr": return "🇹🇷"
         case "uk": return "🇺🇦"
-        default: return "🏳️"
-        }
-    }
-    
-    func getModelIcon(_ modelId: String) -> String {
-        switch ModelManager.engine(for: modelId) {
-        case .whisperKit: return "laptopcomputer"
-        case .parakeet: return "bolt"
-        case .cloud: return "cloud"
-        case .none: return "cube"
+        default: return "🌐"
         }
     }
 }
 
-struct FeatureCard: View {
-    let icon: String
-    let title: String
-    var gradient: LinearGradient = LinearGradient.accentGradient
-    let action: () -> Void
-    
-    @State private var isHovered = false
-    
+// MARK: - Model picker
+
+/// The model list shown from the toolbar: grouped by family, with download
+/// state, size and progress per model.
+private struct ModelPickerList: View {
+    let selectedModel: String
+    let awaitingDownload: String?
+    let showCloud: Bool
+    let cloudModelIds: [String]
+    let onSelect: (String) -> Void
+    let onCancelDownload: (String) -> Void
+
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 20) {
-                ZStack {
-                    Circle()
-                        .fill(Color.primaryAccent.opacity(0.12))
-                        .frame(width: 80, height: 80)
-                        .scaleEffect(isHovered ? 1.1 : 1.0)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 36))
-                        .foregroundColor(.primaryAccent)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                group(localized("model_group_fast_live"), ModelManager.parakeetModels)
+                group("KB Whisper", ModelManager.kbModels)
+                group("NB Whisper", ModelManager.nbModels)
+                group("Whisper", ModelManager.openAIModels)
+                if showCloud {
+                    group(localized("cloud_models"), cloudModelIds)
                 }
-                
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 160, height: 160)
-            .glassCard()
+            .padding(8)
         }
-        .buttonStyle(.plain)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primaryAccent.opacity(isHovered ? 0.3 : 0), lineWidth: 1)
-        )
-        .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                isHovered = hovering
-            }
+        .frame(width: 320)
+        .frame(maxHeight: 520)
+    }
+
+    @ViewBuilder
+    private func group(_ title: String, _ modelIds: [String]) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.textTertiary)
+            .textCase(.uppercase)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 3)
+        ForEach(modelIds, id: \.self) { modelId in
+            ModelPickerRow(
+                modelId: modelId,
+                isSelected: selectedModel == modelId,
+                isAwaitingDownload: awaitingDownload == modelId,
+                onSelect: { onSelect(modelId) },
+                onCancelDownload: { onCancelDownload(modelId) }
+            )
         }
     }
 }
 
+private struct ModelPickerRow: View {
+    let modelId: String
+    let isSelected: Bool
+    let isAwaitingDownload: Bool
+    let onSelect: () -> Void
+    let onCancelDownload: () -> Void
 
+    @ObservedObject private var modelManager = ModelManager.shared
+    @State private var isHovered = false
+
+    private var isCloud: Bool { ModelManager.engine(for: modelId) == .cloud }
+    private var isDownloaded: Bool { modelManager.isModelDownloaded(modelId) }
+    private var isDownloading: Bool { modelManager.isDownloading[modelId] == true }
+    private var progress: Double { modelManager.downloadProgress[modelId] ?? 0 }
+
+    private var detail: String? {
+        switch modelId {
+        case "pianissimo_sv-coreml": return localized("model_desc_pianissimo")
+        case "parakeet_tdt-v3-coreml": return localized("model_desc_parakeet")
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onSelect) {
+                HStack(spacing: 10) {
+                    Image(systemName: ContentView.icon(for: modelId))
+                        .font(.system(size: 13))
+                        .foregroundStyle(isSelected ? Color.primaryAccent : Color.textSecondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(modelManager.displayName(for: modelId))
+                            .font(.body)
+                            .foregroundStyle(isDownloaded || isCloud ? Color.textPrimary : Color.textSecondary)
+                        if isDownloading {
+                            ProgressView(value: progress)
+                                .progressViewStyle(.linear)
+                                .tint(.primaryAccent)
+                                .frame(maxWidth: 150)
+                                .padding(.top, 2)
+                        } else if let detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if isDownloading {
+                        Text("\(Int(progress * 100)) %")
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.primaryAccent)
+                    } else if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.primaryAccent)
+                    } else if !isDownloaded && !isCloud {
+                        Text(modelManager.getModelSizeString(modelId))
+                            .font(.caption)
+                            .foregroundStyle(Color.textTertiary)
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isDownloading {
+                Button(action: onCancelDownload) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help(localized("cancel_download"))
+                .accessibilityLabel(localized("cancel_download"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered ? Color.hoverBackground : .clear)
+        )
+        .onHover { isHovered = $0 }
+        .pointerStyle(.link)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isAwaitingDownload ? localized("model_selected_after_download") : "")
+    }
+}

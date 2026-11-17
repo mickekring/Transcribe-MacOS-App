@@ -4,7 +4,7 @@ import TranscribeKit
 @main
 struct TranscribeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState()
+    @StateObject private var appState = AppState.shared
     @StateObject private var transcriptionManager = TranscriptionManager()
     @StateObject private var settingsManager = SettingsManager()
     @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
@@ -18,7 +18,10 @@ struct TranscribeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // A single-instance window: the app has one recorder, one loaded
+        // model and one navigation state, so a second window (⌘N) would
+        // mirror the first and run the same work twice.
+        Window("Transcribe", id: SceneID.main) {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(transcriptionManager)
@@ -38,12 +41,22 @@ struct TranscribeApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About Transcribe") {
+                Button(localized("menu_about")) {
                     appDelegate.showAboutWindow()
                 }
             }
+            CommandGroup(after: .newItem) {
+                Button(localized("open_files")) {
+                    appDelegate.requestOpenFile()
+                }
+                .keyboardShortcut("o")
+                Button(localized("new_recording")) {
+                    appDelegate.startNewRecording()
+                }
+                .keyboardShortcut("r")
+            }
         }
-        
+
         Settings {
             SettingsView()
                 .environmentObject(settingsManager)
@@ -51,6 +64,21 @@ struct TranscribeApp: App {
                 .preferredColorScheme(preferredScheme)
         }
     }
+}
+
+enum SceneID {
+    static let main = "main"
+}
+
+/// Scene actions captured from the SwiftUI environment so AppKit code (the
+/// status-bar menu) can reopen the main window or show Settings even after
+/// the window, and the view that captured them, are gone.
+@MainActor
+final class SceneActions {
+    static let shared = SceneActions()
+    var openMainWindow: (() -> Void)?
+    var openSettings: (() -> Void)?
+    private init() {}
 }
 
 /// Captures the hosting NSWindow so AppDelegate can restore the main window

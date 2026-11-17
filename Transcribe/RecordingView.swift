@@ -1,316 +1,336 @@
 import SwiftUI
+import Combine
 import TranscribeKit
 import AVFoundation
 import CoreAudio
-import AppKit
 
+/// Microphone recording, with live text when a Parakeet-family model is available.
 struct RecordingView: View {
-    @StateObject private var audioRecorder = AudioRecorderManager()
+    @StateObject private var capture = MicrophoneCapture()
+    @StateObject private var live = LiveTranscriptController()
     @EnvironmentObject var appState: AppState
-    @State private var showingTranscription = false
-    @State private var recordingTime: TimeInterval = 0
-    @State private var recordingStartDate: Date?
-    @State private var pausedAccumulated: TimeInterval = 0
-    @State private var pauseStartDate: Date?
-    @State private var timer: Timer?
+    @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var languageManager = LanguageManager.shared
+    @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
+    @AppStorage("liveTranscriptionEnabled") private var liveEnabled = true
+
+    @State private var levels = LevelHistory()
+    @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
-    @State private var playbackTime: TimeInterval = 0
-    @State private var audioPlayer: AVAudioPlayer?
     @State private var showPermissionAlert = false
-    @State private var showLeaveConfirmation = false
     @State private var showRecordingError = false
-    
+    /// The recording was passed to the transcription screen and must survive this view.
+    @State private var handedOff = false
+
+    private let meterTick = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
+
+    /// The model that would produce live text right now, if any.
+    private var liveModelId: String? {
+        ParakeetService.liveModelId(selectedModel: selectedModel, languageCode: languageManager.selectedLanguage.code)
+    }
+
+    private var showsLivePanel: Bool {
+        (liveEnabled && liveModelId != nil) || live.hasText || live.isActive
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button(action: {
-                    if audioRecorder.isRecording || audioRecorder.hasRecording {
-                        showLeaveConfirmation = true
-                    } else {
-                        appState.showRecordingView = false
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14))
-                        Text(localized("back"))
-                            .font(.system(size: 14))
-                    }
-                    .foregroundColor(.primaryAccent)
-                }
-                .buttonStyle(.plain)
-                
-                Spacer()
-                
-                Text(localized("new_recording"))
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.textPrimary)
-                
-                Spacer()
-                
-                // Placeholder for balance
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                    Text(localized("back"))
-                }
-                .opacity(0)
+        HStack(spacing: 0) {
+            controls
+                .frame(maxWidth: showsLivePanel ? 440 : .infinity, maxHeight: .infinity)
+
+            if showsLivePanel {
+                LiveTranscriptPanel(live: live, isRecording: capture.isRecording)
+                    .padding(.vertical, Metrics.gutter)
+                    .padding(.trailing, Metrics.gutter)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .background(Color.surfaceBackground)
-            .overlay(
-                Rectangle()
-                    .fill(Color.borderLight)
-                    .frame(height: 1),
-                alignment: .bottom
-            )
-            
-            // Main content
-            VStack(spacing: 40) {
-                Spacer()
-                
-                // Audio input device selector
-                if audioRecorder.inputDevices.count > 1 && !audioRecorder.isRecording {
-                    VStack(spacing: 12) {
-                        Picker(localized("audio_input_device"), selection: $audioRecorder.selectedDeviceID) {
-                            ForEach(audioRecorder.inputDevices) { device in
-                                Text(device.name).tag(Optional(device.id))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: 300)
-                        .onChange(of: audioRecorder.selectedDeviceID) { _, newValue in
-                            if let deviceID = newValue {
-                                audioRecorder.setInputDevice(deviceID)
-                                // Restart input monitor to pick up new device
-                                audioRecorder.restartInputMonitor()
-                            }
-                        }
-                        
-                        // Audio level meter (pre-recording input monitor)
-                        HStack(spacing: 2) {
-                            ForEach(0..<20, id: \.self) { index in
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Float(index) / 20.0 < audioRecorder.audioLevel ? Color.primaryAccent : Color.borderLight)
-                                    .frame(width: 8, height: 12)
-                            }
-                        }
-                        .animation(.linear(duration: 0.05), value: audioRecorder.audioLevel)
-                        .frame(width: 200)
-                    }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: showsLivePanel)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                BackToolbarButton {
+                    appState.navigate(to: .home)
                 }
-                
-                // Recording visualization
-                ZStack {
-                    // Outer ring
-                    Circle()
-                        .stroke(Color.borderLight, lineWidth: 2)
-                        .frame(width: 200, height: 200)
-                    
-                    // Pulsing animation when recording
-                    if audioRecorder.isRecording {
-                        Circle()
-                            .fill(Color.primaryAccent.opacity(0.1))
-                            .frame(width: 200, height: 200)
-                            .scaleEffect(audioRecorder.isRecording ? 1.1 : 1.0)
-                            .animation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: audioRecorder.isRecording)
-                    }
-                    
-                    // Center button
-                    Button(action: {
-                        if audioRecorder.isRecording {
-                            stopRecording()
-                        } else if audioRecorder.hasRecording {
-                            // Show options
-                        } else {
-                            startRecording()
-                        }
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(audioRecorder.isRecording ? Color.red : Color.primaryAccent)
-                                .frame(width: 120, height: 120)
-                            
-                            Image(systemName: audioRecorder.isRecording ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .scaleEffect(audioRecorder.isRecording ? 0.95 : 1.0)
-                    .animation(.easeInOut(duration: 0.1), value: audioRecorder.isRecording)
-                }
-                
-                // Time display
-                VStack(spacing: 8) {
-                    if audioRecorder.isRecording || audioRecorder.hasRecording {
-                        Text(formatTime(audioRecorder.isRecording ? recordingTime : audioRecorder.recordingDuration))
-                            .font(.system(size: 32, weight: .medium, design: .monospaced))
-                            .foregroundColor(.textPrimary)
-                        
-                        if audioRecorder.isPausedForSleep {
-                            Text(localized("recording_paused_sleep"))
-                                .font(.system(size: 14))
-                                .foregroundColor(.textSecondary)
-                        } else {
-                            Text(audioRecorder.isRecording ? localized("recording_in_progress") : localized("recording_complete"))
-                                .font(.system(size: 14))
-                                .foregroundColor(.textSecondary)
-                        }
-                        
-                        // Audio level meter (shown during recording)
-                        if audioRecorder.isRecording {
-                            HStack(spacing: 2) {
-                                ForEach(0..<20, id: \.self) { index in
-                                    RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(Float(index) / 20.0 < audioRecorder.audioLevel ? Color.primaryAccent : Color.borderLight)
-                                        .frame(width: 8, height: 12)
-                                }
-                            }
-                            .animation(.linear(duration: 0.05), value: audioRecorder.audioLevel)
-                            .frame(width: 200)
-                        }
-                    } else {
-                        Text(localized("tap_to_record"))
-                            .font(.system(size: 16))
-                            .foregroundColor(.textSecondary)
-                    }
-                }
-                
-                // Controls when recording is done
-                if audioRecorder.hasRecording && !audioRecorder.isRecording {
-                    HStack(spacing: 24) {
-                        // Play/Pause button
-                        Button(action: togglePlayback) {
-                            HStack(spacing: 8) {
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                Text(isPlaying ? localized("pause") : localized("play"))
-                            }
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.cardBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(Color.borderLight, lineWidth: 0.5)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        
-                        // Start over button
-                        Button(action: {
-                            audioRecorder.deleteRecording()
-                            recordingTime = 0
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.counterclockwise")
-                                Text(localized("start_over"))
-                            }
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.cardBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(Color.borderLight, lineWidth: 0.5)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    // Transcribe button
-                    Button(action: {
-                        if let recordingURL = audioRecorder.recordingURL {
-                            appState.showRecordingView = false
-                            appState.currentTranscriptionURL = recordingURL
-                            appState.showTranscriptionView = true
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform")
-                            Text(localized("transcribe"))
-                        }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 14)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.primaryAccent, Color.secondaryAccent],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                }
-                
-                Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.surfaceBackground)
         }
         .onAppear {
-            audioRecorder.startInputMonitor()
+            #if DEBUG
+            // Before monitoring starts, so a demo run never opens the microphone
+            DebugHarness.attach(to: capture, start: { toggleRecording() }, transcribe: { transcribe() })
+            #endif
+            capture.startMonitoring()
         }
         .onDisappear {
-            timer?.invalidate()
-            audioPlayer?.stop()
-            audioRecorder.stopInputMonitor()
+            stopPlayback()
+            live.reset()
+            capture.setLiveSink(nil)
+            if !handedOff {
+                // Leaving was confirmed (or there was nothing to lose)
+                capture.deleteRecording()
+            }
+            capture.stopMonitoring()
+        }
+        .onReceive(meterTick) { _ in
+            levels.append(capture.audioLevel)
+        }
+        .onChange(of: capture.isRecording) { _, _ in reportUnsavedWork() }
+        .onChange(of: capture.hasRecording) { _, _ in reportUnsavedWork() }
+        .onChange(of: capture.isRecording) { wasRecording, isRecording in
+            // The capture stopped on its own (device lost, disk full)
+            if wasRecording && !isRecording {
+                capture.setLiveSink(nil)
+                Task { await live.finish() }
+            }
+        }
+        .onChange(of: capture.errorMessage) { _, message in
+            showRecordingError = message != nil
         }
         .alert(localized("mic_permission_required"), isPresented: $showPermissionAlert) {
-            Button("OK") { }
+            Button(localized("open_system_settings")) {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            Button("OK", role: .cancel) { }
         } message: {
             Text(localized("mic_permission_message"))
         }
-        .alert(localized("leave_recording"), isPresented: $showLeaveConfirmation) {
-            Button(localized("stay"), role: .cancel) { }
-            Button(localized("leave"), role: .destructive) {
-                audioRecorder.stopInputMonitor()
-                if audioRecorder.isRecording {
-                    audioRecorder.stopRecording()
-                    timer?.invalidate()
-                    timer = nil
-                }
-                audioRecorder.deleteRecording()
-                appState.showRecordingView = false
-            }
-        } message: {
-            Text(audioRecorder.isRecording
-                 ? localized("recording_in_progress_leave")
-                 : localized("untranscribed_recording_leave"))
-        }
-        .onChange(of: audioRecorder.isPausedForSleep) { _, isPaused in
-            handlePauseStateChange(isPaused: isPaused)
-        }
-        .onChange(of: audioRecorder.errorMessage) { _, newValue in
-            guard newValue != nil else { return }
-            if !audioRecorder.isRecording {
-                timer?.invalidate()
-                timer = nil
-            }
-            showRecordingError = true
-        }
         .alert(localized("recording_error"), isPresented: $showRecordingError) {
-            Button("OK") {
-                audioRecorder.errorMessage = nil
-            }
+            Button("OK") { capture.errorMessage = nil }
         } message: {
-            Text(audioRecorder.errorMessage ?? "")
+            Text(capture.errorMessage ?? "")
         }
     }
 
-    private func startRecording() {
+    // MARK: - Controls column
+
+    private var controls: some View {
+        VStack(spacing: 26) {
+            Spacer(minLength: 12)
+
+            VStack(spacing: 8) {
+                Text(localized("new_recording"))
+                    .font(.system(.title, design: .rounded).weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                statusBadge
+            }
+
+            recordButton
+
+            VStack(spacing: 14) {
+                Text(formatClock(capture.recordedSeconds))
+                    .font(.system(size: 44, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(capture.isRecording || capture.hasRecording ? Color.textPrimary : Color.textTertiary)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel(localized("recording_duration"))
+                    .accessibilityValue(formatClock(capture.recordedSeconds, tenths: false))
+
+                WaveformMeter(
+                    levels: levels.levels,
+                    color: capture.isRecording ? .recordingRed : .primaryAccent,
+                    isActive: capture.isRecording || !capture.hasRecording
+                )
+                .frame(width: 330, height: 52)
+            }
+
+            if capture.hasRecording && !capture.isRecording {
+                finishedActions
+            } else {
+                setupOptions
+            }
+
+            Spacer(minLength: 12)
+        }
+        .padding(.horizontal, Metrics.gutter)
+    }
+
+    private var statusBadge: some View {
+        Group {
+            if capture.isPausedForSleep {
+                StatusBadge(text: localized("recording_paused_sleep"), color: .orange)
+            } else if capture.isRecording {
+                StatusBadge(text: localized("recording_in_progress"), color: .recordingRed, isPulsing: true)
+            } else if capture.hasRecording {
+                StatusBadge(text: localized("recording_complete"), color: .primaryAccent)
+            } else {
+                StatusBadge(text: localized("tap_to_record"), color: .textTertiary)
+            }
+        }
+        .frame(height: 18)
+    }
+
+    private var recordButton: some View {
+        let isRecording = capture.isRecording
+        return ZStack {
+            // A halo that follows the input level: direct feedback that the
+            // microphone hears something, before and during recording.
+            Circle()
+                .fill((isRecording ? Color.recordingRed : Color.brandGreen).opacity(0.16))
+                .frame(width: 150, height: 150)
+                .scaleEffect(1 + CGFloat(capture.audioLevel) * 0.32)
+                .animation(.easeOut(duration: 0.12), value: capture.audioLevel)
+                .accessibilityHidden(true)
+
+            Button(action: toggleRecording) {
+                Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 42, weight: .medium))
+                    .foregroundStyle(isRecording ? Color.white : Color.onAccent)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 124, height: 124)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(
+                .regular.tint(isRecording ? Color.recordingRed : Color.primaryAccent).interactive(),
+                in: .circle
+            )
+            .disabled(capture.hasRecording && !isRecording)
+            .opacity(capture.hasRecording && !isRecording ? 0.45 : 1)
+            .keyboardShortcut(.space, modifiers: [])
+            .help(isRecording ? localized("stop_recording") : localized("start_recording"))
+            .accessibilityLabel(isRecording ? localized("stop_recording") : localized("start_recording"))
+        }
+        .frame(height: 190)
+    }
+
+    /// Before and during a recording: which microphone, and live text.
+    private var setupOptions: some View {
+        VStack(spacing: 12) {
+            Menu {
+                Picker(localized("audio_input_device"), selection: $capture.selectedDeviceID) {
+                    Text(String(format: localized("system_default_device"), capture.defaultDeviceName))
+                        .tag(AudioDeviceID?.none)
+                    Divider()
+                    ForEach(capture.inputDevices) { device in
+                        Text(device.name).tag(Optional(device.id))
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label(currentDeviceName, systemImage: "mic")
+                    .lineLimit(1)
+                    .frame(maxWidth: 260)
+            }
+            .glassAction()
+            .fixedSize()
+            .help(localized("audio_input_device"))
+
+            liveOption
+        }
+    }
+
+    private var currentDeviceName: String {
+        if let id = capture.selectedDeviceID, let device = capture.inputDevices.first(where: { $0.id == id }) {
+            return device.name
+        }
+        return capture.defaultDeviceName.isEmpty ? localized("microphone") : capture.defaultDeviceName
+    }
+
+    @ViewBuilder
+    private var liveOption: some View {
+        if let liveModelId {
+            Toggle(isOn: $liveEnabled) {
+                Text("\(localized("live_text")) · \(modelManager.displayName(for: liveModelId))")
+                    .font(.callout)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(.primaryAccent)
+            .disabled(capture.isRecording)
+        } else if let suggestion = suggestedLiveModel {
+            if modelManager.isDownloading[suggestion] == true {
+                HStack(spacing: 8) {
+                    ProgressView(value: modelManager.downloadProgress[suggestion] ?? 0)
+                        .frame(width: 120)
+                        .tint(.primaryAccent)
+                    Text("\(Int((modelManager.downloadProgress[suggestion] ?? 0) * 100)) %")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.textSecondary)
+                }
+            } else {
+                Button {
+                    Task { try? await LocalModels.download(modelId: suggestion) }
+                } label: {
+                    Label(
+                        String(format: localized("live_get_model"), modelManager.displayName(for: suggestion), modelManager.getModelSizeString(suggestion)),
+                        systemImage: "bolt"
+                    )
+                    .font(.callout)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.primaryAccent)
+                .pointerStyle(.link)
+                .help(localized("live_unavailable_hint"))
+            }
+        }
+    }
+
+    /// The Parakeet-family model worth offering for live text in the chosen language.
+    private var suggestedLiveModel: String? {
+        let code = languageManager.selectedLanguage.code
+        let effective = code == "auto" && selectedModel.hasPrefix("kb_whisper-") ? "sv" : code
+        return ParakeetModelSpec.all
+            .filter { effective == "auto" || $0.languageCodes.contains(effective) }
+            .min { $0.languageCodes.count < $1.languageCodes.count }?
+            .id
+    }
+
+    /// After a recording: listen back, redo, or transcribe.
+    private var finishedActions: some View {
+        VStack(spacing: 16) {
+            Button {
+                transcribe()
+            } label: {
+                Label(localized("transcribe"), systemImage: "waveform")
+                    .frame(minWidth: 180)
+            }
+            .prominentAction()
+            .keyboardShortcut(.defaultAction)
+
+            HStack(spacing: 12) {
+                Button(action: togglePlayback) {
+                    Label(isPlaying ? localized("pause") : localized("play"), systemImage: isPlaying ? "pause.fill" : "play.fill")
+                }
+                .glassAction()
+
+                Button {
+                    startOver()
+                } label: {
+                    Label(localized("start_over"), systemImage: "arrow.counterclockwise")
+                }
+                .glassAction()
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func reportUnsavedWork() {
+        guard !handedOff else { return }
+        if capture.isRecording {
+            appState.unsavedWork = .recordingInProgress
+        } else if capture.hasRecording {
+            appState.unsavedWork = .untranscribedRecording
+        } else {
+            appState.unsavedWork = nil
+        }
+    }
+
+    private func toggleRecording() {
+        if capture.isRecording {
+            stopRecording()
+            return
+        }
+        #if DEBUG
+        if capture.usesInjectedAudio {
+            beginRecording()
+            return
+        }
+        #endif
         switch AVAudioApplication.shared.recordPermission {
         case .granted:
             beginRecording()
@@ -320,9 +340,10 @@ struct RecordingView: View {
             AVAudioApplication.requestRecordPermission { granted in
                 DispatchQueue.main.async {
                     if granted {
-                        self.beginRecording()
+                        capture.startMonitoring()
+                        beginRecording()
                     } else {
-                        self.showPermissionAlert = true
+                        showPermissionAlert = true
                     }
                 }
             }
@@ -330,556 +351,154 @@ struct RecordingView: View {
             break
         }
     }
-    
+
     private func beginRecording() {
-        timer?.invalidate()
-        timer = nil
-        audioRecorder.startRecording()
-        // Only start the display timer if recording actually started.
-        guard audioRecorder.isRecording else { return }
-        recordingTime = 0
-        pausedAccumulated = 0
-        pauseStartDate = nil
-        recordingStartDate = Date()
-        // Use Date-based calculation to avoid timer drift, subtracting any time
-        // spent paused (e.g. while the machine was asleep) so the displayed
-        // duration matches the actual recorded audio.
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-            guard let startDate = recordingStartDate else { return }
-            let pausedSoFar = pausedAccumulated + (pauseStartDate.map { Date().timeIntervalSince($0) } ?? 0)
-            recordingTime = Date().timeIntervalSince(startDate) - pausedSoFar
+        stopPlayback()
+        live.reset()
+        levels.reset()
+
+        // Attach live text before the first buffer so nothing is missed;
+        // audio is buffered while the model loads.
+        if liveEnabled, let liveModelId {
+            let sink = live.start(modelId: liveModelId, languageCode: languageManager.selectedLanguage.code)
+            capture.setLiveSink(sink)
+        }
+        if !capture.startRecording() {
+            capture.setLiveSink(nil)
+            live.reset()
         }
     }
 
-    /// Excludes sleep time from the displayed recording duration.
-    private func handlePauseStateChange(isPaused: Bool) {
-        if isPaused {
-            pauseStartDate = Date()
-        } else if let pauseStart = pauseStartDate {
-            pausedAccumulated += Date().timeIntervalSince(pauseStart)
-            pauseStartDate = nil
-        }
-    }
-    
     private func stopRecording() {
-        audioRecorder.stopRecording()
-        timer?.invalidate()
-        timer = nil
-        // Restart input monitor so user can still see levels
-        audioRecorder.startInputMonitor()
+        capture.stopRecording()
+        capture.setLiveSink(nil)
+        Task { await live.finish() }
     }
-    
+
+    private func startOver() {
+        stopPlayback()
+        live.reset()
+        capture.deleteRecording()
+        levels.reset()
+    }
+
+    private func transcribe() {
+        guard let url = capture.recordingURL else { return }
+        stopPlayback()
+        handedOff = true
+        appState.transcribeRecording(at: url)
+    }
+
     private func togglePlayback() {
         if isPlaying {
-            audioPlayer?.pause()
-            timer?.invalidate()
-            timer = nil
+            player?.pause()
             isPlaying = false
-        } else {
-            guard let url = audioRecorder.recordingURL else {
-                return
+            return
+        }
+        guard let url = capture.recordingURL else { return }
+        // Keep one player per recording so pause/resume continues in place
+        if player?.url != url {
+            player = try? AVAudioPlayer(contentsOf: url)
+            player?.prepareToPlay()
+        }
+        guard let player, player.play() else { return }
+        isPlaying = true
+        watchPlayback(of: player)
+    }
+
+    private func watchPlayback(of player: AVAudioPlayer) {
+        Task { @MainActor in
+            while self.player === player, player.isPlaying {
+                try? await Task.sleep(for: .milliseconds(120))
             }
-            
-            // Check if file exists
-            if !FileManager.default.fileExists(atPath: url.path) {
-                return
-            }
-            
-            do {
-                audioPlayer = try AVAudioPlayer(contentsOf: url)
-                audioPlayer?.prepareToPlay()
-                
-                if audioPlayer?.play() == true {
-                    isPlaying = true
-                    
-                    // Poll for playback completion instead of using fixed asyncAfter
-                    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-                        if audioPlayer?.isPlaying == false {
-                            isPlaying = false
-                            timer?.invalidate()
-                            timer = nil
-                        }
-                    }
-                } else {
-                    // Playback failed to start
-                }
-            } catch {
-                // Audio player creation failed
-            }
+            if self.player === player { isPlaying = false }
         }
     }
-    
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        let tenths = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
-        return String(format: "%02d:%02d.%d", minutes, seconds, tenths)
+
+    private func stopPlayback() {
+        player?.stop()
+        player = nil
+        isPlaying = false
     }
 }
 
-// Audio Recorder Manager
-class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate, @unchecked Sendable {
-    @Published var isRecording = false
-    @Published var hasRecording = false
-    @Published var recordingDuration: TimeInterval = 0
-    @Published var recordingURL: URL?
-    @Published var audioLevel: Float = 0
-    @Published var inputDevices: [AudioInputDevice] = []
-    @Published var selectedDeviceID: AudioDeviceID?
-    @Published var isPausedForSleep = false
-    @Published var errorMessage: String?
+// MARK: - Live transcript
 
-    private var audioRecorder: AVAudioRecorder?
-    private var meteringTimer: Timer?
-    private var originalDefaultDevice: AudioDeviceID?
-    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
+/// The live transcript: settled text in the primary colour, the part still
+/// being revised dimmed behind it.
+struct LiveTranscriptPanel: View {
+    @ObservedObject var live: LiveTranscriptController
+    let isRecording: Bool
 
-    private var sleepObserver: NSObjectProtocol?
-    private var wakeObserver: NSObjectProtocol?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                StatusBadge(
+                    text: live.modelName.isEmpty ? localized("live_text") : "\(localized("live_text")) · \(live.modelName)",
+                    color: live.phase == .listening ? .primaryAccent : .textTertiary,
+                    isPulsing: live.phase == .listening
+                )
+                Spacer()
+                if live.phase == .preparing || live.phase == .finishing {
+                    AccentSpinner(size: 14, lineWidth: 2)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
 
-    override init() {
-        super.init()
-        checkMicrophonePermission()
-        refreshInputDevices()
-        observeDeviceChanges()
-        registerForSleepNotifications()
-    }
+            Divider().overlay(Color.borderLight)
 
-    deinit {
-        // Stop audio engine synchronously if still running
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
-        meteringTimer?.invalidate()
-        restoreOriginalDevice()
-        removeDeviceObserver()
-        removeSleepNotifications()
-    }
+            ScrollView {
+                transcript
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+            // Read from the top; once the text outgrows the panel, follow
+            // the newest words.
+            .defaultScrollAnchor(.top, for: .alignment)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
 
-    // MARK: - Sleep/Wake Handling
+            Divider().overlay(Color.borderLight)
 
-    private func registerForSleepNotifications() {
-        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.willSleepNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleSystemWillSleep()
+            Text(localized("live_preview_note"))
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
         }
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleSystemDidWake()
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentCard(cornerRadius: Metrics.panelRadius)
     }
 
-    private func removeSleepNotifications() {
-        if let sleepObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
-        }
-        if let wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
-        }
-        sleepObserver = nil
-        wakeObserver = nil
-    }
-
-    /// Pause the recorder before the machine sleeps. `AVAudioRecorder.pause()`
-    /// keeps the file open so a later `record()` appends to the same recording.
-    private func handleSystemWillSleep() {
-        guard isRecording, let recorder = audioRecorder, !isPausedForSleep else { return }
-        recorder.pause()
-        stopMetering()
-        isPausedForSleep = true
-    }
-
-    /// Resume recording into the same file after wake.
-    private func handleSystemDidWake() {
-        guard isPausedForSleep, let recorder = audioRecorder else { return }
-        isPausedForSleep = false
-        if recorder.record() {
-            startMetering()
+    @ViewBuilder
+    private var transcript: some View {
+        if case .failed(let message) = live.phase {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(Color.textSecondary)
+        } else if live.hasText {
+            // One Text so settled and tentative words wrap as a single paragraph
+            Text("\(Text(live.confirmed).foregroundStyle(Color.textPrimary))\(separator)\(Text(live.volatile).foregroundStyle(Color.textTertiary))")
+                .font(.system(size: 17))
+                .lineSpacing(6)
+                .textSelection(.enabled)
+                .animation(.easeOut(duration: 0.15), value: live.volatile)
         } else {
-            // Resume failed — stop cleanly so the UI doesn't show an active
-            // recording that captures nothing, and surface the error.
-            stopRecording()
-            errorMessage = localized("recording_resume_failed")
+            Text(placeholder)
+                .font(.system(size: 17))
+                .foregroundStyle(Color.textTertiary)
         }
-    }
-    
-    private func checkMicrophonePermission() {
-        switch AVAudioApplication.shared.recordPermission {
-        case .granted:
-            break
-        case .undetermined:
-            AVAudioApplication.requestRecordPermission { _ in
-            }
-        case .denied:
-            break
-        @unknown default:
-            break
-        }
-    }
-    
-    // MARK: - Audio Input Device Management
-    
-    func refreshInputDevices() {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var dataSize: UInt32 = 0
-        var status = AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0, nil,
-            &dataSize
-        )
-        guard status == noErr else { return }
-        
-        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
-        
-        status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0, nil,
-            &dataSize,
-            &deviceIDs
-        )
-        guard status == noErr else { return }
-        
-        var devices: [AudioInputDevice] = []
-        for deviceID in deviceIDs {
-            // Check if device has input streams
-            var inputStreamAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyStreams,
-                mScope: kAudioObjectPropertyScopeInput,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            
-            var streamSize: UInt32 = 0
-            let streamStatus = AudioObjectGetPropertyDataSize(
-                deviceID,
-                &inputStreamAddress,
-                0, nil,
-                &streamSize
-            )
-            
-            guard streamStatus == noErr, streamSize > 0 else { continue }
-            
-            // Get device name
-            var nameAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioObjectPropertyName,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            
-            var cfName: Unmanaged<CFString>?
-            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-            let nameStatus = AudioObjectGetPropertyData(
-                deviceID,
-                &nameAddress,
-                0, nil,
-                &nameSize,
-                &cfName
-            )
-            
-            if nameStatus == noErr, let cfStr = cfName?.takeRetainedValue() {
-                let name = cfStr as String
-                devices.append(AudioInputDevice(id: deviceID, name: name))
-            }
-        }
-        
-        DispatchQueue.main.async {
-            self.inputDevices = devices
-            // Set selected device to current default if not set
-            if self.selectedDeviceID == nil {
-                self.selectedDeviceID = self.getCurrentDefaultInputDevice()
-            }
-        }
-    }
-    
-    private func getCurrentDefaultInputDevice() -> AudioDeviceID? {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var deviceID: AudioDeviceID = 0
-        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-        
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0, nil,
-            &dataSize,
-            &deviceID
-        )
-        
-        return status == noErr ? deviceID : nil
-    }
-    
-    func setInputDevice(_ deviceID: AudioDeviceID) {
-        // Store original default so we can restore later
-        if originalDefaultDevice == nil {
-            originalDefaultDevice = getCurrentDefaultInputDevice()
-        }
-        
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var mutableDeviceID = deviceID
-        let dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-        
-        AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0, nil,
-            dataSize,
-            &mutableDeviceID
-        )
-    }
-    
-    private func restoreOriginalDevice() {
-        guard let originalDevice = originalDefaultDevice else { return }
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var mutableDeviceID = originalDevice
-        let dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-        
-        AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0, nil,
-            dataSize,
-            &mutableDeviceID
-        )
-        originalDefaultDevice = nil
-    }
-    
-    private func observeDeviceChanges() {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.refreshInputDevices()
-        }
-        deviceListenerBlock = block
-        
-        AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            DispatchQueue.main,
-            block
-        )
-    }
-    
-    private func removeDeviceObserver() {
-        guard let block = deviceListenerBlock else { return }
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            DispatchQueue.main,
-            block
-        )
-        deviceListenerBlock = nil
-    }
-    
-    // MARK: - Audio Metering
-    
-    private func startMetering() {
-        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self, let recorder = self.audioRecorder, recorder.isRecording else { return }
-            recorder.updateMeters()
-            let power = recorder.averagePower(forChannel: 0)
-            // Normalize: -60dB..0dB → 0..1
-            let normalized = max(0, min(1, (power + 60) / 60))
-            DispatchQueue.main.async {
-                self.audioLevel = normalized
-            }
-        }
-    }
-    
-    private func stopMetering() {
-        meteringTimer?.invalidate()
-        meteringTimer = nil
-        DispatchQueue.main.async {
-            self.audioLevel = 0
-        }
-    }
-    
-    // MARK: - Input Level Monitor (pre-recording)
-    
-    private var audioEngine: AVAudioEngine?
-
-    /// Bumped on every stop so a pending delayed restart can be cancelled.
-    private var inputMonitorGeneration = 0
-
-    /// Re-applies the user's selected input device if the system default has
-    /// drifted (e.g. after `restoreOriginalDevice()` at the end of a recording),
-    /// so the device actually used always matches the picker.
-    private func applySelectedDeviceIfNeeded() {
-        guard let deviceID = selectedDeviceID, getCurrentDefaultInputDevice() != deviceID else { return }
-        setInputDevice(deviceID)
     }
 
-    func startInputMonitor() {
-        guard !isRecording else { return }
-        stopInputMonitor()
-        applySelectedDeviceIfNeeded()
-
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        
-        guard format.sampleRate > 0 else { return }
-        
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = Int(buffer.frameLength)
-            
-            // Calculate RMS
-            var sum: Float = 0
-            for i in 0..<frameLength {
-                sum += channelData[i] * channelData[i]
-            }
-            let rms = sqrtf(sum / Float(frameLength))
-            // Convert to dB-like scale: map 0..1 range
-            let level = max(0, min(1, (20 * log10f(max(rms, 1e-6)) + 60) / 60))
-            
-            DispatchQueue.main.async {
-                self?.audioLevel = level
-            }
-        }
-        
-        do {
-            try engine.start()
-            audioEngine = engine
-        } catch {
-            // Audio input monitor failed to start
-        }
-    }
-    
-    func stopInputMonitor() {
-        inputMonitorGeneration += 1  // cancel any pending delayed restart
-        if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-            audioEngine = nil
-        }
-        audioLevel = 0
+    private var separator: String {
+        guard !live.confirmed.isEmpty, !live.volatile.isEmpty, !live.confirmed.hasSuffix("\n") else { return "" }
+        return " "
     }
 
-    func restartInputMonitor() {
-        stopInputMonitor()
-        // Small delay to allow the system default device to update.
-        // The generation check cancels the restart if the monitor was stopped
-        // in the meantime, so a stop isn't followed by a hot mic.
-        let generation = inputMonitorGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self, self.inputMonitorGeneration == generation else { return }
-            self.startInputMonitor()
-        }
-    }
-    
-    func startRecording() {
-        applySelectedDeviceIfNeeded()
-
-        let audioFilename = getTemporaryDirectory().appendingPathComponent("recording_\(Date().timeIntervalSince1970).m4a")
-        
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100.0,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-            AVEncoderBitRateKey: 128000
-        ]
-        
-        do {
-            audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-            audioRecorder?.delegate = self
-            audioRecorder?.isMeteringEnabled = true
-            audioRecorder?.prepareToRecord()
-            
-            stopInputMonitor()
-            
-            if audioRecorder?.record() == true {
-                recordingURL = audioFilename
-                isRecording = true
-                hasRecording = false
-                startMetering()
-            }
-        } catch {
-            // Audio recorder creation failed
-        }
-    }
-    
-    func stopRecording() {
-        guard let recorder = audioRecorder else {
-            return
-        }
-        
-        stopMetering()
-        recordingDuration = recorder.currentTime
-        recorder.stop()
-        isRecording = false
-        isPausedForSleep = false
-        restoreOriginalDevice()
-        
-        // Verify the file was created
-        if let url = recordingURL, FileManager.default.fileExists(atPath: url.path) {
-            hasRecording = true
-        } else {
-            hasRecording = false
-        }
-    }
-    
-    func deleteRecording() {
-        if let url = recordingURL {
-            try? FileManager.default.removeItem(at: url)
-        }
-        recordingURL = nil
-        hasRecording = false
-        recordingDuration = 0
-    }
-    
-    private func getTemporaryDirectory() -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Transcribe")
-            .appendingPathComponent("Recordings")
-        
-        // Create directory if it doesn't exist
-        try? FileManager.default.createDirectory(at: tempDir, 
-                                                withIntermediateDirectories: true, 
-                                                attributes: nil)
-        return tempDir
-    }
-    
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            hasRecording = false
+    private var placeholder: String {
+        switch live.phase {
+        case .preparing: return localized("live_loading_model")
+        case .listening: return localized("live_listening")
+        default: return isRecording ? localized("live_listening") : localized("live_idle_hint")
         }
     }
 }

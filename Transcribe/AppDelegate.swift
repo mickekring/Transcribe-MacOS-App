@@ -4,10 +4,11 @@ import SwiftUI
 import os
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var aboutWindow: NSWindow?
+    private var quickTranscribeWindow: NSWindow?
     private var statusBarItem: NSStatusItem?
-    /// The main WindowGroup window, captured by TranscribeApp when its content appears
+    /// The main window, captured by TranscribeApp when its content appears
     weak var mainWindow: NSWindow?
     private var frameObservers: [Any] = []
 
@@ -22,7 +23,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let key = "MainWindowFrame"
         if let saved = UserDefaults.standard.string(forKey: key) {
             let frame = NSRectFromString(saved)
-            if frame.width > 0, frame.height > 0 {
+            // Only restore a frame that is still reachable: after an external
+            // display is unplugged the saved position can be off every screen.
+            let isVisible = NSScreen.screens.contains { $0.visibleFrame.intersection(frame).width >= 120 && $0.visibleFrame.intersection(frame).height >= 80 }
+            if frame.width > 0, frame.height > 0, isVisible {
                 window.setFrame(frame, display: true)
             }
         }
@@ -39,48 +43,85 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Must run before the first model load (the launch prewarm) so
         // CoreML writes its ANE cache through the protected location.
         ANECacheProtector.protect()
 
         // Clean up any leftover files from previous session (in case of force quit)
-        cleanupTemporaryFiles(isStartup: true)
+        cleanupTemporaryFiles()
 
         setupStatusBar()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        cleanupTemporaryFiles(isStartup: false)
+    /// Quitting discards temp files, so ask before throwing away a recording
+    /// or transcript that exists nowhere else.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let unsaved = AppState.shared.unsavedWork else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch unsaved {
+        case .recordingInProgress:
+            alert.messageText = localized("quit_recording_title")
+            alert.informativeText = localized("quit_recording_message")
+        case .untranscribedRecording:
+            alert.messageText = localized("quit_untranscribed_title")
+            alert.informativeText = localized("quit_untranscribed_message")
+        case .unsavedTranscript:
+            alert.messageText = localized("quit_unsaved_transcript_title")
+            alert.informativeText = localized("quit_unsaved_transcript_message")
+        }
+        alert.addButton(withTitle: localized("stay"))
+        alert.addButton(withTitle: localized("quit_anyway"))
+        NSApp.activate()
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateCancel : .terminateNow
     }
-    
+
+    func applicationWillTerminate(_ notification: Notification) {
+        cleanupTemporaryFiles()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
-    
+
+    // MARK: - Status bar
+
     private func setupStatusBar() {
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        
-        if let button = statusBarItem?.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Transcribe")
-            button.action = #selector(statusBarButtonClicked)
-            button.target = self
-        }
-        
+        statusBarItem?.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Transcribe")
+
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Transcribe", action: #selector(openMainWindow), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "New Recording", action: #selector(startNewRecording), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Quick Transcribe", action: #selector(quickTranscribe), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ","))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        
+        menu.delegate = self
         statusBarItem?.menu = menu
+        populate(menu)
     }
-    
+
+    /// Rebuilt each time it opens so it follows the in-app language setting.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        populate(menu)
+    }
+
+    private func populate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        func add(_ titleKey: String, _ action: Selector, key: String = "") {
+            let item = NSMenuItem(title: localized(titleKey), action: action, keyEquivalent: key)
+            item.target = self
+            menu.addItem(item)
+        }
+        add("menu_open_app", #selector(openMainWindow))
+        menu.addItem(.separator())
+        add("new_recording", #selector(startNewRecording))
+        add("menu_quick_transcribe", #selector(quickTranscribe))
+        menu.addItem(.separator())
+        add("menu_settings", #selector(showPreferences), key: ",")
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: localized("menu_quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quit)
+    }
+
     /// Another copy of the app (same bundle id, so the same sandbox container
     /// and temp folder) is running — e.g. the installed app next to a debug
     /// build. Its recordings live in the folder this instance would wipe.
@@ -91,84 +132,82 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .contains { $0.processIdentifier != ownPID && !$0.isTerminated }
     }
 
-    private func cleanupTemporaryFiles(isStartup: Bool = false) {
+    private func cleanupTemporaryFiles() {
         // The temp folder is shared by every running copy; whichever copy
         // quits last (or starts alone) does the cleanup.
         guard !anotherInstanceIsRunning else { return }
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("Transcribe")
-        
-        do {
-            try FileManager.default.removeItem(at: tempDir)
-        } catch {
-            // Cleanup failed or directory doesn't exist
-        }
+        try? FileManager.default.removeItem(at: tempDir)
     }
-    
-    @objc func statusBarButtonClicked() {
-        if let menu = statusBarItem?.menu {
-            statusBarItem?.button?.performClick(nil)
-        }
-    }
-    
+
+    // MARK: - Actions
+
     @objc func openMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        // Prefer the tracked main window; fall back to finding the WindowGroup
-        // window by identifier (never the status bar or About windows)
-        if let window = mainWindow ?? NSApp.windows.first(where: { $0.identifier?.rawValue.contains("AppWindow") == true }) {
+        NSApp.activate()
+        if let window = mainWindow {
             window.makeKeyAndOrderFront(nil)
         } else {
-            // Main window was closed and released — ask SwiftUI to recreate the WindowGroup scene
-            _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false)
+            // The window was closed and released: ask SwiftUI for the scene again
+            SceneActions.shared.openMainWindow?()
         }
     }
 
     @objc func startNewRecording() {
-        // Restore the main window first so ContentView is alive to receive the notification
         openMainWindow()
+        // After the window exists; asks first if another screen holds unsaved work
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .startNewRecording, object: nil)
+            AppState.shared.navigate(to: .recording)
         }
     }
-    
+
+    func requestOpenFile() {
+        openMainWindow()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .requestOpenFile, object: nil)
+        }
+    }
+
     @objc func quickTranscribe() {
-        // Show quick transcribe floating window
-        let quickTranscribeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        quickTranscribeWindow.isReleasedWhenClosed = false
-        quickTranscribeWindow.title = "Quick Transcribe"
-        quickTranscribeWindow.center()
-        quickTranscribeWindow.contentView = NSHostingView(rootView: QuickTranscribeView())
-        quickTranscribeWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if quickTranscribeWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.title = localized("menu_quick_transcribe")
+            window.center()
+            window.contentView = NSHostingView(rootView: QuickTranscribeView())
+            quickTranscribeWindow = window
+        }
+        quickTranscribeWindow?.makeKeyAndOrderFront(nil)
     }
-    
+
     @objc func showPreferences() {
-        NSApp.activate(ignoringOtherApps: true)
-        // Open the SwiftUI Settings scene (same window as the app menu's Settings item)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate()
+        SceneActions.shared.openSettings?()
     }
-    
+
     func showAboutWindow() {
         if aboutWindow == nil {
             aboutWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
             )
             aboutWindow?.isReleasedWhenClosed = false
-            aboutWindow?.title = "About Transcribe"
+            aboutWindow?.title = localized("menu_about")
             aboutWindow?.center()
             aboutWindow?.contentView = NSHostingView(rootView: AboutView())
         }
+        NSApp.activate()
         aboutWindow?.makeKeyAndOrderFront(nil)
     }
 }
 
 extension Notification.Name {
-    static let startNewRecording = Notification.Name("startNewRecording")
-    static let quickTranscribe = Notification.Name("quickTranscribe")
+    static let requestOpenFile = Notification.Name("requestOpenFile")
 }
