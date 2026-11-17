@@ -67,7 +67,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Quitting discards temp files, so ask before throwing away a recording
     /// or transcript that exists nowhere else.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let unsaved = AppState.shared.unsavedWork else { return .terminateNow }
+        let state = AppState.shared
+        guard let unsaved = state.unsavedWork ?? (state.quickTranscriptUnsaved ? .unsavedTranscript : nil) else {
+            return .terminateNow
+        }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -146,8 +149,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The temp folder is shared by every running copy; whichever copy
         // quits last (or starts alone) does the cleanup.
         guard !anotherInstanceIsRunning else { return }
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("Transcribe")
-        try? FileManager.default.removeItem(at: tempDir)
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("Transcribe")
+        try? fm.removeItem(at: tempDir)
+        // FluidAudio decodes long files to raw audio in the top-level temp
+        // folder and leaves the file behind when a conversion fails
+        let leftovers = (try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil)) ?? []
+        for file in leftovers where file.lastPathComponent.hasPrefix("fluidaudio-") {
+            try? fm.removeItem(at: file)
+        }
     }
 
     // MARK: - Actions

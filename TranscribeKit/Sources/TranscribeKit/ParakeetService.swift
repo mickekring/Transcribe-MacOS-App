@@ -213,7 +213,7 @@ public final class ParakeetService {
                         ))
                     }
 
-                    self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .public) model=\(modelId, privacy: .public)")
+                    self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .private) model=\(modelId, privacy: .public)")
                     let start = Date()
                     var decoderState = TdtDecoderState.make()
                     let result: ASRResult

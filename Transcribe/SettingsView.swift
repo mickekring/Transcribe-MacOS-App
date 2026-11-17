@@ -613,6 +613,9 @@ final class OllamaConnection: ObservableObject {
         case failed
         /// Nothing is listening at the host.
         case notRunning
+        /// Local-only mode is on and the host is another computer, so it is
+        /// not contacted at all.
+        case blockedByLocalOnly
     }
 
     @Published private(set) var state: State = .unknown
@@ -637,6 +640,11 @@ final class OllamaConnection: ObservableObject {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.host != nil else {
             finish(.invalidURL)
+            return
+        }
+        // Local-only mode: nothing goes to another computer, not even a probe
+        if settings.localOnlyMode, !LLMService.isOnThisComputer(host) {
+            finish(.blockedByLocalOnly)
             return
         }
 
@@ -698,6 +706,8 @@ private struct OllamaHostRow: View {
             StatusBadge(text: localized("ollama_invalid_url"), color: .orange)
         case .failed:
             StatusBadge(text: localized("ollama_connection_failed"), color: .orange)
+        case .blockedByLocalOnly:
+            StatusBadge(text: localized("ollama_blocked_local_only"), color: .orange)
         case .notRunning:
             HStack(spacing: 4) {
                 StatusBadge(text: localized("ollama_not_installed"), color: .orange)

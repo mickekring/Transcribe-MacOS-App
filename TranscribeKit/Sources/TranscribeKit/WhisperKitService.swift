@@ -12,6 +12,12 @@ public class WhisperKitService {
     /// concurrent duplicate loads that contend for CoreML/ANE and can wedge.
     public static let shared = WhisperKitService()
 
+    #if DEBUG
+    nonisolated static let verboseLibraryLogging = true
+    #else
+    nonisolated static let verboseLibraryLogging = false
+    #endif
+
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "WhisperKit")
 
     public var whisperKit: WhisperKit?
@@ -238,7 +244,9 @@ public class WhisperKitService {
             modelFolder: folder,
             tokenizerFolder: ModelManager.shared.downloadBase,
             computeOptions: computeOptions,
-            verbose: true,
+            // WhisperKit logs everything as public, model paths (with the
+            // macOS user name) included; keep that to debug builds
+            verbose: Self.verboseLibraryLogging,
             download: false
         )
         let start = Date()
@@ -412,8 +420,11 @@ public class WhisperKitService {
             return
         }
         logger.info("Downloading tokenizer \(repoId, privacy: .public) for \(modelId, privacy: .public)")
-        _ = try await HubApiWrapper(downloadBase: downloadBase)
-            .snapshot(from: HubApiWrapper.Repo(id: repoId), matching: WhisperTokenizerFiles.downloadedFiles)
+        _ = try await HubApiWrapper(downloadBase: downloadBase).snapshot(
+            from: HubApiWrapper.Repo(id: repoId),
+            revision: try ModelRevisions.revision(for: repoId),
+            matching: WhisperTokenizerFiles.downloadedFiles
+        )
     }
 
     /// Total bytes of the model currently on disk: the final variant folder
@@ -441,12 +452,16 @@ public class WhisperKitService {
         let stalled = TranscriptionCancellationFlag()
         let expectedBytes = modelManager.modelSizeBytes(for: modelId)
 
+        // The same Hub snapshot WhisperKit.download makes, but at a pinned
+        // commit (WhisperKit.download always takes `main`) and for the exact
+        // variant folder, so the files land where they always have.
+        let revision = try ModelRevisions.revision(for: repo)
         let task = Task {
-            try await WhisperKit.download(
-                variant: variant,
-                downloadBase: downloadBase,
-                from: repo,
-                progressCallback: { progress in
+            let repoFolder = try await HubApiWrapper(downloadBase: downloadBase).snapshot(
+                from: HubApiWrapper.Repo(id: repo),
+                revision: revision,
+                matching: ["\(variant)/*"],
+                progressHandler: { progress in
                     let speed = progress.userInfo[.throughputKey] as? Double
                     Task { @MainActor in
                         if let speed {
@@ -455,6 +470,7 @@ public class WhisperKitService {
                     }
                 }
             )
+            return repoFolder.appendingPathComponent(variant)
         }
         downloadTasks[modelId] = task
         defer { downloadTasks[modelId] = nil }

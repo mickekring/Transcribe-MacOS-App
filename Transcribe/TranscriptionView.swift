@@ -71,18 +71,30 @@ struct TranscriptionView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 BackToolbarButton {
-                    if hasUnsavedTranscript {
+                    switch unsavedWork {
+                    case .unsavedTranscript:
                         showUnsavedChangesAlert = true
-                    } else {
+                    case .some:
+                        // A recording not yet transcribed: the app-wide
+                        // "leave?" confirmation
+                        appState.navigate(to: .home)
+                    case nil:
                         dismissView()
                     }
                 }
             }
         }
-        // Tell the app, so quitting or a route change from outside this view
-        // (status-bar menu) also asks before the transcript is lost
-        .onChange(of: hasUnsavedTranscript, initial: true) { _, unsaved in
-            appState.unsavedWork = unsaved ? .unsavedTranscript : nil
+        // Tell the app, so quitting, closing the window or a route change from
+        // outside this view (status-bar menu) also asks before work is lost
+        .onChange(of: unsavedWork, initial: true) { _, unsaved in
+            appState.unsavedWork = unsaved
+        }
+        // Text processing or renamed speakers after a save make it unsaved again
+        .onChange(of: viewModel.processedText) { _, text in
+            if !text.isEmpty { viewModel.markUnsaved() }
+        }
+        .onChange(of: viewModel.speakerNames) { _, _ in
+            viewModel.markUnsaved()
         }
         .alert(localized("unsaved_transcription"), isPresented: $showUnsavedChangesAlert) {
             Button(localized("copy_and_go_back"), role: nil) {
@@ -125,6 +137,18 @@ struct TranscriptionView: View {
     /// A finished transcript that has been neither saved nor copied.
     private var hasUnsavedTranscript: Bool {
         !viewModel.transcribedText.isEmpty && !viewModel.isTranscribing && !viewModel.hasExported
+    }
+
+    /// What leaving or quitting would lose: an unsaved transcript, or a
+    /// recording made in the app that is not transcribed yet (still running,
+    /// failed or cancelled). It lives only in the temp folder.
+    private var unsavedWork: AppState.UnsavedWork? {
+        if hasUnsavedTranscript { return .unsavedTranscript }
+        if AppState.isAppRecording(viewModel.fileURL),
+           viewModel.isTranscribing || viewModel.transcribedText.isEmpty {
+            return .untranscribedRecording
+        }
+        return nil
     }
 
     /// Cancels all in-flight work and navigates back to the main view.
@@ -1755,6 +1779,11 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     @Published var showExportError = false
     /// The current transcript has been copied or written to a file.
     @Published private(set) var hasExported = false
+
+    /// The content changed after it was saved or copied.
+    func markUnsaved() {
+        if hasExported { hasExported = false }
+    }
     @Published var exportErrorMessage = ""
     @Published var processedText = ""
     /// True while the user is dragging the playback slider — the playback timer
@@ -1889,7 +1918,10 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     /// Debug: dumps turns/segments/words as JSON for benchmark scoring
     /// (scripts/score_diarization.py). Enable with:
     /// defaults write com.mickekring.transcribe.Transcribe diarizationDebugExport -bool true
+    /// Debug builds only: it writes transcript text to permanent storage,
+    /// which the released app promises never to do.
     func exportDiarizationDebug(source: String) {
+        #if DEBUG
         guard UserDefaults.standard.bool(forKey: "diarizationDebugExport") else { return }
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
               let bundleId = Bundle.main.bundleIdentifier else { return }
@@ -1909,6 +1941,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         let name = fileURL.deletingPathExtension().lastPathComponent
         let stamp = Int(Date().timeIntervalSince1970)
         try? data.write(to: dir.appendingPathComponent("\(name)-\(source)-\(stamp).json"))
+        #endif
     }
 
     /// Display name for a speaker id: user-assigned, or "Talare N".
@@ -2317,6 +2350,13 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         for (index, chunk) in processedAudio.chunks.enumerated() {
             // Cancelled: the remaining chunks are not uploaded
             guard isCurrentRun(run) else { return }
+            // Local-only mode switched on during the job: nothing more leaves
+            // the computer (the service refuses too; this ends the run cleanly)
+            if UserDefaults.standard.bool(forKey: "localOnlyMode") {
+                isProcessingChunks = false
+                failTranscription(localized("local_only_cloud_blocked"))
+                return
+            }
 
             self.currentChunk = index + 1
             self.statusMessage = String(format: localized("transcribing_chunk"), index + 1, processedAudio.chunks.count)

@@ -97,4 +97,16 @@ struct AppStateTests {
         #expect(formatClock(-3) == "00:00.0")
         #expect(formatClock(.nan) == "00:00.0")
     }
+
+    /// Recordings made in the app live only in its temp folder, so leaving
+    /// them untranscribed must ask; a file the user opened stays on disk.
+    @Test func recognisesRecordingsMadeInTheApp() {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("Transcribe")
+        #expect(AppState.isAppRecording(temp.appendingPathComponent("Recordings/a.m4a")))
+        #expect(AppState.isAppRecording(temp.appendingPathComponent("SystemAudio/b.m4a")))
+        #expect(AppState.isAppRecording(temp.appendingPathComponent("QuickRecordings/c.m4a")))
+        #expect(!AppState.isAppRecording(temp.appendingPathComponent("YouTube/d.m4a")))
+        #expect(!AppState.isAppRecording(temp.appendingPathComponent("RecordingsElsewhere/e.m4a")))
+        #expect(!AppState.isAppRecording(URL(fileURLWithPath: "/Users/someone/Desktop/meeting.m4a")))
+    }
 }

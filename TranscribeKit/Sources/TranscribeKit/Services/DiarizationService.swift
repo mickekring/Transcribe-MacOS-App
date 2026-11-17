@@ -120,7 +120,12 @@ public final class DiarizationService {
         logger.info("Initializing SpeakerKit (local models: \(hasLocalModels))")
         let config = PyannoteConfig(
             downloadBase: downloadBase.path,
-            modelFolder: hasLocalModels ? repoDir.path : nil
+            modelRepo: ModelRevisions.speakerKitRepo,
+            modelFolder: hasLocalModels ? repoDir.path : nil,
+            // A first-time download takes the pinned commit, never `main`
+            downloadRevision: try ModelRevisions.revision(for: ModelRevisions.speakerKitRepo),
+            // SpeakerKit logs everything as public; debug builds only
+            verbose: WhisperKitService.verboseLibraryLogging
         )
         let kit = try await SpeakerKit(config)
         // Load here rather than on the first diarization, so that a failure

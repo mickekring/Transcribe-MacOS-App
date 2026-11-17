@@ -98,6 +98,11 @@ public final class BergetTranscriptionService: Sendable {
         language: String? = nil
     ) async throws -> TranscriptionResult {
         try Task.checkCancellation()
+        // Every upload passes here (each chunk of a long file, YouTube, Quick
+        // Transcribe), so local-only mode switched on mid-job stops the rest
+        guard !UserDefaults.standard.bool(forKey: "localOnlyMode") else {
+            throw CloudTranscriptionError.blockedByLocalOnly
+        }
         let boundary = UUID().uuidString
 
         // Only send a language when one was explicitly selected ("auto"/nil
@@ -124,7 +129,9 @@ public final class BergetTranscriptionService: Sendable {
 
         // Add file
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(audioURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
+        // A neutral name: the user's file name can say who is in the
+        // recording, and quotes or line breaks in it would break the form
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(Self.uploadFileName(for: audioURL))\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(try Data(contentsOf: audioURL))
         body.append("\r\n".data(using: .utf8)!)
@@ -290,14 +297,27 @@ public final class BergetTranscriptionService: Sendable {
     }
 }
 
+extension BergetTranscriptionService {
+    /// "audio.m4a": only the extension is sent, and only if it is a plain one.
+    static func uploadFileName(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        let plain = !ext.isEmpty && ext.count <= 5 && ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        return plain ? "audio.\(ext)" : "audio"
+    }
+}
+
 public enum CloudTranscriptionError: LocalizedError {
     case invalidResponse
     case httpError(Int)
     case apiError(String)
     case fileNotFound
+    /// Local-only mode is on
+    case blockedByLocalOnly
 
     public var errorDescription: String? {
         switch self {
+        case .blockedByLocalOnly:
+            return localized("local_only_cloud_blocked")
         case .invalidResponse:
             return "Invalid response from server"
         case .httpError(let code):

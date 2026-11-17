@@ -224,12 +224,18 @@ extension LLMService {
     /// Whether an Ollama address points at this computer (loopback only; a
     /// LAN address of this same Mac is not recognised, which errs on the
     /// side of blocking).
-    static func isOnThisComputer(_ address: String) -> Bool {
+    public static func isOnThisComputer(_ address: String) -> Bool {
         guard let host = URL(string: address)?.host?.lowercased() else { return false }
         let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        return bare == "localhost"
-            || bare.hasSuffix(".localhost")
-            || bare == "::1"
-            || bare.hasPrefix("127.")
+        if bare == "localhost" || bare == "::1" { return true }
+        // An IPv4 literal in 127.0.0.0/8, parsed rather than prefix-matched:
+        // "127.example.com" is a name anyone can point anywhere
+        let octets = bare.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets[0] == "127" else { return false }
+        return octets.allSatisfy { octet in
+            !octet.isEmpty && octet.count <= 3
+                && octet.allSatisfy { $0.isASCII && $0.isNumber }
+                && Int(octet).map { $0 <= 255 } == true
+        }
     }
 }

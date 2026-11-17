@@ -122,6 +122,12 @@ enum DebugHarness {
             guard let buffers = await synthesise(text, voice: voice) else { return }
             try? await Task.sleep(for: .seconds(1))
             start()
+            // Recording starts asynchronously; feeding before the file is
+            // open would clip the first word from the file (live text, which
+            // is attached first, would still get it)
+            for _ in 0..<40 where !capture.isRecording {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
             for buffer in slices(of: buffers, seconds: 0.1) {
                 capture.debugInject(buffer)
                 try? await Task.sleep(for: .milliseconds(100))

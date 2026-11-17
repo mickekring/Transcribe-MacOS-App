@@ -127,8 +127,7 @@ public class SettingsManager: ObservableObject {
     @AppStorage("launchAtStartup") public var launchAtStartup: Bool = false
     @AppStorage("minimizeToStatusBar") public var minimizeToStatusBar: Bool = false
     
-    // Privacy settings
-    @AppStorage("enableAnalytics") public var enableAnalytics: Bool = false
+    // Privacy settings (the app has no analytics of any kind)
     @AppStorage("localOnlyMode") public var localOnlyMode: Bool = false
     @AppStorage("clearHistoryOnQuit") public var clearHistoryOnQuit: Bool = false
     
@@ -178,6 +177,15 @@ public class SettingsManager: ObservableObject {
             await MainActor.run {
                 self.ollamaModels = []
                 self.ollamaConnectionStatus = "Invalid URL"
+            }
+            return
+        }
+        // Local-only mode: another computer is not contacted, not even to
+        // list its models
+        if localOnlyMode, !LLMService.isOnThisComputer(ollamaHost) {
+            await MainActor.run {
+                self.ollamaModels = []
+                self.ollamaConnectionStatus = "Local-only"
             }
             return
         }
@@ -235,7 +243,6 @@ public class SettingsManager: ObservableObject {
         showStatusBarIcon = true
         launchAtStartup = false
         minimizeToStatusBar = false
-        enableAnalytics = false
         localOnlyMode = false
         clearHistoryOnQuit = false
         defaultModel = "kb_whisper-small-coreml"

@@ -246,6 +246,23 @@ struct ParakeetIntegrationTests {
         return ids
     }
 
+    /// The app records AAC (.m4a), and anything over 30 s takes FluidAudio's
+    /// streaming file path rather than the in-memory one the WAV tests use.
+    @Test func pianissimoTranscribesAnAACRecording() async throws {
+        let fixture = try await SpeechFixture.make(text: Self.swedish, language: "sv-SE")
+        defer { fixture.remove() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("recording-\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try SpeechFixture.writeAAC(samples: fixture.samples, to: url)
+
+        let result = try await transcribe(url, modelId: "pianissimo_sv-coreml", language: "sv")
+        let wer = Self.wordErrorRate(reference: Self.swedish, hypothesis: result.final.text)
+        Self.log.notice("PIANISSIMO aac (WER \(wer, format: .fixed(precision: 3))): \(result.final.text, privacy: .public)")
+        #expect(fixture.duration > 30)
+        #expect(result.final.text.lowercased().hasPrefix("välkommen"), "the first word is kept")
+        #expect(wer < 0.2)
+    }
+
     @Test func silenceGivesAnEmptyTranscriptNotAnError() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("silence-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -394,6 +411,35 @@ struct SpeechFixture {
             if status == .endOfStream || output.frameLength == 0 { break }
         }
         return samples
+    }
+
+    /// AAC in an .m4a container at 48 kHz mono, as the app records.
+    static func writeAAC(samples: [Float], to url: URL) throws {
+        guard let source = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
+              let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false),
+              let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(samples.count)),
+              let converter = AVAudioConverter(from: source, to: target),
+              let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(samples.count * 3 + 4_800)) else { return }
+        input.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { input.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+        var consumed = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if consumed { status.pointee = .endOfStream; return nil }
+            consumed = true
+            status.pointee = .haveData
+            return input
+        }
+        if let error { throw error }
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 96_000,
+        ]
+        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        try file.write(from: output)
+        file.close()
     }
 
     static func writeWAV(samples: [Float], to url: URL) throws {

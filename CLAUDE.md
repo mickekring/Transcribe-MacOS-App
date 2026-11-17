@@ -70,6 +70,7 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - `ParakeetService.swift` - Parakeet-family models (Pianissimo, Parakeet v3) via FluidAudio. Same update stream as WhisperKitService. Words are built by `ParakeetWords`, not FluidAudio's `buildWordTimings` (see DECISIONS.md: late punctuation hid the pauses that speaker matching and live commits rely on).
 - `LiveTranscriptionSession.swift` - Live text for Parakeet-family models: re-decodes the audio since the last commit a few times per second and commits at pauses (`LiveCommitPolicy`). See DECISIONS.md.
 - `Services/HuggingFaceDownloader.swift` - Downloads a model at a pinned commit and verifies every file's size and SHA-256.
+- `ModelRevisions.swift` - The pinned Hugging Face commit for every Whisper model, tokenizer and the SpeakerKit models. Downloads refuse an unlisted repository; never fall back to `main`.
 - `Services/BergetTranscriptionService.swift` - Cloud transcription via Berget AI API (requires API key stored in Keychain)
 
 Only `ParakeetService.swift` and `LiveTranscriptionSession.swift` may import FluidAudio: its public type names collide with WhisperKit's.
@@ -237,8 +238,8 @@ xcodebuild test -scheme Transcribe -destination 'platform=macOS' CLANG_COVERAGE_
 
 Test files (Swift Testing, hosted in the app):
 - `TranscribeTests/TranscribeTests.swift` - Model routing, repository-listing validation, transcript segmenting, the live commit policy, Parakeet word timings, that all three string tables have the same keys
-- `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, live, silence, speaker matching). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
-- `TranscribeTests/WhisperIntegrationTests.swift` - KB Whisper Small on synthesised Swedish (same opt-in; skipped if that model is not downloaded). Guards WhisperKit and tokenizer updates.
+- `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, an AAC recording over 30 s, live, silence, speaker matching). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
+- `TranscribeTests/WhisperIntegrationTests.swift` - KB Whisper Small on synthesised Swedish (same opt-in; skipped if that model is not downloaded), and that every pinned model commit (`ModelRevisions`) still holds its files. Guards WhisperKit, tokenizer and pin updates.
 - `TranscribeUITests/TranscribeUITests.swift`
 
 The app's own log lines are readable with `/usr/bin/log show --last 5m --info --predicate 'subsystem BEGINSWITH "com.mickekring.transcribe"'` (zsh has a `log` builtin; use the full path).

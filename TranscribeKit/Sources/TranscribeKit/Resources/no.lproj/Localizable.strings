@@ -542,8 +542,8 @@
 "help_data_local" = "**Lokale modeller.** Transkribering med modeller som har datamaskinikonet, skjer helt på Macen din. Lyd og tekst forlater aldri datamaskinen. Det gjelder også sanntidstekst og taleridentifisering.";
 "help_data_cloud" = "**Berget AI.** Bare hvis du selv velger en skymodell, eller behandler tekst med Berget, sendes lyden eller teksten til Berget AI over en kryptert forbindelse. Med en API-nøkkel lagt inn henter appen også listen over Bergets modeller – uten lyd eller tekst.";
 "help_data_ollama" = "**Ollama.** Tekstbehandling med Ollama skjer på din egen datamaskin, med mindre du selv har lagt inn en annen adresse i innstillingene.";
-"help_data_downloads" = "**Nedlastinger.** Appen bruker internett til å laste ned modeller fra Hugging Face og, hvis du bruker funksjonen, lyd fra YouTube. Ingenting av lyden eller teksten din sendes med.";
-"help_data_temp" = "**Ingenting lagres unødvendig.** Opptak og midlertidige filer ligger i appens egen beskyttede mappe og slettes når du avslutter appen. Har du et opptak eller en transkribering som ikke er lagret, spør appen før den avslutter.";
+"help_data_downloads" = "**Nedlastinger.** Appen bruker internett til å laste ned modeller fra Hugging Face, i låste versjoner som er testet med appen, og, hvis du bruker funksjonen, lyd fra YouTube. Ingenting av lyden eller teksten din sendes med.";
+"help_data_temp" = "**Ingenting lagres unødvendig.** Opptak og midlertidige filer ligger i appens egen beskyttede mappe og slettes når du avslutter appen, eller neste gang den starter hvis den ikke ble avsluttet som vanlig. Har du et opptak som ikke er transkribert, eller en transkribering som ikke er lagret, spør appen før du forlater den eller avslutter.";
 "help_data_keys" = "**API-nøkler** lagres i nøkkelringen i macOS, ikke i vanlige filer.";
 "help_data_tracking" = "**Ingen sporing.** Appen samler ikke inn statistikk og inneholder ingen analyseverktøy.";
 "help_data_localonly" = "**Kun lokal modus.** Slå den på under **Innstillinger → Generelt**, så slås alt av som kan sende lyd eller tekst fra datamaskinen: skymodeller, Berget, Ollama på andre datamaskiner, YouTube og nedlastinger.";
@@ -551,3 +551,4 @@
 "help_support_body" = "Meld fra om et problem eller still et spørsmål på prosjektets side på GitHub.";
 "help_support_link" = "Åpne GitHub";
 "llm_blocked_local_only" = "Kun lokal modus er på, så teksten kan bare behandles med Ollama på denne datamaskinen. Endre Ollama-adressen til denne datamaskinen eller slå av kun lokal modus.";
+"ollama_blocked_local_only" = "Kun lokal modus: Ollama-adressen peker på en annen datamaskin";

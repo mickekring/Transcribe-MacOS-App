@@ -309,6 +309,22 @@ struct OllamaAddressTests {
         #expect(!LLMService.isOnThisComputer("https://ollama.example.com"))
         #expect(!LLMService.isOnThisComputer("http://localhost.example.com:11434"))
         #expect(!LLMService.isOnThisComputer("not an address"))
+        // Names that only look like loopback addresses
+        #expect(LLMService.isOnThisComputer("http://127.0.0.2:11434"))
+        #expect(!LLMService.isOnThisComputer("https://127.example.com:11434"))
+        #expect(!LLMService.isOnThisComputer("http://127.0.0.1.nip.io:11434"))
+        #expect(!LLMService.isOnThisComputer("http://127.0.0.256:11434"))
+        #expect(!LLMService.isOnThisComputer("http://ollama.localhost:11434"))
+    }
+}
+
+struct BergetUploadNameTests {
+    @Test func theUsersFileNameIsNeverSent() {
+        let name = BergetTranscriptionService.uploadFileName(for: URL(fileURLWithPath: "/Users/x/Patientsamtal Anna S.m4a"))
+        #expect(name == "audio.m4a")
+        #expect(BergetTranscriptionService.uploadFileName(for: URL(fileURLWithPath: "/tmp/a\"b\r\n.wav")) == "audio.wav")
+        #expect(BergetTranscriptionService.uploadFileName(for: URL(fileURLWithPath: "/tmp/odd.m4a\"x")) == "audio")
+        #expect(BergetTranscriptionService.uploadFileName(for: URL(fileURLWithPath: "/tmp/noextension")) == "audio")
     }
 }
 
@@ -330,5 +346,36 @@ struct LocalizationTableTests {
             let missing = all.subtracting(keys).sorted()
             #expect(missing.isEmpty, "missing in \(language): \(missing)")
         }
+    }
+}
+
+// MARK: - Pinned model downloads
+
+/// Every repository a download can reach must be pinned to a full commit:
+/// an unlisted one makes the download refuse rather than take `main`.
+struct ModelRevisionTests {
+    private func isCommit(_ revision: String) -> Bool {
+        revision.count == 40 && revision.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    @Test func everyWhisperModelRepositoryIsPinned() throws {
+        for modelId in ModelManager.kbModels + ModelManager.nbModels + ModelManager.openAIModels {
+            let repo = WhisperKitService.modelRepo(for: modelId)
+            #expect(isCommit(try ModelRevisions.revision(for: repo)), "\(repo)")
+        }
+    }
+
+    @Test func everyTokenizerRepositoryIsPinned() throws {
+        for vocabulary in [51865, 51864, 51866] {
+            for width in [384, 512, 768, 1024, 1280, 0] {
+                let repo = WhisperTokenizerFiles.repoId(vocabularySize: vocabulary, encoderDimension: width)
+                #expect(isCommit(try ModelRevisions.revision(for: repo)), "\(repo)")
+            }
+        }
+    }
+
+    @Test func diarizationIsPinnedAndUnknownReposAreRefused() throws {
+        #expect(isCommit(try ModelRevisions.revision(for: ModelRevisions.speakerKitRepo)))
+        #expect(throws: ModelRevisions.Unpinned.self) { try ModelRevisions.revision(for: "someone/else") }
     }
 }

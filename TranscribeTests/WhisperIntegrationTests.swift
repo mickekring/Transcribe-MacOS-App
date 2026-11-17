@@ -1,3 +1,4 @@
+import ArgmaxCore
 import Foundation
 import Testing
 import os
@@ -42,5 +43,46 @@ struct WhisperIntegrationTests {
         // No doubled spaces or space before punctuation in the final text
         #expect(!result.text.contains("  "))
         #expect(result.text.range(of: #" [.,?!]"#, options: .regularExpression) == nil, "space before punctuation")
+    }
+
+    /// Every pinned commit still exists on Hugging Face and holds what the
+    /// app downloads from it. Listing only, so it is quick.
+    @Test func everyPinnedCommitHoldsItsModel() async throws {
+        let hub = HubApiWrapper(downloadBase: FileManager.default.temporaryDirectory)
+        for modelId in ModelManager.kbModels + ModelManager.nbModels + ModelManager.openAIModels {
+            let repo = WhisperKitService.modelRepo(for: modelId)
+            let variant = try #require(WhisperKitService.modelVariant(for: modelId))
+            let files = try await hub.getFilenames(
+                from: HubApiWrapper.Repo(id: repo), revision: try ModelRevisions.revision(for: repo), matching: ["\(variant)/*"]
+            )
+            #expect(files.contains { $0.hasPrefix("\(variant)/") && $0.hasSuffix("config.json") }, "\(modelId) at its pinned commit")
+        }
+        for (repo, revision) in ModelRevisions.pinned where repo.hasPrefix("openai/") {
+            let files = try await hub.getFilenames(from: HubApiWrapper.Repo(id: repo), revision: revision, matching: WhisperTokenizerFiles.downloadedFiles)
+            #expect(files.contains("tokenizer.json"), "\(repo) tokenizer at its pinned commit")
+        }
+        let speakerFiles = try await hub.getFilenames(
+            from: HubApiWrapper.Repo(id: ModelRevisions.speakerKitRepo),
+            revision: try ModelRevisions.revision(for: ModelRevisions.speakerKitRepo)
+        )
+        #expect(!speakerFiles.isEmpty)
+    }
+
+    /// The pinned download itself, into a scratch folder: the smallest
+    /// model, fetched the way `WhisperKitService` fetches every model.
+    @Test func aPinnedDownloadLandsInTheVariantFolder() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("pinned-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let modelId = "nb_whisper-tiny-coreml"
+        let repo = WhisperKitService.modelRepo(for: modelId)
+        let variant = try #require(WhisperKitService.modelVariant(for: modelId))
+
+        let repoFolder = try await HubApiWrapper(downloadBase: base).snapshot(
+            from: HubApiWrapper.Repo(id: repo), revision: try ModelRevisions.revision(for: repo), matching: ["\(variant)/*"]
+        )
+        let folder = repoFolder.appendingPathComponent(variant)
+        #expect(folder == WhisperKitService.defaultModelFolder(for: modelId, downloadBase: base))
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("config.json").path))
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("AudioEncoder.mlmodelc").path))
     }
 }

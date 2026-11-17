@@ -31,6 +31,19 @@ final class AppState: ObservableObject {
 
     /// Set by the screen that owns the work; `nil` when nothing would be lost.
     @Published var unsavedWork: UnsavedWork?
+    /// Quick Transcribe's window holds text that has not been copied. It is
+    /// a separate window, so it does not share `unsavedWork`.
+    var quickTranscriptUnsaved = false
+
+    /// A recording made by this app (microphone, system audio, Quick
+    /// Transcribe). It exists only in the temporary folder that is emptied
+    /// when the app quits, unlike a file the user opened.
+    nonisolated static func isAppRecording(_ url: URL) -> Bool {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Transcribe").standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        return ["Recordings", "SystemAudio", "QuickRecordings"].contains { path.hasPrefix("\(root)/\($0)/") }
+    }
 
     /// A destination waiting for the user to confirm discarding `unsavedWork`.
     /// The root view presents the confirmation while this is set.

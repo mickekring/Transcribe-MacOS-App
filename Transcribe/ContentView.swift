@@ -111,9 +111,10 @@ struct ContentView: View {
         .sheet(isPresented: $showYouTubeView) {
             YouTubeTranscriptionView()
         }
-        // While a recording exists only in this window, closing the window
-        // would discard it without a word.
-        .windowDismissBehavior(holdsRecording ? .disabled : .enabled)
+        // While a recording or an unsaved transcript exists only in this
+        // window, closing the window would discard it without a word; the
+        // Back button and ⌘Q ask instead.
+        .windowDismissBehavior(appState.unsavedWork != nil ? .disabled : .enabled)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ShowTranscriptionView"))) { notification in
             if let fileURL = notification.userInfo?["fileURL"] as? URL {
                 appState.openFileForTranscription(fileURL)
@@ -168,10 +169,6 @@ struct ContentView: View {
             TranscriptionView(fileURL: url)
                 .id(url)
         }
-    }
-
-    private var holdsRecording: Bool {
-        appState.unsavedWork == .recordingInProgress || appState.unsavedWork == .untranscribedRecording
     }
 
     private var pendingNavigationBinding: Binding<Bool> {

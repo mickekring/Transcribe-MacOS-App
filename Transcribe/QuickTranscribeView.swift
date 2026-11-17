@@ -14,6 +14,8 @@ struct QuickTranscribeView: View {
 
     @State private var phase: Phase = .idle
     @State private var transcriptionText = ""
+    /// The text as last copied; anything else is lost when the app quits.
+    @State private var copiedText = ""
     /// What the engine is doing before any text arrives (loading the model, …).
     @State private var statusMessage = ""
     /// The last recording was transcribed and contained no speech.
@@ -60,6 +62,11 @@ struct QuickTranscribeView: View {
         phase == .idle && !transcriptionText.isEmpty
     }
 
+    /// A result that has not been copied: quitting asks first.
+    private var hasUncopiedResult: Bool {
+        hasResult && transcriptionText != copiedText
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             header
@@ -80,6 +87,9 @@ struct QuickTranscribeView: View {
         // not for the system window background.
         .background { AuroraBackdrop(intensity: 0.4) }
         .preferredColorScheme(preferredScheme)
+        .onChange(of: hasUncopiedResult, initial: true) { _, uncopied in
+            AppState.shared.quickTranscriptUnsaved = uncopied
+        }
         .onChange(of: recorder.stoppedByError) { _, stopped in
             guard stopped, phase == .recording else { return }
             meterTask?.cancel()
@@ -394,6 +404,7 @@ struct QuickTranscribeView: View {
     private func copyToClipboard() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcriptionText, forType: .string)
+        copiedText = transcriptionText
     }
 
     private func clearTranscription() {

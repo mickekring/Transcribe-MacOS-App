@@ -4,6 +4,33 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 ---
 
+## 2026-11-17: Security and Privacy Audit — Pinned Models, Honest Promises
+
+**Context**: The new Help page makes privacy promises, so two independent reviews checked them, and the app's security, against the code and the third-party packages.
+
+**Decisions**:
+- **Every model download is pinned to a Hugging Face commit.** This covers Whisper models, their tokenizers and the SpeakerKit diarization models; `ModelRevisions` holds the pins. Before this, they came from each repository's moving `main` branch. Whoever controlled one of those accounts could have shipped new model files to every new install. Parakeet already pinned its downloads and checked SHA-256. `WhisperKit.download` has no revision parameter, so the app makes the same Hub snapshot itself at the pinned commit. There is no fallback to `main`, and an unlisted repository is refused. Integrity for Whisper files is still size-only (the Hub client's check); the immutable commit plus TLS is the protection.
+- **Local-only mode is enforced at the network layer**, not only in the UI:
+  - The Berget transcription service and `LLMService` refuse while it is on, so turning it on mid-job stops the remaining uploads.
+  - Ollama is allowed only at a loopback address. The address is parsed, not prefix-matched: an earlier `hasPrefix("127.")` accepted `127.example.com`.
+  - The Ollama connection check is skipped for other computers.
+- **The upload to Berget is named `audio.<ext>`**, not the user's file name, which can name the people in the recording.
+- **No public logging of file names or paths:**
+  - The Parakeet log redacts the file name.
+  - WhisperKit/SpeakerKit library logging, which logs everything as public, is on in debug builds only.
+  - The diarization debug export, which writes transcript text to Application Support, is compiled out of Release.
+- **Quit and close protection now matches the Help text:**
+  - A recording made in the app that is not yet transcribed (still running, failed or cancelled) counts as unsaved work. So does an unsaved transcript, including when text processing or speaker names changed it after a save, and an uncopied Quick Transcribe result.
+  - The main window cannot be closed while any of these exist; Back and ⌘Q ask instead.
+- Removed the dead `enableAnalytics` setting. FluidAudio's leftover `fluidaudio-*.raw` temp files are swept with the app's temp folder.
+
+**Not changed (low)**:
+- The legacy UserDefaults API key is removed only after the keychain write succeeds, so it is never lost.
+- YouTubeKit's cookies live in the app's container.
+- An Ollama address on another computer over `http` is unencrypted; that is the user's choice and is outside local-only mode.
+
+---
+
 ## 2026-11-17: Parakeet Word Times — Punctuation Does Not Extend a Word
 
 **Problem**: Speaker labels on Parakeet transcripts put the first words of a turn under the previous speaker ("Hur mycket över" went to the speaker before), even with perfect speaker turns. The cause was in the word times, not the diarizer: TDT emits sentence punctuation late, usually just before the next word, once it can tell the sentence has ended. FluidAudio's `buildWordTimings` ends a word where its last token ends, so "annat." spanned the whole pause after it ([6.96–8.08], speech actually ending at 7.63) and the next word started the instant it ended. `SpeakerTranscriptFormatter` snaps each speaker change to the largest pause between words within ±0.7 s. With the real pause invisible, it snapped to a small pause inside the next sentence.

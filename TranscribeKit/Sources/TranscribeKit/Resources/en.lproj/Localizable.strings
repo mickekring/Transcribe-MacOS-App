@@ -544,8 +544,8 @@
 "help_data_local" = "**Local models.** Transcription with models that have the computer icon happens entirely on your Mac. Audio and text never leave the computer. The same goes for live text and speaker identification.";
 "help_data_cloud" = "**Berget AI.** Only if you choose a cloud model yourself, or process text with Berget, is the audio or text sent to Berget AI, over an encrypted connection. With an API key added, the app also fetches Berget's list of models – without any audio or text.";
 "help_data_ollama" = "**Ollama.** Text processing with Ollama happens on your own computer, unless you have entered another address in the settings.";
-"help_data_downloads" = "**Downloads.** The app uses the internet to download models from Hugging Face and, if you use the feature, audio from YouTube. None of your audio or text is sent.";
-"help_data_temp" = "**Nothing kept unnecessarily.** Recordings and temporary files live in the app's own protected folder and are deleted when you quit the app. If a recording or transcription hasn't been saved, the app asks before quitting.";
+"help_data_downloads" = "**Downloads.** The app uses the internet to download models from Hugging Face, in locked versions tested with the app, and, if you use the feature, audio from YouTube. None of your audio or text is sent.";
+"help_data_temp" = "**Nothing kept unnecessarily.** Recordings and temporary files live in the app's own protected folder and are deleted when you quit the app, or the next time it starts if it didn't quit normally. If a recording hasn't been transcribed or a transcription hasn't been saved, the app asks before you leave it or quit.";
 "help_data_keys" = "**API keys** are stored in the macOS keychain, not in ordinary files.";
 "help_data_tracking" = "**No tracking.** The app collects no statistics and contains no analytics.";
 "help_data_localonly" = "**Local-only mode.** Turn it on under **Settings → General** to switch off everything that could send audio or text from the computer: cloud models, Berget, Ollama on other computers, YouTube and downloads.";
@@ -553,3 +553,4 @@
 "help_support_body" = "Report a problem or ask a question on the project's GitHub page.";
 "help_support_link" = "Open GitHub";
 "llm_blocked_local_only" = "Local-only mode is on, so text can only be processed with Ollama on this computer. Point the Ollama address at this computer or turn off local-only mode.";
+"ollama_blocked_local_only" = "Local-only mode: the Ollama address is another computer";

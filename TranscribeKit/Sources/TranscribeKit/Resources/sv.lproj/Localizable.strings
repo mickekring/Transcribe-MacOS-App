@@ -544,8 +544,8 @@
 "help_data_local" = "**Lokala modeller.** Transkribering med modeller som har datorikonen sker helt på din Mac. Ljud och text lämnar aldrig datorn. Det gäller också livetext och talaridentifiering.";
 "help_data_cloud" = "**Berget AI.** Bara om du själv väljer en molnmodell, eller bearbetar text med Berget, skickas ljudet eller texten till Berget AI över en krypterad anslutning. Med en API-nyckel inlagd hämtar appen också listan över Bergets modeller – utan något ljud eller någon text.";
 "help_data_ollama" = "**Ollama.** Textbearbetning med Ollama sker på din egen dator, om du inte själv har angett en annan adress i inställningarna.";
-"help_data_downloads" = "**Nedladdningar.** Appen använder internet för att hämta modeller från Hugging Face och, om du använder funktionen, ljud från YouTube. Inget av ditt ljud eller din text skickas med.";
-"help_data_temp" = "**Inget sparas i onödan.** Inspelningar och tillfälliga filer ligger i appens egen skyddade mapp och raderas när du avslutar appen. Har du en inspelning eller transkribering som inte är sparad frågar appen innan den avslutas.";
+"help_data_downloads" = "**Nedladdningar.** Appen använder internet för att hämta modeller från Hugging Face, i låsta versioner som har testats med appen, och, om du använder funktionen, ljud från YouTube. Inget av ditt ljud eller din text skickas med.";
+"help_data_temp" = "**Inget sparas i onödan.** Inspelningar och tillfälliga filer ligger i appens egen skyddade mapp och raderas när du avslutar appen, eller nästa gång den startar om den inte avslutades som vanligt. Har du en inspelning som inte är transkriberad, eller en transkribering som inte är sparad, frågar appen innan du lämnar den eller avslutar.";
 "help_data_keys" = "**API-nycklar** sparas i nyckelringen i macOS, inte i vanliga filer.";
 "help_data_tracking" = "**Ingen spårning.** Appen samlar inte in någon statistik och innehåller inga analysverktyg.";
 "help_data_localonly" = "**Endast lokalt läge.** Slå på det under **Inställningar → Allmänt** så stängs allt av som skulle kunna skicka ljud eller text från datorn: molnmodeller, Berget, Ollama på andra datorer, YouTube och nedladdningar.";
@@ -553,3 +553,4 @@
 "help_support_body" = "Rapportera ett problem eller ställ en fråga på projektets sida på GitHub.";
 "help_support_link" = "Öppna GitHub";
 "llm_blocked_local_only" = "Endast lokalt läge är på, så texten kan bara bearbetas med Ollama på den här datorn. Ändra Ollama-adressen till den här datorn eller stäng av endast lokalt läge.";
+"ollama_blocked_local_only" = "Endast lokalt läge: Ollama-adressen pekar på en annan dator";
