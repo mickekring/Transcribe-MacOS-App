@@ -263,7 +263,9 @@ struct TranscriptionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     let displayText: String = {
                         // Speakers mode shows status until diarization has produced turns
-                        if displayMode == .speakers && viewModel.speakerTurns == nil {
+                        // (not while a run is streaming or after one failed — see
+                        // speakerTextPending)
+                        if speakerTextPending {
                             if viewModel.segments.isEmpty {
                                 return localized("speakers_unavailable")
                             }
@@ -505,7 +507,7 @@ struct TranscriptionView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(TranscriptionButtonStyle())
-                        .disabled(viewModel.isTranscribing || viewModel.transcribedText.isEmpty)
+                        .disabled(exportDisabled)
                         .popover(isPresented: $showingExportPopover) {
                             VStack(alignment: .leading, spacing: 0) {
                                 exportPopoverButton(
@@ -571,7 +573,7 @@ struct TranscriptionView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(TranscriptionButtonStyle())
-                        .disabled(viewModel.isTranscribing || viewModel.transcribedText.isEmpty)
+                        .disabled(exportDisabled)
                     }
                     .padding(.horizontal, 20)
                 }
@@ -913,9 +915,7 @@ struct TranscriptionView: View {
     }
     
     func formatTime(_ time: Double) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        TranscriptionViewLogic.formatTime(time)
     }
     
     func formattedBytes(_ bytes: Int64) -> String {
@@ -1012,34 +1012,63 @@ struct TranscriptionView: View {
     }
 
     func formatWithTimestamps(_ segments: [TranscriptionSegmentData]) -> String {
-        segments.map { segment in
-            "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
-        }.joined(separator: "\n")
+        TranscriptionViewLogic.timestampedTranscript(segments)
+    }
+
+    /// The mode `exportableTranscript` really produces. Timestamps and
+    /// Speakers need data that may not exist (no segments, diarization not
+    /// run or not finished) and fall back to the plain transcript.
+    private var exportedMode: DisplayMode {
+        TranscriptionViewLogic.exportedMode(
+            for: displayMode,
+            hasSegments: !viewModel.segments.isEmpty,
+            hasSpeakerTurns: viewModel.speakerTurns != nil
+        )
+    }
+
+    /// Speakers mode is selected but the speaker-labelled text doesn't exist
+    /// (yet), so the pane shows a status instead of a transcript. Save, Copy
+    /// and Process wait for the text rather than quietly handing over the
+    /// unlabelled transcript; they always act on what is on screen.
+    ///
+    /// Two cases show the plain transcript instead, because it is all there
+    /// is and no status would be true: a run that is still streaming
+    /// (diarization can't have started), and a run that failed before it
+    /// produced segments (there is nothing to diarize, and its partial
+    /// transcript must stay visible).
+    private var speakerTextPending: Bool {
+        guard displayMode == .speakers, exportedMode != .speakers, !viewModel.isTranscribing else {
+            return false
+        }
+        return !(viewModel.segments.isEmpty && viewModel.errorMessage != nil)
+    }
+
+    /// Save and Copy have nothing (final) to act on.
+    private var exportDisabled: Bool {
+        viewModel.isTranscribing || viewModel.transcribedText.isEmpty || speakerTextPending
     }
 
     /// The transcript formatted per the active display mode — used by display,
     /// "Spara som..." and "Kopiera text" so exports match what's on screen.
     /// Falls back to the plain transcript when the mode's data isn't available
-    /// (no segments, diarization not run).
+    /// (see `exportedMode`).
     var exportableTranscript: String {
-        switch displayMode {
+        switch exportedMode {
         case .transcript:
             return viewModel.transcribedText
         case .segments:
             return formatAsSegments(viewModel.transcribedText)
         case .timestamps:
-            return viewModel.segments.isEmpty ? viewModel.transcribedText : formatWithTimestamps(viewModel.segments)
+            return formatWithTimestamps(viewModel.segments)
         case .speakers:
-            if let turns = viewModel.speakerTurns, !viewModel.segments.isEmpty {
-                return formatWithSpeakers(viewModel.segments, turns: turns)
-            }
-            return viewModel.transcribedText
+            return formatWithSpeakers(viewModel.segments, turns: viewModel.speakerTurns ?? [])
         }
     }
 
-    /// Filename suffix and popover label key for the active display mode.
+    /// Popover label key and filename suffix for what is actually exported —
+    /// a fallback to the plain transcript is named as one.
     private var exportModeLabelKey: String {
-        switch displayMode {
+        switch exportedMode {
         case .transcript: return "transcript"
         case .segments: return "segments"
         case .timestamps: return "timestamps"
@@ -1047,12 +1076,14 @@ struct TranscriptionView: View {
         }
     }
 
+    /// Localised like the label, so a file is named the way the UI names its
+    /// mode; the string tables keep these ASCII.
     private var exportModeSuffix: String {
-        switch displayMode {
-        case .transcript: return "transcription"
-        case .segments: return "segments"
-        case .timestamps: return "timestamps"
-        case .speakers: return "speakers"
+        switch exportedMode {
+        case .transcript: return localized("file_suffix_transcript")
+        case .segments: return localized("file_suffix_segments")
+        case .timestamps: return localized("file_suffix_timestamps")
+        case .speakers: return localized("file_suffix_speakers")
         }
     }
 
@@ -1069,11 +1100,7 @@ struct TranscriptionView: View {
     }
 
     func formatAsSegments(_ text: String) -> String {
-        // Split text into sentences and add line breaks
-        let sentences = text.replacingOccurrences(of: ". ", with: ".\n\n")
-                           .replacingOccurrences(of: "! ", with: "!\n\n")
-                           .replacingOccurrences(of: "? ", with: "?\n\n")
-        return sentences
+        TranscriptionViewLogic.sentenceParagraphs(text)
     }
     
     @ViewBuilder
@@ -1138,7 +1165,7 @@ struct TranscriptionView: View {
     }
     
     private var processButtonDisabled: Bool {
-        sectionDisabled || selectedPromptId == nil || isProcessingLLM || !hasLLMModelSelected
+        sectionDisabled || selectedPromptId == nil || isProcessingLLM || speakerTextPending || !hasLLMModelSelected
     }
     
     private var hasLLMModelSelected: Bool {
@@ -1421,6 +1448,100 @@ struct TranscriptionView: View {
     }
 }
 
+// MARK: - Pure logic
+
+/// Rules of the transcription view that depend on nothing but their inputs,
+/// kept apart from the view so they can be unit-tested
+/// (TranscriptionViewLogicTests).
+enum TranscriptionViewLogic {
+
+    static func formatTime(_ time: Double) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    /// Timestamps mode: one "[MM:SS] text" entry per segment. Entries are
+    /// separated by a blank line, as in the Segments and Speakers modes — with
+    /// single newlines the Markdown export collapses into one paragraph.
+    static func timestampedTranscript(_ segments: [TranscriptionSegmentData]) -> String {
+        segments.map { segment in
+            "[\(formatTime(segment.start))] \(segment.text.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }.joined(separator: "\n\n")
+    }
+
+    /// Segments mode: one sentence per paragraph.
+    static func sentenceParagraphs(_ text: String) -> String {
+        let tokens = text.split(separator: " ", omittingEmptySubsequences: false)
+        var result = ""
+        for (index, token) in tokens.enumerated() {
+            result += token
+            guard index < tokens.count - 1 else { break }
+            let next = tokens[(index + 1)...].first { !$0.isEmpty }
+            result += endsSentence(token, before: next) ? "\n\n" : " "
+        }
+        return result
+    }
+
+    /// Whether a sentence ends after `token`, given the word that follows.
+    /// "!" and "?" always end one. A period does not when it belongs to an
+    /// abbreviation ("t.ex.", "kl.", an initial) or when the next word starts
+    /// in lowercase, so text isn't broken in the middle of a sentence; the
+    /// cost is that a sentence which really ends in an abbreviation stays in
+    /// the same paragraph as the next one.
+    private static func endsSentence(_ token: Substring, before next: Substring?) -> Bool {
+        guard let next, let last = token.last else { return false }
+        if last == "!" || last == "?" { return true }
+        guard last == "." else { return false }
+        if next.first?.isLowercase == true { return false }
+
+        let stem = token.dropLast().drop { !$0.isLetter && !$0.isNumber }
+        // "..." trails off; what follows starts a new sentence
+        if stem.last == "." { return true }
+        // Periods inside the word: "t.ex.", "bl.a.", "f.eks.", "e.g."
+        if stem.contains("."), stem.allSatisfy({ $0.isLetter || $0 == "." }) { return false }
+        // An initial: "A. Lindgren". Uppercase only — sentences do end in
+        // one-letter words ("huset vi bor i.")
+        if stem.count == 1, stem.first?.isUppercase == true { return false }
+        return !nonTerminalAbbreviations.contains(stem.lowercased())
+    }
+
+    /// Single-period abbreviations (Swedish, Norwegian, English) that lead
+    /// into a name or a number rather than ending a sentence. Abbreviations
+    /// with inner periods are recognised by their shape instead.
+    private static let nonTerminalAbbreviations: Set<String> = [
+        "kl", "ca", "nr", "dr", "prof", "mr", "mrs", "ms", "st", "vs",
+        "dvs", "resp", "inkl", "exkl", "jfr", "jf", "evt", "pga", "mht",
+        "tel", "tfn", "sid", "kap", "fig", "approx",
+    ]
+
+    /// Where a seek request lands, or nil when it is at or past the end of
+    /// the audio and should end playback instead. Negative times clamp to
+    /// the start.
+    static func seekTarget(for time: Double, duration: Double) -> Double? {
+        guard time < duration else { return nil }
+        return max(time, 0)
+    }
+
+    /// The mode whose formatting an export (or the pane) really gets.
+    /// Timestamps needs segments and Speakers needs segments plus speaker
+    /// turns; without them the plain transcript is used.
+    static func exportedMode(
+        for mode: TranscriptionView.DisplayMode,
+        hasSegments: Bool,
+        hasSpeakerTurns: Bool
+    ) -> TranscriptionView.DisplayMode {
+        switch mode {
+        case .transcript, .segments:
+            return mode
+        case .timestamps:
+            return hasSegments ? .timestamps : .transcript
+        case .speakers:
+            return hasSegments && hasSpeakerTurns ? .speakers : .transcript
+        }
+    }
+}
+
 @MainActor
 class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var transcribedText = ""
@@ -1631,12 +1752,17 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            self.isPlaying = false
-            self.timer?.invalidate()
-            self.timer = nil
-            self.currentTime = 0
-            self.audioPlayer?.currentTime = 0
+            self.resetPlaybackToStart()
         }
+    }
+
+    /// The end-of-playback state: stopped and rewound to 0:00.
+    private func resetPlaybackToStart() {
+        isPlaying = false
+        timer?.invalidate()
+        timer = nil
+        currentTime = 0
+        audioPlayer?.currentTime = 0
     }
     
     func retranscribe() {
@@ -2084,8 +2210,17 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     func seek(to time: Double) {
-        audioPlayer?.currentTime = time
-        currentTime = time
+        guard let target = TranscriptionViewLogic.seekTarget(for: time, duration: duration) else {
+            // At or past the end. Setting a playing AVAudioPlayer's
+            // currentTime to its duration wraps around and keeps playing
+            // from 0:00, so end playback here the way running off the end
+            // does (audioPlayerDidFinishPlaying is not called for stop()).
+            audioPlayer?.stop()
+            resetPlaybackToStart()
+            return
+        }
+        audioPlayer?.currentTime = target
+        currentTime = target
     }
     
     func startTimer() {
@@ -2123,12 +2258,12 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     func exportProcessedAsText() {
-        saveFile(content: processedText, defaultName: "\(baseName)_processed.txt", contentType: .plainText)
+        saveFile(content: processedText, defaultName: "\(baseName)_\(localized("file_suffix_processed")).txt", contentType: .plainText)
     }
     
     func exportProcessedAsMarkdown() {
         let md = "# \(fileName)\n\n\(processedText)\n"
-        saveFile(content: md, defaultName: "\(baseName)_processed.md", contentType: UTType(filenameExtension: "md") ?? .plainText)
+        saveFile(content: md, defaultName: "\(baseName)_\(localized("file_suffix_processed")).md", contentType: UTType(filenameExtension: "md") ?? .plainText)
     }
     
     /// Copies the source audio file to a user-chosen location. Recordings live
@@ -2377,8 +2512,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
             
-            // Italic: *text* or _text_ (but not inside **)
-            let italicPattern = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<!_)_(?!_)(.+?)(?<!_)_(?!_)")
+            // Italic: *text* or _text_ (but not inside **). An underscore only
+            // delimits emphasis at a word boundary, as in CommonMark — inside
+            // a word it is part of the text (kb_whisper_small, snake_case).
+            let italicPattern = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)|(?<![\\p{L}\\p{N}_])_(?!_)(.+?)(?<!_)_(?![\\p{L}\\p{N}_])")
             if let matches = italicPattern?.matches(in: styled.string, range: NSRange(location: 0, length: styled.length)) {
                 for match in matches.reversed() {
                     let contentRange = match.range(at: 1).location != NSNotFound ? match.range(at: 1) : match.range(at: 2)

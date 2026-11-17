@@ -149,6 +149,11 @@
 "words" = "Ord";
 "tokens" = "Tokens";
 "transcribing" = "Transkriberer...";
+"file_suffix_transcript" = "transkribering";
+"file_suffix_segments" = "segmenter";
+"file_suffix_timestamps" = "tidsstempler";
+"file_suffix_speakers" = "talere";
+"file_suffix_processed" = "behandlet";
 "speed" = "Hastighet";
 "format" = "Format";
 "export_text" = "Tekst (.txt)";

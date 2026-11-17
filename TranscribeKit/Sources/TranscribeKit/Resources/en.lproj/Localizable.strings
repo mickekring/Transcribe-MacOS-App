@@ -151,6 +151,11 @@
 "words" = "Words";
 "tokens" = "Tokens";
 "transcribing" = "Transcribing...";
+"file_suffix_transcript" = "transcript";
+"file_suffix_segments" = "segments";
+"file_suffix_timestamps" = "timestamps";
+"file_suffix_speakers" = "speakers";
+"file_suffix_processed" = "processed";
 "speed" = "Speed";
 "format" = "Format";
 "export_text" = "Text (.txt)";
