@@ -11,6 +11,17 @@
 
 /* Settings - General */
 "settings" = "Inställningar";
+/* About window */
+"about_tagline" = "Ljudtranskribering för macOS";
+"about_feature_nordic" = "Svenska och norska med KB & NB Whisper";
+"about_feature_languages" = "Andra språk med OpenAI Whisper";
+"about_feature_llm" = "Bearbetning med lokala och molnbaserade språkmodeller";
+"about_feature_privacy" = "Integritet och suveränitet från grunden";
+"about_feature_built" = "Byggd med Swift och SwiftUI";
+"about_credits" = "Micke Kring, Peter Ljungstrand och Claude Code";
+"about_license" = "Öppen källkod under MIT-licensen";
+"about_source_link" = "Källkod på GitHub";
+"about_acknowledgements" = "Tack till";
 /* Quick Transcribe */
 "quick_placeholder" = "Spela in några meningar så får du dem som text.";
 "quick_local_note" = "Snabbtranskribering körs alltid med en lokal modell.";
