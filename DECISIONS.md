@@ -4,6 +4,65 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 ---
 
+## 2026-11-17: Live Transcription — Re-decode the Open Segment
+
+**Problem**: Show text while recording. Pianissimo and Parakeet v3 are not streaming models: they decode one fixed window of up to 15 seconds at a time.
+
+**Approaches considered**:
+1. **FluidAudio's `SlidingWindowAsrManager`**: built for this, but it only decodes once a full chunk plus right context (11 + 2 s by default) has been buffered, so the first words arrive after about 13 seconds and then every 11. Its `hypothesisChunkSeconds` setting, which reads as the fix, is never used by the code (FluidAudio 0.18.3). Shrinking the chunk to a second or two is discouraged by its own documentation and multiplies seam errors.
+2. **A true streaming model** (FluidAudio also ships Parakeet EOU and Nemotron streaming models): different models with different accuracy; not Pianissimo.
+3. **Re-decode the audio since the last commit**: one window decodes in about 130 ms on an M3 Max Neural Engine, so the open segment can simply be decoded again several times a second. **Selected.**
+
+**Decision**: `LiveTranscriptionSession` keeps the samples since the last commit and re-decodes them whenever enough new audio has arrived. Text for that segment is *volatile* (it sharpens as context grows). It becomes *confirmed* when the speaker pauses, or when the segment passes 8 seconds and `LiveCommitPolicy` finds a gap between words that lies at least 2 seconds behind the live edge (the tail of any decode is the part most likely to change); at 12.5 seconds a cut is forced at the best available gap. Decodes are paced so the Neural Engine idles at least twice as long as it works, which makes slower Macs update less often rather than fall behind. Silence is not decoded.
+
+**Why the final pass still runs**: the live text is a preview assembled from overlapping decodes with cuts chosen on the fly. When recording stops, the file is transcribed once more in one batch pass, which gives every window full context and produces the word timestamps the transcript views and speaker assignment need. For a typical recording that pass takes well under a second.
+
+**Measured** (M3 Max, synthesised Swedish speech, 33 s): first words after 1.0 s, 129 ms mean decode, word error rate 2.6 % for both the live text and the batch pass.
+
+**Files**: `LiveTranscriptionSession.swift` (package), `LiveTranscriptController.swift`, `RecordingView.swift`.
+
+---
+
+## 2026-11-17: Parakeet-Family Engine — FluidAudio, Pinned Community CoreML
+
+**Problem**: Add Pianissimo (Klang AI's Swedish fine-tune of NVIDIA Parakeet TDT 0.6B v3) and stock Parakeet v3 as local models.
+
+**Decision**: Run both through FluidAudio (Apache 2.0, CoreML on the Neural Engine), added to TranscribeKit with no package traits so only its ASR code is linked. `ParakeetService` produces the same `TranscriptionUpdate` stream as `WhisperKitService`; `ModelManager.engine(for:)` is the single place that maps a model id to a runtime.
+
+**The Swedish CoreML build is a community conversion.** Klang publishes MLX, ONNX and GGUF builds for Swedish and an official CoreML build only for Danish. The app uses `magnushjelm/pianissimo-sv-coreml`, which has the same component layout. Because that repository is outside our control, `ParakeetModelSpec` pins a commit, and `HuggingFaceDownloader` checks every file against that commit's listed size and SHA-256 before a download is accepted. If Klang publishes official Swedish CoreML, switch the repo and revision there.
+
+**Limits worth knowing**: Parakeet v3 covers 25 European languages and has no Norwegian (NB Whisper remains the Norwegian choice); Pianissimo is Swedish only. The UI warns when the selected language is outside the selected model's set. These models have no language conditioning — the language setting only keeps the decoder in the right script.
+
+**Why only two files import FluidAudio**: its public names (`WordTiming`, `Language`, `TranscriptionResult`, …) collide with WhisperKit's. `ParakeetService.swift` and `LiveTranscriptionSession.swift` are the only files that import it.
+
+---
+
+## 2026-11-17: One Engine for Microphone Capture; Device Bound per Engine
+
+**Problem**: Live transcription needs the samples while recording, which `AVAudioRecorder` never exposes. Separately, the recorder selected its microphone by changing the system-wide default input device and restoring it afterwards — which switched the microphone of every other app (a Teams call on "system default") and stayed changed if the app quit mid-recording.
+
+**Decision**: `MicrophoneCapture` runs one `AVAudioEngine` whose single input tap feeds the level meter, the recording file (`AVAudioFile`, AAC, 48 kHz mono) and the 16 kHz live stream. The device is selected with `kAudioOutputUnitProperty_CurrentDevice` on the engine's own audio unit; the system default is never written. Duration is counted in frames written. The engine is rebuilt on `AVAudioEngineConfigurationChange` so a recording continues when hardware changes.
+
+**The engine starts off the main thread.** Opening the input device talks to the audio server and blocks while macOS shows its microphone-permission dialog; doing it on the main thread froze the window behind that dialog.
+
+---
+
+## 2026-11-17: Liquid Glass on Controls, Solid Content
+
+**Decision**: Following Apple's guidance for macOS 26/27, Liquid Glass is used for the layer of controls that floats above content — toolbar items (the system's own glass), home tiles, the record button, action buttons — and never for content. Transcripts, cards and settings groups are solid surfaces (`.contentCard()`). The previous `.glassCard()` put a blur material over a flat background, where there was nothing to blur. The brand green appears at scale only in the static backdrop wash and on the single primary action of a screen.
+
+**Kept against the guidelines, deliberately**: the toolbar's appearance toggle and Settings button. Apple advises against both on macOS (appearance should follow the system; Settings belongs in the app menu). They are part of this app's established design.
+
+---
+
+## 2026-11-17: NSAudioCaptureUsageDescription Never Reached the Built App
+
+**Finding**: The macOS target generates its Info.plist from build settings; `Transcribe/Info.plist` was never its Info.plist (it was copied into Resources as a plain file), and `NSAudioCaptureUsageDescription` is not a key Xcode generates from an `INFOPLIST_KEY_` setting. The built app therefore had no system-audio usage description at all.
+
+**Why it matters**: ScreenCaptureKit does not need the key, so system audio worked. Core Audio taps do — and the March 2026 entry below records that with taps "the macOS permission prompt never appeared" and callbacks delivered silence. A missing usage description produces exactly that. The key is now merged from `Transcribe-Info.plist`, so taps (audio-only capture, no screen-recording permission or indicator) are worth trying again.
+
+---
+
 ## 2026-03-25: Microphone Mixing in System Audio Recording — Ring Buffer Approach
 
 **Problem**: System audio capture (ScreenCaptureKit) only records audio output — remote meeting participants, media, notifications. It does not capture the user's microphone input, which goes directly to the meeting application's network stream. For meeting transcription (Teams, Zoom), users need both sides of the conversation in a single recording.

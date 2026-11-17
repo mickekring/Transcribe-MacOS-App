@@ -1,8 +1,8 @@
 # Transcribe
 
-A native macOS app for speech-to-text transcription. Runs entirely on-device using WhisperKit and CoreML -- no data leaves your machine unless you choose cloud transcription. Optimized for Swedish (KB Whisper) and Norwegian (NB Whisper), but supports 100+ languages.
+A native macOS app for speech-to-text transcription. Runs entirely on-device using CoreML (WhisperKit for Whisper models, FluidAudio for Parakeet models) -- no data leaves your machine unless you choose cloud transcription. Optimized for Swedish (KB Whisper) and Norwegian (NB Whisper), but supports 100+ languages.
 
-![Swift](https://img.shields.io/badge/Swift-6.1-orange)
+![Swift](https://img.shields.io/badge/Swift-6.4-orange)
 ![macOS](https://img.shields.io/badge/macOS-26+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -18,7 +18,9 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 - **Local transcription** -- WhisperKit runs Whisper models on Apple Silicon via CoreML. No internet required once a model is downloaded. Supports audio files (WAV, MP3, M4A, FLAC, AAC) and video files (MP4, MOV) -- audio is extracted automatically.
 - **Swedish-optimized models** -- KB Whisper models from [KBLab](https://huggingface.co/KBLab) (the National Library of Sweden), fine-tuned for Swedish speech.
 - **Norwegian-optimized models** -- NB Whisper models from [NbAiLab](https://huggingface.co/NbAiLab) (the National Library of Norway), fine-tuned for Norwegian speech.
-- **Built-in recording** -- Record directly in the app with live audio level metering and input device selection.
+- **Live transcription** -- With Pianissimo or Parakeet downloaded, the text appears while you record. It is a preview: when you stop, the whole recording is transcribed again in one pass for the final result.
+- **Fast models** -- [Pianissimo](https://klang.ai/pianissimo-sv/) from Klang AI (Swedish) and NVIDIA's Parakeet v3 (25 European languages) transcribe an hour of audio in well under a minute on Apple Silicon.
+- **Built-in recording** -- Record directly in the app with a live level meter and input device selection. Choosing a microphone here does not change your system-wide input device.
 - **System audio capture** -- Record all audio playing on your Mac (meetings, media, notifications) using ScreenCaptureKit. Optionally mix in your microphone to capture both sides of a meeting. macOS asks for permission on first use.
 - **Speaker identification** -- Diarization labels who said what, with renameable speakers and a known-speaker-count control. Runs locally (SpeakerKit/Pyannote) or server-side with cloud transcriptions.
 - **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance. Speaker-labeled transcripts give the LLM full context of who said what.
@@ -42,7 +44,7 @@ cd Transcribe-MacOS-App
 
 ### Building
 
-There is currently an Xcode 26 beta bug where building from the Xcode UI fails with an `___llvm_profile_runtime` undefined symbol error. This is caused by `CLANG_COVERAGE_MAPPING` defaulting to YES, which adds coverage instrumentation to pure-C SPM dependencies (yyjson, a transitive dependency of WhisperKit) without linking the profiling runtime. Build from the command line instead:
+There is an Xcode bug (still present in Xcode 27.2) where building from the Xcode UI fails with an `___llvm_profile_runtime` undefined symbol error. This is caused by `CLANG_COVERAGE_MAPPING` defaulting to YES, which adds coverage instrumentation to pure-C SPM dependencies (yyjson, a transitive dependency of WhisperKit) without linking the profiling runtime. Build from the command line instead:
 
 ```bash
 xcodebuild build -scheme Transcribe CLANG_COVERAGE_MAPPING=NO
@@ -56,6 +58,8 @@ The default model (KB Whisper Small) downloads automatically on first launch.
 
 | Model | Size | Notes |
 | ----- | ---- | ----- |
+| Pianissimo | ~630 MB | Swedish. Very fast, accuracy close to KB Whisper Large. Live transcription |
+| Parakeet v3 | ~480 MB | 25 European languages (not Norwegian). Very fast. Live transcription |
 | KB Whisper Base | ~150 MB | Fast, good for Swedish |
 | KB Whisper Small | ~500 MB | Default. Best balance of speed and accuracy for Swedish |
 | KB Whisper Medium | ~1.5 GB | Higher accuracy |
@@ -65,6 +69,8 @@ The default model (KB Whisper Small) downloads automatically on first launch.
 
 KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://huggingface.co/mickekringai/kb-whisper-coreml) and NB Whisper CoreML models at [digtek/whisperkit-nb-coreml](https://huggingface.co/digtek/whisperkit-nb-coreml) on Hugging Face.
 
+Pianissimo is [Klang AI's](https://huggingface.co/KlangAI/pianissimo-sv) Swedish fine-tune of NVIDIA Parakeet TDT 0.6B v3 (both CC BY 4.0). The app downloads the CoreML conversion at [magnushjelm/pianissimo-sv-coreml](https://huggingface.co/magnushjelm/pianissimo-sv-coreml) and Parakeet v3 from [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml), each pinned to a specific revision and checked against its checksums.
+
 **Cloud (optional):**
 
 [Berget AI](https://berget.ai) -- Swedish cloud infrastructure, GDPR-compliant. Requires an API key configured in Settings.
@@ -72,7 +78,8 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 ## Tech Stack
 
 - **SwiftUI** -- Native macOS interface with dark/light mode
-- **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** -- On-device speech recognition via CoreML
+- **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** -- On-device Whisper models via CoreML
+- **[FluidAudio](https://github.com/FluidInference/FluidAudio)** -- On-device Parakeet-family models (Pianissimo, Parakeet v3) via CoreML
 - **[YouTubeKit](https://github.com/alexeichhorn/YouTubeKit)** -- YouTube audio downloading
 - **AVFoundation / CoreAudio** -- Audio recording, playback, and device management
 - **ScreenCaptureKit** -- System audio capture

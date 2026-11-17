@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a native macOS SwiftUI app. Development happens in VS Code with Claude Code as the primary workflow; Xcode stays open only for SwiftUI previews, Interface/view debugging, and signing/archiving.
 
-The project requires macOS 26+ (Tahoe) and runs on Apple Silicon (M1+).
+The project requires macOS 26+ (Tahoe) and runs on Apple Silicon (M1+). It is built with Xcode 27.2 / Swift 6.4 (sources in Swift 5 language mode); APIs that only exist on macOS 27 are used behind `#available`.
 
 ### XcodeBuildMCP (primary build/test/run loop)
 
@@ -23,9 +23,21 @@ Scheme: `Transcribe`. Always pass `CLANG_COVERAGE_MAPPING=NO` as an extra build 
 
 **Important**: Always rebuild after making code changes to verify they compile and so the user can test them. Never skip the build step.
 
-### Known Xcode 26 Build Issue
+**Running next to the installed app**: the installed copy in /Applications is often running and shares the debug build's bundle id, sandbox container and temp folder. Stop only the debug build's process (by PID, the one under DerivedData) — never by app name. `build_run_macos` may report the installed copy's PID.
 
-Default builds fail with `___llvm_profile_runtime` undefined symbol (yyjson, a pure C SPM transitive dependency of WhisperKit). This is an Xcode 26 bug where `CLANG_COVERAGE_MAPPING` defaults to YES and pure C SPM package targets get coverage instrumentation but miss `-fprofile-instr-generate` in their linker invocation. Always disable coverage mapping:
+### Debug hooks (screenshots and end-to-end runs without a microphone)
+
+Debug builds read launch arguments (see `Transcribe/DebugHarness.swift`), passed with the `launch` tool's launch args:
+
+- `-debugScreen recording|systemAudio` opens that screen at launch
+- `-debugLiveDemo sv|en` records synthesised speech through the real pipeline (meter, file, live text); add `-debugThenTranscribe 1` to continue into the transcript screen
+- `-debugTranscribeDemo sv|en` synthesises speech to a file and opens it for transcription
+- `-debugRecordSeconds N -debugInputDevice NAME` records the real input device
+- `-selectedTranscriptionModel <id>`, `-appColorScheme light|dark` override settings for that run only
+
+### Known Xcode Build Issue (26 and 27)
+
+Default builds fail with `___llvm_profile_runtime` undefined symbol (yyjson, a pure C SPM transitive dependency of WhisperKit). This is an Xcode bug, still present in 27.2, where `CLANG_COVERAGE_MAPPING` defaults to YES and pure C SPM package targets get coverage instrumentation but miss `-fprofile-instr-generate` in their linker invocation. Always disable coverage mapping:
 
 ```bash
 # CLI fallback if MCP tools are unavailable:
@@ -50,14 +62,23 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 
 ### Core Services
 
-**Transcription Pipeline:**
-- `WhisperKitService.swift` - Primary transcription engine using WhisperKit (CoreML). Handles model loading, transcription with progress streaming, and segment generation.
-- `UnifiedTranscriptionService.swift` - Routes between local (WhisperKit) and cloud (Berget) services. Manages model state and active service selection.
-- `BergetTranscriptionService.swift` - Cloud transcription via Berget AI API (requires API key stored in Keychain)
-- `TranscriptionService.swift` - Lightweight streaming wrapper around WhisperKitService
+**Transcription Pipeline** (shared package, `TranscribeKit/Sources/TranscribeKit/`):
+- `ModelManager.swift` - Model catalog, download state and storage. `ModelManager.engine(for:)` is the one place that maps a model id to its runtime (`.whisperKit`, `.parakeet`, `.cloud`); route through it, never by id prefix.
+- `TranscriptionService.swift` - Entry point for local transcription: preprocesses the file, then streams `TranscriptionUpdate`s from whichever engine owns the selected model. Also holds `LocalModels` (engine-agnostic download / cancel / prewarm / unload).
+- `WhisperKitService.swift` - Whisper models (KB, NB, OpenAI) via WhisperKit.
+- `ParakeetService.swift` - Parakeet-family models (Pianissimo, Parakeet v3) via FluidAudio. Same update stream as WhisperKitService.
+- `LiveTranscriptionSession.swift` - Live text for Parakeet-family models: re-decodes the audio since the last commit a few times per second and commits at pauses (`LiveCommitPolicy`). See DECISIONS.md.
+- `Services/HuggingFaceDownloader.swift` - Downloads a model at a pinned commit and verifies every file's size and SHA-256.
+- `Services/BergetTranscriptionService.swift` - Cloud transcription via Berget AI API (requires API key stored in Keychain)
+
+Only `ParakeetService.swift` and `LiveTranscriptionSession.swift` may import FluidAudio: its public type names collide with WhisperKit's.
 
 **Audio Processing:**
 - `Services/AudioPreprocessor.swift` - Audio format conversion and preprocessing. Automatically extracts audio from video containers (`.mp4`, `.mov`, etc.) and converts non-native formats to 16kHz mono WAV using `AVAssetReader`/`AVAssetWriter`. Used by both local (WhisperKit) and cloud (Berget) transcription paths.
+
+**Microphone Capture:**
+- `Services/MicrophoneCapture.swift` - One `AVAudioEngine` whose input tap feeds the level meter, the recording file (AAC, 48 kHz mono) and a 16 kHz stream for live transcription. Binds the chosen device on the engine's own audio unit (never changes the system default input), starts the engine off the main thread, rebuilds it when hardware changes.
+- `Services/LiveTranscriptController.swift` - Owns a `LiveTranscriptionSession` for a recording screen and publishes its confirmed/volatile text; buffers audio while the model loads.
 
 **System Audio Capture:**
 - `Services/SystemAudioCaptureService.swift` - Captures system audio output using ScreenCaptureKit with optional microphone mixing. Two-phase architecture: monitoring (level meter, permission prompt) and recording (48kHz stereo float32 WAV). Supports mixing mic input via `AVAudioEngine` + `AudioRingBuffer` for meeting recording (both sides of a conversation). Includes CoreAudio device enumeration and selection for mic input.
@@ -67,12 +88,13 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - `Services/LLMService.swift` - Text processing via Berget AI or Ollama LLM APIs (summarization, action points, etc.)
 
 **Model Support:**
+- Parakeet family (fast; the models that support live transcription): `pianissimo_sv-coreml` (Klang AI, Swedish only), `parakeet_tdt-v3-coreml` (NVIDIA, 25 European languages, no Norwegian)
 - KB Whisper models (Swedish-optimized): `kb_whisper-base/small/medium/large-coreml`
 - NB Whisper models (Norwegian-optimized): `nb_whisper-tiny/base/small/large-coreml`
 - OpenAI Whisper models: `openai_whisper-base/small/medium/large-v2/large-v3`
 - Cloud: Berget ASR models fetched dynamically from /v1/models via `BergetModelCatalog` (KB Whisper Large, NB Whisper Large, Faster Whisper V3; requires API key). Cloud results include server-side diarization (speaker turns).
 
-KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. NB Whisper models load from `digtek/whisperkit-nb-coreml` HuggingFace repo. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch.
+KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. NB Whisper models load from `digtek/whisperkit-nb-coreml` HuggingFace repo. Parakeet-family models are listed in `ParakeetModelSpec` (repo, pinned revision, files, languages); the Swedish Pianissimo CoreML build is a community conversion, hence the pin. Default model (`kb_whisper-small-coreml`) auto-downloads on first launch only.
 
 ### Key Managers
 - `ModelManager.swift` - Model downloads, availability checking, and storage management
@@ -81,16 +103,17 @@ KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. N
 - `LocalizationManager.swift` - UI localization (English/Swedish/Norwegian) via `localized(_:)` helper; first launch defaults from the system language
 
 ### Views
-- `ContentView.swift` - Main window with toolbar (file picker, recording, YouTube, settings)
+- `ContentView.swift` - Root of the single main window: toolbar (language menu, model picker, theme, settings), home screen, screen switching, file import and drop (home screen only)
+- `DesignSystem.swift` - Shared visual components: `AuroraBackdrop`, `FeatureTile`, `WaveformMeter`, `StatusBadge`, `.prominentAction()`, `.glassAction()`, `Metrics`
 - `TranscriptionView.swift` - Transcription display with audio player, export, and text processing
-- `RecordingView.swift` - Built-in audio recording with live level meter, device selector, and playback
+- `RecordingView.swift` - Microphone recording with waveform meter, device menu, playback, and live text (`LiveTranscriptPanel`)
 - `SystemAudioRecordingView.swift` - System audio capture with live level meter, record/stop, playback, and transcription
 - `YouTubeTranscriptionView.swift` - YouTube URL transcription workflow
 - `SettingsView.swift` - Preferences with model management, text processing prompts, LLM settings
 
 ### Data Models
 - `TranscriptionModels.swift` - `TranscriptionResult`, `TranscriptionSegment`, `TextProcessingPrompt`, `AudioInputDevice`
-- `AppState.swift` - Navigation state (`currentTranscriptionURL`, `showTranscriptionView`, `showRecordingView`, `showSystemAudioView`)
+- `AppState.swift` - Navigation as one `Screen` value (`.home`, `.recording`, `.systemAudio`, `.transcription(URL)`) plus `unsavedWork`. All route changes go through `navigate(to:)`, which asks before discarding a recording; the app delegate reads the same state to confirm quitting.
 
 ### File Storage & Security
 All temporary files live under `FileManager.temporaryDirectory/Transcribe/` (inside the sandbox container) and auto-cleanup on app quit and on startup (handles force-quit scenarios):
@@ -125,11 +148,11 @@ for try await update in whisperKitService.transcribe(fileURL:modelId:language:) 
 - Temporary files are cleaned up after transcription completes
 
 ### Recording
-`RecordingView` contains `AudioRecorderManager` which handles:
-- Microphone permission via `AVAudioApplication.shared.recordPermission` (modern API)
-- Live audio level metering via `AVAudioEngine` input tap (pre-recording) and `AVAudioRecorder` metering (during recording)
-- Audio input device selection via CoreAudio (`AudioObjectGetPropertyData`)
-- Proper lifecycle management — engine taps removed before deallocation, no async self capture in `deinit`
+`RecordingView` uses `MicrophoneCapture`:
+- Microphone permission via `AVAudioApplication.shared.recordPermission`; the meter only starts once access is granted, and the request happens when Record is pressed. Never touch `AVAudioEngine.inputNode` on the main thread — it blocks while macOS shows its permission dialog.
+- One input tap drives the meter, the file and the live feed; duration is frames written, not wall-clock time
+- Device selection via `kAudioOutputUnitProperty_CurrentDevice` on the engine's audio unit; `nil` follows the system default
+- Live text: `ParakeetService.liveModelId(selectedModel:languageCode:)` picks the model (the selected one if Parakeet-family, otherwise a downloaded one that covers the language, so live text also works when Whisper does the final pass). The live transcript is a preview; pressing Transcribe runs the full-file pass.
 
 ### System Audio Recording
 `SystemAudioRecordingView` uses `SystemAudioCaptureService` which wraps ScreenCaptureKit:
@@ -142,13 +165,22 @@ for try await update in whisperKitService.transcribe(fileURL:modelId:language:) 
 - **Entitlements**: Uses `com.apple.security.device.audio-input` (shared with microphone). `NSAudioCaptureUsageDescription` in Info.plist.
 - **Temp files**: `~/tmp/Transcribe/SystemAudio/` — cleaned up by existing `AppDelegate.cleanupTemporaryFiles()`.
 
-### Color System
-Adaptive dark/light colors defined in `ColorExtensions.swift` using `NSColor(name:dynamicProvider:)`:
-- `.primaryAccent` (`#3ECF8E` green), `.secondaryAccent`, `.tertiaryAccent` - Brand accent
+### Design System
+Liquid Glass is for controls that float above content; content is solid. Follow this when adding UI:
+- Toolbar items use the system's glass (no custom backgrounds, no `.sharedBackgroundVisibility(.hidden)`)
+- Buttons: `.prominentAction()` for the single primary action of a screen (tinted glass), `.glassAction()` for the rest; large custom controls use `.glassEffect(.regular.interactive(), in:)`, grouped in a `GlassEffectContainer`
+- Content surfaces (transcripts, cards, settings groups): `.contentCard()` — never a material or glass
+- `AuroraBackdrop` is the only window background; screens do not paint their own
+
+Adaptive colors in `ColorExtensions.swift` (`NSColor(name:dynamicProvider:)`, with Increase Contrast variants):
+- `.primaryAccent` - Brand green for accent text, icons and fills (`#3ECF8E` dark, `#17804F` light so it passes 4.5:1 on white)
+- `.onAccent` - Anything drawn on a `primaryAccent` fill (dark on the bright dark-mode green, white in light mode). White on the dark-mode green is only 2:1.
+- `.brandGreen` - The bright green in both appearances, for glows and meters that carry no text
 - `.surfaceBackground`, `.cardBackground`, `.elevatedSurface` - Surface hierarchy
-- `.textPrimary/Secondary/Tertiary` - Text hierarchy
-- `LinearGradient.accentGradient`, `LinearGradient.primaryGradient`
-- `.glassCard()` modifier - `ultraThinMaterial` + subtle border
+- `.textPrimary/Secondary/Tertiary` - Text hierarchy (all at least 4.5:1)
+- `.recordingRed`, `LinearGradient.accentGradient`
+
+Perpetual animations must check `accessibilityReduceMotion`.
 
 ### Theme
 - Dark mode default, toggle via toolbar button
@@ -175,12 +207,14 @@ Keychain access uses the native Security framework (`SimplifiedManagers.swift` �
 
 ## Localization
 
-Uses `localized(_:)` helper function (defined in `LocalizationManager.swift`). String files:
-- `Transcribe/Resources/en.lproj/Localizable.strings` - English
-- `Transcribe/Resources/sv.lproj/Localizable.strings` - Swedish
-- `Transcribe/Resources/no.lproj/Localizable.strings` - Norwegian (Bokmål)
+Uses the `localized(_:)` helper (defined in `LocalizationManager.swift`), which follows the in-app language setting. The string tables ship in the shared package, so both apps use them:
+- `TranscribeKit/Sources/TranscribeKit/Resources/en.lproj/Localizable.strings` - English
+- `TranscribeKit/Sources/TranscribeKit/Resources/sv.lproj/Localizable.strings` - Swedish
+- `TranscribeKit/Sources/TranscribeKit/Resources/no.lproj/Localizable.strings` - Norwegian (Bokmål)
 
-English is the default locale with full Swedish localization.
+Every key must exist in all three. Never use `NSLocalizedString(key, comment:)` — it reads the app's main bundle, which has no string tables, and shows the raw key.
+
+The system permission prompts are localized separately in `Transcribe/{en,sv,nb}.lproj/InfoPlist.strings` (they follow the system language). `NSAudioCaptureUsageDescription` comes from `Transcribe-Info.plist` because Xcode cannot generate that key from a build setting.
 
 ## Testing
 
@@ -190,9 +224,12 @@ Prefer the XcodeBuildMCP `macos: test` tool (scheme `Transcribe`, with `CLANG_CO
 xcodebuild test -scheme Transcribe -destination 'platform=macOS' CLANG_COVERAGE_MAPPING=NO
 ```
 
-Test files:
-- `TranscribeTests/TranscribeTests.swift`
+Test files (Swift Testing, hosted in the app):
+- `TranscribeTests/TranscribeTests.swift` - Model routing, repository-listing validation, transcript segmenting, the live commit policy
+- `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, live, silence). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
 - `TranscribeUITests/TranscribeUITests.swift`
+
+The app's own log lines are readable with `/usr/bin/log show --last 5m --info --predicate 'subsystem BEGINSWITH "com.mickekring.transcribe"'` (zsh has a `log` builtin; use the full path).
 
 ## Known Issues / Future Work
 
