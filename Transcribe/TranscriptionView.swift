@@ -20,6 +20,13 @@ struct TranscriptionButtonStyle: ButtonStyle {
     }
 }
 
+private extension Color {
+    /// Outline of a disabled outlined button. Derived from the tertiary text
+    /// colour its label uses, so it adapts to the theme — a faint white
+    /// outline is invisible on the light surface.
+    static let disabledOutline = Color.textTertiary.opacity(0.3)
+}
+
 struct TranscriptionView: View {
     @StateObject private var viewModel: TranscriptionViewModel
     @EnvironmentObject var appState: AppState
@@ -68,7 +75,6 @@ struct TranscriptionView: View {
         }
         .background(Color.surfaceBackground)
         .navigationTitle(viewModel.fileName)
-        .navigationBarBackButtonHidden(false)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(action: {
@@ -83,6 +89,8 @@ struct TranscriptionView: View {
                         .foregroundColor(.primaryAccent)
                 }
                 .buttonStyle(.plain)
+                .help(localized("back"))
+                .accessibilityLabel(localized("back"))
             }
         }
         .alert(localized("unsaved_transcription"), isPresented: $showUnsavedChangesAlert) {
@@ -113,6 +121,13 @@ struct TranscriptionView: View {
             // Covers window close and view replacement (.id change) as well as back navigation
             llmTask?.cancel()
             viewModel.cancelActiveWork()
+        }
+        .onChange(of: settingsManager.textProcessingPrompts) { _, prompts in
+            // A prompt deleted in Settings can no longer be run, so it must
+            // not stay selected
+            if let id = selectedPromptId, !prompts.contains(where: { $0.id == id }) {
+                selectedPromptId = nil
+            }
         }
     }
 
@@ -499,10 +514,10 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(viewModel.isTranscribing ? .textTertiary : .primaryAccent)
+                            .foregroundColor(exportDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(viewModel.isTranscribing ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(exportDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -512,7 +527,7 @@ struct TranscriptionView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 exportPopoverButton(
                                     icon: "doc.text",
-                                    label: "\(localized(exportModeLabelKey)) - Text (.txt)",
+                                    label: String(format: localized("export_as_txt"), localized(exportModeLabelKey)),
                                     enabled: !viewModel.transcribedText.isEmpty
                                 ) {
                                     viewModel.exportText(exportableTranscript, suffix: exportModeSuffix)
@@ -521,7 +536,7 @@ struct TranscriptionView: View {
 
                                 exportPopoverButton(
                                     icon: "doc.richtext",
-                                    label: "\(localized(exportModeLabelKey)) - Markdown (.md)",
+                                    label: String(format: localized("export_as_md"), localized(exportModeLabelKey)),
                                     enabled: !viewModel.transcribedText.isEmpty
                                 ) {
                                     viewModel.exportMarkdown(exportableTranscript, suffix: exportModeSuffix)
@@ -565,10 +580,10 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(viewModel.isTranscribing ? .textTertiary : .primaryAccent)
+                            .foregroundColor(exportDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(viewModel.isTranscribing ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(exportDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -631,7 +646,7 @@ struct TranscriptionView: View {
                         .foregroundColor(viewModel.isTranscribing ? .textTertiary : .primaryAccent)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(viewModel.isTranscribing ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                .stroke(viewModel.isTranscribing ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                         )
                         .contentShape(Rectangle())
                     }
@@ -661,7 +676,7 @@ struct TranscriptionView: View {
                             .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -714,7 +729,7 @@ struct TranscriptionView: View {
                             .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -734,7 +749,7 @@ struct TranscriptionView: View {
                             .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -763,7 +778,7 @@ struct TranscriptionView: View {
                             .foregroundColor(processButtonDisabled ? .textTertiary : .primaryAccent)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(processButtonDisabled ? Color.white.opacity(0.15) : Color.primaryAccent, lineWidth: 1)
+                                    .stroke(processButtonDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                         }
@@ -828,6 +843,7 @@ struct TranscriptionView: View {
                 }
                 .buttonStyle(.plain)
                 .help(localized("save_audio_file"))
+                .accessibilityLabel(localized("save_audio_file"))
             }
         }
         .padding(12)
@@ -850,6 +866,8 @@ struct TranscriptionView: View {
                         .foregroundStyle(LinearGradient.accentGradient)
                 }
                 .buttonStyle(.plain)
+                .help(localized("skip_back_10"))
+                .accessibilityLabel(localized("skip_back_10"))
                 
                 Button(action: { viewModel.togglePlayPause() }) {
                     Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -857,6 +875,8 @@ struct TranscriptionView: View {
                         .foregroundStyle(LinearGradient.accentGradient)
                 }
                 .buttonStyle(.plain)
+                .help(localized(viewModel.isPlaying ? "pause" : "play"))
+                .accessibilityLabel(localized(viewModel.isPlaying ? "pause" : "play"))
                 
                 Button(action: { viewModel.skipForward() }) {
                     Image(systemName: "goforward.10")
@@ -864,6 +884,8 @@ struct TranscriptionView: View {
                         .foregroundStyle(LinearGradient.accentGradient)
                 }
                 .buttonStyle(.plain)
+                .help(localized("skip_forward_10"))
+                .accessibilityLabel(localized("skip_forward_10"))
                 
                 // Speed dropdown
                 Menu {
@@ -1121,13 +1143,7 @@ struct TranscriptionView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!enabled)
-        .onHover { hovering in
-            if hovering && enabled {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .pointerStyle(enabled ? .link : nil)
     }
     
     @ViewBuilder
@@ -1151,13 +1167,7 @@ struct TranscriptionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .pointerStyle(.link)
     }
     
     private var sectionDisabled: Bool {
@@ -1165,7 +1175,13 @@ struct TranscriptionView: View {
     }
     
     private var processButtonDisabled: Bool {
-        sectionDisabled || selectedPromptId == nil || isProcessingLLM || speakerTextPending || !hasLLMModelSelected
+        sectionDisabled || selectedPrompt == nil || isProcessingLLM || speakerTextPending || !hasLLMModelSelected
+    }
+
+    /// The selected prompt, as long as it still exists in Settings.
+    private var selectedPrompt: TextProcessingPrompt? {
+        guard let id = selectedPromptId else { return nil }
+        return settingsManager.textProcessingPrompts.first { $0.id == id }
     }
     
     private var hasLLMModelSelected: Bool {
@@ -1200,10 +1216,26 @@ struct TranscriptionView: View {
         }
     }
     
+    /// Cloud LLM models are offered when an API key is set and local-only
+    /// mode is off.
+    private var showsBergetLLMModels: Bool {
+        !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode
+    }
+
+    /// One line of explanation where the popover would otherwise list models.
+    private func llmPopoverNote(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundColor(.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+    }
+
     private var llmModelPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Berget section (API key configured, not local-only)
-            if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
+            if showsBergetLLMModels {
                 HStack(spacing: 5) {
                     Image(systemName: "cloud")
                         .font(.system(size: 10))
@@ -1226,11 +1258,16 @@ struct TranscriptionView: View {
                         showLLMPopover = false
                     }
                 }
+
+                // The catalog is fetched from the network and can be empty
+                if bergetCatalog.llmModels.isEmpty {
+                    llmPopoverNote(localized("berget_models_unavailable"))
+                }
             }
             
             // Ollama section (only if models available)
             if !settingsManager.ollamaModels.isEmpty {
-                if !settingsManager.bergetKey.isEmpty && !settingsManager.localOnlyMode {
+                if showsBergetLLMModels {
                     Divider().padding(.horizontal, 12).padding(.vertical, 4)
                 }
                 
@@ -1242,7 +1279,7 @@ struct TranscriptionView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 12)
-                .padding(.top, settingsManager.bergetKey.isEmpty ? 8 : 0)
+                .padding(.top, showsBergetLLMModels ? 0 : 8)
                 .padding(.bottom, 4)
                 
                 ForEach(settingsManager.ollamaModels, id: \.self) { model in
@@ -1258,13 +1295,12 @@ struct TranscriptionView: View {
                 }
             }
             
-            // No models available
-            if settingsManager.bergetKey.isEmpty && settingsManager.ollamaModels.isEmpty {
-                Text(localized("api_key_required"))
-                    .font(.system(size: 12))
-                    .foregroundColor(.textTertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
+            // Neither section rendered: say why there is nothing to pick.
+            // Local-only mode hides the cloud models even with a key set.
+            if !showsBergetLLMModels && settingsManager.ollamaModels.isEmpty {
+                llmPopoverNote(localized(settingsManager.localOnlyMode
+                                         ? "llm_unavailable_local_only"
+                                         : "llm_unavailable_no_provider"))
             }
         }
         .frame(width: 260)
@@ -1294,18 +1330,11 @@ struct TranscriptionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .pointerStyle(.link)
     }
     
     private func processTranscription() {
-        guard let promptId = selectedPromptId,
-              let prompt = settingsManager.textProcessingPrompts.first(where: { $0.id == promptId }) else {
+        guard let prompt = selectedPrompt else {
             return
         }
         
@@ -1345,7 +1374,7 @@ struct TranscriptionView: View {
                 }
             } catch {
                 if !Task.isCancelled {
-                    viewModel.processedText += "\n\n[Error: \(error.localizedDescription)]"
+                    viewModel.processedText += "\n\n" + String(format: localized("llm_processing_failed"), error.localizedDescription)
                 }
             }
             
@@ -1354,8 +1383,7 @@ struct TranscriptionView: View {
     }
     
     private var selectedPromptName: String {
-        if let id = selectedPromptId,
-           let prompt = settingsManager.textProcessingPrompts.first(where: { $0.id == id }) {
+        if let prompt = selectedPrompt {
             return prompt.name
         }
         return localized("select_prompt")
@@ -1375,6 +1403,8 @@ struct TranscriptionView: View {
                         .foregroundColor(.textTertiary)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .help(localized("close"))
+                .accessibilityLabel(localized("close"))
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
