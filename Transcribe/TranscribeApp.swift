@@ -59,7 +59,20 @@ struct TranscribeApp: App {
                 }
                 .keyboardShortcut("r")
             }
+            HelpCommands()
         }
+
+        // Its own window so it can stay open beside the app while you work
+        Window(localized("help_title"), id: SceneID.help) {
+            HelpView()
+                .frame(minWidth: 520, minHeight: 460)
+                .preferredColorScheme(preferredScheme)
+                .toolbar(removing: .title)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        }
+        .defaultSize(width: 780, height: 840)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         Settings {
             SettingsView()
@@ -72,6 +85,21 @@ struct TranscribeApp: App {
 
 enum SceneID {
     static let main = "main"
+    static let help = "help"
+}
+
+/// Help → "Transcribe Help" (⌘?) opens the help window.
+private struct HelpCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button(localized("menu_help")) {
+                openWindow(id: SceneID.help)
+            }
+            .keyboardShortcut("?", modifiers: .command)
+        }
+    }
 }
 
 /// Scene actions captured from the SwiftUI environment so AppKit code (the
@@ -82,6 +110,7 @@ final class SceneActions {
     static let shared = SceneActions()
     var openMainWindow: (() -> Void)?
     var openSettings: (() -> Void)?
+    var openHelp: (() -> Void)?
     private init() {}
 }
 

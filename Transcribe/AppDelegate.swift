@@ -126,6 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("menu_quick_transcribe", #selector(quickTranscribe))
         menu.addItem(.separator())
         add("menu_settings", #selector(showPreferences), key: ",")
+        add("help_title", #selector(showHelp))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: localized("menu_quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -197,6 +198,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func showPreferences() {
         NSApp.activate()
         SceneActions.shared.openSettings?()
+    }
+
+    @objc func showHelp() {
+        NSApp.activate()
+        SceneActions.shared.openHelp?()
     }
 
     func showAboutWindow() {

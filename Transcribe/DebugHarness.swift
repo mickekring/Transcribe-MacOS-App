@@ -22,6 +22,9 @@ import TranscribeKit
 ///                                        (general, apiKeys, localModels, …)
 ///   -debugShowYouTube 1                  open the YouTube sheet at launch
 ///   -debugShowAbout 1 / -debugShowQuick 1 open the About / Quick Transcribe window
+///   -debugShowHelp 1                     open the help window at launch
+///   -debugHelpScroll NAME                with -debugShowHelp: scroll the help to
+///                                        record, transcript or privacy
 ///   -debugHold 1                         with -debugLiveDemo: don't stop at
 ///                                        the end of the speech
 ///   -debugThenTranscribe 1               with -debugLiveDemo: press

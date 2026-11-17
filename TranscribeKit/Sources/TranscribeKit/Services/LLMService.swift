@@ -17,9 +17,13 @@ public final class LLMService: Sendable {
         case httpError(Int, String?)
         case noContent
         case streamingFailed(String)
-        
+        /// Local-only mode is on and the request would leave this computer
+        case blockedByLocalOnly
+
         var errorDescription: String? {
             switch self {
+            case .blockedByLocalOnly:
+                return localized("llm_blocked_local_only")
             case .noAPIKey:
                 return "API key is required for this provider"
             case .invalidURL:
@@ -56,14 +60,26 @@ public final class LLMService: Sendable {
             let task = Task {
                 do {
                     let baseURL: String
+                    // Local-only mode promises that no text leaves this
+                    // computer; the UI already hides Berget, and Ollama may
+                    // have been pointed at another machine.
+                    let localOnly = UserDefaults.standard.bool(forKey: "localOnlyMode")
                     switch provider {
                     case .berget:
+                        guard !localOnly else {
+                            continuation.finish(throwing: LLMError.blockedByLocalOnly)
+                            return
+                        }
                         guard !apiKey.isEmpty else {
                             continuation.finish(throwing: LLMError.noAPIKey)
                             return
                         }
                         baseURL = "https://api.berget.ai/v1"
                     case .ollama:
+                        guard !localOnly || Self.isOnThisComputer(ollamaHost) else {
+                            continuation.finish(throwing: LLMError.blockedByLocalOnly)
+                            return
+                        }
                         baseURL = ollamaHost + "/v1"
                     }
                     
@@ -201,5 +217,19 @@ public final class LLMService: Sendable {
             return .ignored
         }
         return .content(content)
+    }
+}
+
+extension LLMService {
+    /// Whether an Ollama address points at this computer (loopback only; a
+    /// LAN address of this same Mac is not recognised, which errs on the
+    /// side of blocking).
+    static func isOnThisComputer(_ address: String) -> Bool {
+        guard let host = URL(string: address)?.host?.lowercased() else { return false }
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        return bare == "localhost"
+            || bare.hasSuffix(".localhost")
+            || bare == "::1"
+            || bare.hasPrefix("127.")
     }
 }

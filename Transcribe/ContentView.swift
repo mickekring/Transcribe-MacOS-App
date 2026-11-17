@@ -63,6 +63,14 @@ struct ContentView: View {
                 }
                 .help(localized("settings"))
             }
+            ToolbarItem {
+                Button {
+                    openWindow(id: SceneID.help)
+                } label: {
+                    Label(localized("help_title"), systemImage: "questionmark.circle")
+                }
+                .help(localized("help_title"))
+            }
         }
         .fileImporter(
             isPresented: $showFileImporter,
@@ -117,8 +125,12 @@ struct ContentView: View {
         .onAppear {
             SceneActions.shared.openMainWindow = { openWindow(id: SceneID.main) }
             SceneActions.shared.openSettings = { openSettings() }
+            SceneActions.shared.openHelp = { openWindow(id: SceneID.help) }
             #if DEBUG
             DebugHarness.runLaunchHooks(appState: appState)
+            if UserDefaults.standard.bool(forKey: "debugShowHelp") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { openWindow(id: SceneID.help) }
+            }
             if UserDefaults.standard.bool(forKey: "debugShowModelPicker") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { showModelPopover = true }
             }
@@ -256,9 +268,8 @@ struct ContentView: View {
                 .foregroundStyle(Color.textTertiary)
             HStack(spacing: 10) {
                 Button(localized("help_support")) {
-                    if let url = URL(string: "https://github.com/mickekring/Transcribe-MacOS-App") {
-                        NSWorkspace.shared.open(url)
-                    }
+                    // The help page, which links on to GitHub for support
+                    openWindow(id: SceneID.help)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.primaryAccent)

@@ -297,3 +297,38 @@ struct LiveCommitPolicyTests {
         }
     }
 }
+
+// MARK: - Local-only mode and Ollama
+
+struct OllamaAddressTests {
+    @Test func onlyLoopbackAddressesCountAsThisComputer() {
+        #expect(LLMService.isOnThisComputer("http://127.0.0.1:11434"))
+        #expect(LLMService.isOnThisComputer("http://localhost:11434"))
+        #expect(LLMService.isOnThisComputer("http://[::1]:11434"))
+        #expect(!LLMService.isOnThisComputer("http://192.168.1.20:11434"))
+        #expect(!LLMService.isOnThisComputer("https://ollama.example.com"))
+        #expect(!LLMService.isOnThisComputer("http://localhost.example.com:11434"))
+        #expect(!LLMService.isOnThisComputer("not an address"))
+    }
+}
+
+// MARK: - String tables
+
+/// A key missing from one language shows up as the raw key in the UI.
+struct LocalizationTableTests {
+    private func keys(_ language: String) throws -> Set<String> {
+        let folder = try #require(Bundle.module.path(forResource: language, ofType: "lproj"))
+        let table = URL(fileURLWithPath: folder).appendingPathComponent("Localizable.strings")
+        let entries = try #require(NSDictionary(contentsOf: table) as? [String: String])
+        return Set(entries.keys)
+    }
+
+    @Test func everyLanguageHasEveryKey() throws {
+        let tables = ["sv": try keys("sv"), "en": try keys("en"), "no": try keys("no")]
+        let all = tables.values.reduce(into: Set<String>()) { $0.formUnion($1) }
+        for (language, keys) in tables {
+            let missing = all.subtracting(keys).sorted()
+            #expect(missing.isEmpty, "missing in \(language): \(missing)")
+        }
+    }
+}

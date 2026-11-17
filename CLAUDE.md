@@ -30,6 +30,7 @@ Scheme: `Transcribe`. Always pass `CLANG_COVERAGE_MAPPING=NO` as an extra build 
 Debug builds read launch arguments (see `Transcribe/DebugHarness.swift`), passed with the `launch` tool's launch args:
 
 - `-debugScreen recording|systemAudio` opens that screen at launch
+- `-debugShowHelp 1` opens the help window; add `-debugHelpScroll record|transcript|privacy` to scroll it; `-appLanguage sv|en|no` picks the language
 - `-debugLiveDemo sv|en` records synthesised speech through the real pipeline (meter, file, live text); add `-debugThenTranscribe 1` to continue into the transcript screen
 - `-debugTranscribeDemo sv|en` synthesises speech to a file and opens it for transcription
 - `-debugRecordSeconds N -debugInputDevice NAME` records the real input device
@@ -110,6 +111,7 @@ KB Whisper models load from `mickekringai/kb-whisper-coreml` HuggingFace repo. N
 - `SystemAudioRecordingView.swift` - System audio capture with live level meter, record/stop, playback, and transcription
 - `YouTubeTranscriptionView.swift` - YouTube URL transcription workflow
 - `SettingsView.swift` - Preferences with model management, text processing prompts, LLM settings
+- `HelpView.swift` - The help window (toolbar "?", Help menu ⌘?, home footer, status-bar menu): how to use the app and how it handles data, from `help_*` strings. Its privacy claims are checked against the code; when a feature starts using the network, update `help_data_*` in all three languages.
 
 ### Data Models
 - `TranscriptionModels.swift` - `TranscriptionResult`, `TranscriptionSegment`, `TextProcessingPrompt`, `AudioInputDevice`
@@ -121,7 +123,7 @@ All temporary files live under `FileManager.temporaryDirectory/Transcribe/` (ins
 - Cleanup handled in `AppDelegate.cleanupTemporaryFiles()` (removes the whole `Transcribe/` temp folder)
 - Models and the protected ANE cache live under Application Support (user data, intentionally persistent)
 
-`localOnlyMode` (Settings → General) is enforced: it gates the Berget model catalog fetch, cloud transcription/LLM, YouTube, model downloads (WhisperKitService.runDownload), and first-time diarization model downloads. Diarization pins already-downloaded Pyannote models via PyannoteConfig(modelFolder:) so it never touches the network once installed.
+`localOnlyMode` (Settings → General) is enforced: it gates the Berget model catalog fetch, cloud transcription/LLM, Ollama at any address that is not this computer (`LLMService.isOnThisComputer`), YouTube, model downloads (WhisperKitService.runDownload), and first-time diarization model downloads. Diarization pins already-downloaded Pyannote models via PyannoteConfig(modelFolder:) so it never touches the network once installed.
 
 API keys are stored in macOS Keychain via `KeychainHelper` (not UserDefaults). Legacy UserDefaults keys are migrated to Keychain on launch. No `print()` statements in production code — all debug logging has been removed.
 
@@ -227,7 +229,7 @@ xcodebuild test -scheme Transcribe -destination 'platform=macOS' CLANG_COVERAGE_
 ```
 
 Test files (Swift Testing, hosted in the app):
-- `TranscribeTests/TranscribeTests.swift` - Model routing, repository-listing validation, transcript segmenting, the live commit policy
+- `TranscribeTests/TranscribeTests.swift` - Model routing, repository-listing validation, transcript segmenting, the live commit policy, Parakeet word timings, that all three string tables have the same keys
 - `TranscribeTests/ParakeetIntegrationTests.swift` - End-to-end against the real models (batch, live, silence). Opt-in: set `RUN_MODEL_TESTS=1` in the test-runner environment. Downloads the models on first run; synthesises its speech with the system voices.
 - `TranscribeUITests/TranscribeUITests.swift`
 
