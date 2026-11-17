@@ -70,21 +70,19 @@ struct TranscriptionView: View {
         .navigationTitle(viewModel.fileName)
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button(action: {
-                    if !viewModel.transcribedText.isEmpty && !viewModel.isTranscribing {
+                BackToolbarButton {
+                    if hasUnsavedTranscript {
                         showUnsavedChangesAlert = true
                     } else {
                         dismissView()
                     }
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14))
-                        .foregroundColor(.primaryAccent)
                 }
-                .buttonStyle(.plain)
-                .help(localized("back"))
-                .accessibilityLabel(localized("back"))
             }
+        }
+        // Tell the app, so quitting or a route change from outside this view
+        // (status-bar menu) also asks before the transcript is lost
+        .onChange(of: hasUnsavedTranscript, initial: true) { _, unsaved in
+            appState.unsavedWork = unsaved ? .unsavedTranscript : nil
         }
         .alert(localized("unsaved_transcription"), isPresented: $showUnsavedChangesAlert) {
             Button(localized("copy_and_go_back"), role: nil) {
@@ -122,6 +120,11 @@ struct TranscriptionView: View {
                 selectedPromptId = nil
             }
         }
+    }
+
+    /// A finished transcript that has been neither saved nor copied.
+    private var hasUnsavedTranscript: Bool {
+        !viewModel.transcribedText.isEmpty && !viewModel.isTranscribing && !viewModel.hasExported
     }
 
     /// Cancels all in-flight work and navigates back to the main view.
@@ -425,12 +428,9 @@ struct TranscriptionView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .foregroundColor(.primaryAccent)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primaryAccent, lineWidth: 1)
-            )
+            .foregroundColor(.textPrimary)
             .contentShape(Rectangle())
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Metrics.controlRadius))
         }
         .buttonStyle(TranscriptionButtonStyle())
         .fixedSize()
@@ -593,6 +593,7 @@ struct TranscriptionView: View {
     }
     
     var rightSidePanel: some View {
+        GlassEffectContainer {
         VStack(spacing: 0) {
             
             // Main content area — scrolls when the window is short
@@ -638,12 +639,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(exportDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(exportDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(exportDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!exportDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(exportDisabled)
@@ -704,12 +702,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(exportDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(exportDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(exportDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!exportDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(exportDisabled)
@@ -767,12 +762,9 @@ struct TranscriptionView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .foregroundColor(viewModel.isTranscribing ? .textTertiary : .primaryAccent)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(viewModel.isTranscribing ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                        )
+                        .foregroundColor(viewModel.isTranscribing ? .textTertiary : .textPrimary)
                         .contentShape(Rectangle())
+                        .glassEffect(.regular.interactive(!viewModel.isTranscribing), in: .rect(cornerRadius: Metrics.controlRadius))
                     }
                     .buttonStyle(TranscriptionButtonStyle())
                     .disabled(viewModel.isTranscribing)
@@ -797,12 +789,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(sectionDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!sectionDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(sectionDisabled)
@@ -850,12 +839,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(sectionDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!sectionDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(sectionDisabled)
@@ -870,12 +856,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(sectionDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(sectionDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(sectionDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!sectionDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(sectionDisabled)
@@ -904,12 +887,9 @@ struct TranscriptionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .foregroundColor(processButtonDisabled ? .textTertiary : .primaryAccent)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(processButtonDisabled ? Color.disabledOutline : Color.primaryAccent, lineWidth: 1)
-                            )
+                            .foregroundColor(processButtonDisabled ? .textTertiary : .textPrimary)
                             .contentShape(Rectangle())
+                            .glassEffect(.regular.interactive(!processButtonDisabled), in: .rect(cornerRadius: Metrics.controlRadius))
                         }
                         .buttonStyle(TranscriptionButtonStyle())
                         .disabled(processButtonDisabled)
@@ -940,6 +920,7 @@ struct TranscriptionView: View {
             audioPlayerSection
         }
         .background(Color.surfaceBackground)
+        }
     }
     
     var audioPlayerSection: some View {
@@ -975,11 +956,8 @@ struct TranscriptionView: View {
                 .accessibilityLabel(localized("save_audio_file"))
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.cardBackground)
-        )
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: Metrics.cardRadius))
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 16)
@@ -1148,18 +1126,16 @@ struct TranscriptionView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .foregroundColor(displayMode == mode ? .white : .primaryAccent)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(displayMode == mode ? LinearGradient.accentGradient : LinearGradient(colors: [Color.clear], startPoint: .top, endPoint: .bottom))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(LinearGradient.accentGradient, lineWidth: displayMode == mode ? 0 : 1)
-            )
+            // The label sits on the accent tint when selected
+            .foregroundColor(displayMode == mode ? .onAccent : .textPrimary)
             .contentShape(Rectangle())
+            .glassEffect(
+                displayMode == mode ? .regular.tint(Color.primaryAccent).interactive() : .regular.interactive(),
+                in: .rect(cornerRadius: Metrics.controlRadius)
+            )
         }
         .buttonStyle(TranscriptionButtonStyle())
+        .accessibilityAddTraits(displayMode == mode ? .isSelected : [])
     }
 
     func formatWithTimestamps(_ segments: [TranscriptionSegmentData]) -> String {
@@ -1777,6 +1753,8 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     @Published var isProcessingChunks = false
     @Published var failedChunks: [Int] = []
     @Published var showExportError = false
+    /// The current transcript has been copied or written to a file.
+    @Published private(set) var hasExported = false
     @Published var exportErrorMessage = ""
     @Published var processedText = ""
     /// True while the user is dragging the playback slider — the playback timer
@@ -2038,6 +2016,8 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     func startTranscription() {
+        // A new run produces a new transcript
+        hasExported = false
         // A new run replaces one that is still in flight. Ending that one
         // first stops its timers and clears its progress state; the new run
         // id makes whatever it still delivers stale.
@@ -2530,6 +2510,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(combined, forType: .string)
+        hasExported = true
     }
     
     private var baseName: String {
@@ -2594,6 +2575,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
             if response == .OK, let url = savePanel.url {
                 do {
                     try content.write(to: url, atomically: true, encoding: .utf8)
+                    self.hasExported = true
                 } catch {
                     self.exportErrorMessage = error.localizedDescription
                     self.showExportError = true
