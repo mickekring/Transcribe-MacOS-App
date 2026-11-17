@@ -3,13 +3,6 @@ import TranscribeKit
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// Thread-safe box for Timer references that need to cross Sendable boundaries.
-/// Only used for invalidation from completion handlers.
-private final class SendableTimerBox: @unchecked Sendable {
-    var timer: Timer?
-    func invalidate() { timer?.invalidate() }
-}
-
 // Custom button style with press animation
 struct TranscriptionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -119,7 +112,7 @@ struct TranscriptionView: View {
         }
         .onDisappear {
             // Covers window close and view replacement (.id change) as well as back navigation
-            llmTask?.cancel()
+            cancelLLMProcessing()
             viewModel.cancelActiveWork()
         }
         .onChange(of: settingsManager.textProcessingPrompts) { _, prompts in
@@ -133,9 +126,26 @@ struct TranscriptionView: View {
 
     /// Cancels all in-flight work and navigates back to the main view.
     private func dismissView() {
-        llmTask?.cancel()
+        cancelLLMProcessing()
         viewModel.cancelActiveWork()
         appState.closeTranscriptionView()
+    }
+
+    /// Stops a running LLM request, keeping what it has produced so far.
+    /// The cancelled task leaves view state alone afterwards (a new request
+    /// may already be running), so the flag is reset here.
+    private func cancelLLMProcessing() {
+        llmTask?.cancel()
+        llmTask = nil
+        isProcessingLLM = false
+    }
+
+    /// Runs the transcription again. The LLM output describes the transcript
+    /// being replaced, so its request is stopped first; the view model clears
+    /// the processed text and the speaker turns.
+    private func restartTranscription() {
+        cancelLLMProcessing()
+        viewModel.retranscribe()
     }
     
     private var transcriptionHeader: some View {
@@ -276,6 +286,13 @@ struct TranscriptionView: View {
         Group {
             if !viewModel.transcribedText.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
+                    // A failed run keeps what it had transcribed; the error
+                    // sits above the partial transcript instead of replacing it
+                    if viewModel.errorMessage != nil {
+                        transcriptionErrorCard
+                            .padding([.horizontal, .top], 16)
+                    }
+
                     let displayText: String = {
                         // Speakers mode shows status until diarization has produced turns
                         // (not while a run is streaming or after one failed — see
@@ -305,10 +322,118 @@ struct TranscriptionView: View {
                         }
                     }
                 }
-            } else {
+            } else if viewModel.isTranscribing || !viewModel.hasStartedRun {
+                // Also before the first run starts (it does in onAppear):
+                // there is no outcome to report yet
                 transcriptionProgressView
+            } else {
+                // The run is over and left no text: say why instead of
+                // spinning forever
+                transcriptionEndedView
             }
         }
+    }
+
+    /// Takes the progress card's place once a run has ended without any text:
+    /// the error if it failed, otherwise whether it was cancelled or simply
+    /// found no speech — each with a way to run it again.
+    private var transcriptionEndedView: some View {
+        VStack {
+            Spacer()
+
+            if viewModel.errorMessage != nil {
+                transcriptionErrorCard
+                    .frame(maxWidth: 560)
+            } else {
+                VStack(spacing: 24) {
+                    Image(systemName: viewModel.wasCancelled ? "xmark.circle" : "waveform.slash")
+                        .font(.system(size: 28))
+                        .foregroundColor(.textTertiary)
+
+                    statusMessageText(localized(viewModel.wasCancelled ? "transcription_cancelled" : "no_speech_detected"))
+
+                    retranscribeButton
+                }
+                .padding(32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.cardBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.borderLight, lineWidth: 0.5)
+                )
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.surfaceBackground)
+    }
+
+    /// Why the last run failed, and a way to retry. The title depends on
+    /// whether anything was transcribed before the failure.
+    private var transcriptionErrorCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(localized(viewModel.transcribedText.isEmpty ? "transcription_failed" : "transcription_incomplete"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.textPrimary)
+                Text(viewModel.errorMessage ?? "")
+                    .font(.system(size: 12))
+                    .foregroundColor(.textSecondary)
+                    .textSelection(.enabled)
+                Text("\(localized("model")): \(modelManager.displayName(for: viewModel.activeModelId))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.textTertiary)
+                Text(localized(ModelManager.engine(for: viewModel.activeModelId) == .cloud
+                               ? "transcription_error_hint_cloud"
+                               : "transcription_error_hint_local"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.textTertiary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 12)
+
+            retranscribeButton
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.borderLight, lineWidth: 0.5)
+        )
+    }
+
+    /// The way out of the error, cancelled and no-speech states. Styled like
+    /// the side panel's outlined buttons.
+    private var retranscribeButton: some View {
+        Button(action: { restartTranscription() }) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.trianglehead.2.counterclockwise")
+                    .font(.system(size: 13))
+                Text(localized("retranscribe"))
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .foregroundColor(.primaryAccent)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.primaryAccent, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TranscriptionButtonStyle())
+        .fixedSize()
     }
     
     private var processedTextContent: some View {
@@ -363,9 +488,12 @@ struct TranscriptionView: View {
         }
     }
     
-    /// Returns the model ID currently being downloaded, if any
+    /// The model this run needs, while it is being downloaded. Other models
+    /// can be downloading at the same time (started from Settings); their
+    /// progress says nothing about this run.
     private var activeDownloadModelId: String? {
-        modelManager.isDownloading.first(where: { $0.value })?.key
+        let modelId = viewModel.activeModelId
+        return modelManager.isDownloading[modelId] == true ? modelId : nil
     }
     
     private var transcriptionProgressView: some View {
@@ -432,20 +560,16 @@ struct TranscriptionView: View {
                     
                     statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
                 } else if viewModel.showSingleFileProgress {
-                    // Show progress bar for single file transcription
-                    VStack(spacing: 16) {
-                        Text(viewModel.statusMessage.isEmpty ? localized("transcribing") : viewModel.statusMessage)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.textSecondary)
+                    // Show progress bar for single file transcription; the
+                    // status is rendered once, below the bar like in the
+                    // other branches
+                    ProgressView(value: viewModel.singleFileProgress)
+                        .progressViewStyle(LinearProgressViewStyle())
+                        .tint(Color.primaryAccent)
+                        .frame(width: 260)
+                        .scaleEffect(y: 2)
                         
-                        ProgressView(value: viewModel.singleFileProgress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                            .tint(Color.primaryAccent)
-                            .frame(width: 260)
-                            .scaleEffect(y: 2)
-                    }
-                    
-                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("preparing_audio_file") : viewModel.statusMessage)
+                    statusMessageText(viewModel.statusMessage.isEmpty ? localized("transcribing") : viewModel.statusMessage)
                 } else {
                     AccentSpinner(size: 32, lineWidth: 3)
                     
@@ -634,7 +758,7 @@ struct TranscriptionView: View {
                 
                 // Re-transcribe Section
                 VStack(alignment: .leading, spacing: 8) {
-                    Button(action: { viewModel.retranscribe() }) {
+                    Button(action: { restartTranscription() }) {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.trianglehead.2.counterclockwise")
                                 .font(.system(size: 13))
@@ -759,9 +883,14 @@ struct TranscriptionView: View {
                             llmModelPopover
                         }
                         
-                        // Process button
+                        // Process button — the way to stop the request
+                        // while one is streaming
                         Button(action: {
-                            processTranscription()
+                            if isProcessingLLM {
+                                cancelLLMProcessing()
+                            } else {
+                                processTranscription()
+                            }
                         }) {
                             HStack(spacing: 6) {
                                 if isProcessingLLM {
@@ -770,7 +899,7 @@ struct TranscriptionView: View {
                                     Image(systemName: "sparkles")
                                         .font(.system(size: 13))
                                 }
-                                Text(isProcessingLLM ? localized("processing_with_llm") : localized("process"))
+                                Text(isProcessingLLM ? localized("cancel") : localized("process"))
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .frame(maxWidth: .infinity)
@@ -1007,9 +1136,9 @@ struct TranscriptionView: View {
     private func displayModeButton(_ mode: DisplayMode, icon: String, labelKey: String) -> some View {
         Button(action: {
             displayMode = mode
-            if mode == .speakers {
-                viewModel.startDiarizationIfNeeded()
-            }
+            // Starts diarization now if the run has finished, otherwise as
+            // soon as it does
+            viewModel.setSpeakersModeActive(mode == .speakers)
         }) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
@@ -1175,7 +1304,9 @@ struct TranscriptionView: View {
     }
     
     private var processButtonDisabled: Bool {
-        sectionDisabled || selectedPrompt == nil || isProcessingLLM || speakerTextPending || !hasLLMModelSelected
+        // While a request is streaming the button is its Cancel button
+        if isProcessingLLM { return false }
+        return sectionDisabled || selectedPrompt == nil || speakerTextPending || !hasLLMModelSelected
     }
 
     /// The selected prompt, as long as it still exists in Settings.
@@ -1370,6 +1501,8 @@ struct TranscriptionView: View {
                 )
                 
                 for try await token in stream {
+                    // Cancelled between tokens: nothing more may be appended
+                    if Task.isCancelled { break }
                     viewModel.processedText += token
                 }
             } catch {
@@ -1378,6 +1511,9 @@ struct TranscriptionView: View {
                 }
             }
             
+            // After a cancel the state belongs to whoever cancelled — it has
+            // been reset already, and a newer request may be running
+            guard !Task.isCancelled else { return }
             isProcessingLLM = false
         }
     }
@@ -1604,6 +1740,14 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     /// speaker-count control doesn't apply (the API has no such knob).
     @Published var isCloudDiarization = false
     private var diarizationTask: Task<Void, Never>?
+    /// Identifies the current diarization run. Cancelling a run does not
+    /// stop the diarizer at once, so a run that still reports progress or a
+    /// result after being cancelled is recognised by its stale id and ignored.
+    private var diarizationRunID = 0
+    /// The view is showing the Speakers mode. Diarization needs a finished
+    /// run's segments; when the mode is chosen before they exist (or the run
+    /// is redone while it is showing), `finishTranscription()` starts it.
+    private var speakersModeActive = false
 
     /// Distinct speaker ids present in the diarization result, sorted.
     var detectedSpeakerIds: [Int] {
@@ -1612,7 +1756,16 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     @Published var elapsedTime: Double = 0
     @Published var estimatedTimeRemaining: Double = 0
+    /// Why the most recent run failed or is incomplete; nil otherwise. Shown
+    /// in its own card — never written into `transcribedText`, which holds
+    /// only what was actually transcribed.
     @Published var errorMessage: String?
+    /// The most recent run was cancelled before it finished. With no text
+    /// and no error, this is what tells "cancelled" from "no speech found".
+    @Published private(set) var wasCancelled = false
+    /// The model the current (or most recent) run uses. The toolbar
+    /// selection can change while a run is in flight; this does not.
+    @Published private(set) var activeModelId = ""
     @Published var transcriptionTime: Double = 0
     @Published var statusMessage: String = ""
     @Published var currentChunk = 0
@@ -1646,7 +1799,17 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     private var bergetService: BergetTranscriptionService?
     private var transcriptionStartTime: Date?
     private var transcriptionTimer: Timer?
+    /// Advances the estimated-progress bar while a cloud request is out.
+    private var cloudProgressTimer: Timer?
     private var transcriptionTask: Task<Void, Never>?
+    /// Identifies the current transcription run. It changes when a run starts
+    /// and when one is cancelled, so whatever an earlier run still delivers
+    /// (a queued stream update, a cloud response that was already in flight)
+    /// can tell it has been superseded and leave the view model alone.
+    private var runID = 0
+    /// False until the first run starts. Only once a run has been started
+    /// does "not transcribing, no text" mean that a run ended with nothing.
+    private(set) var hasStartedRun = false
     
     // Get selected model from UserDefaults
     @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
@@ -1663,6 +1826,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     deinit {
         timer?.invalidate()
         transcriptionTimer?.invalidate()
+        cloudProgressTimer?.invalidate()
         audioPlayer?.stop()
     }
 
@@ -1684,19 +1848,54 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     /// Cancels any in-flight transcription/LLM work, stops playback, and invalidates timers.
     /// Called when the view is dismissed or replaced.
     func cancelActiveWork() {
+        // End the run as cancelled and give it a stale id: a cloud request
+        // cannot be recalled here, and its response must not be applied
+        endRunIfStillActive(runID)
+        runID += 1
         transcriptionTask?.cancel()
         transcriptionTask = nil
         transcriptionService?.cancelTranscription()
-        diarizationTask?.cancel()
-        diarizationTask = nil
-        isDiarizing = false
-        transcriptionTimer?.invalidate()
-        transcriptionTimer = nil
+        cancelDiarization()
         timer?.invalidate()
         timer = nil
         audioPlayer?.stop()
         isPlaying = false
-        isTranscribing = false
+    }
+
+    /// Whether `run` is still the run in flight: not superseded by a newer
+    /// one, and not cancelled.
+    private func isCurrentRun(_ run: Int) -> Bool {
+        run == runID && !Task.isCancelled
+    }
+
+    /// Ends `run` as cancelled: it is being cancelled or replaced, or its task
+    /// stopped without a result or an error. Nothing happens if the run has
+    /// already ended or been superseded, so every exit of a run's task can
+    /// call this; it is what keeps `isTranscribing` from staying set with
+    /// nothing running.
+    private func endRunIfStillActive(_ run: Int) {
+        guard run == runID, isTranscribing else { return }
+        wasCancelled = true
+        finishTranscription()
+    }
+
+    /// Tells the view model whether the Speakers mode is showing, and starts
+    /// diarization if its input is ready. If not, `finishTranscription()`
+    /// starts it once the run has produced segments.
+    func setSpeakersModeActive(_ active: Bool) {
+        speakersModeActive = active
+        if active {
+            startDiarizationIfNeeded()
+        }
+    }
+
+    /// Stops diarization and makes sure nothing the stopped run still
+    /// delivers is applied. The task is kept: the diarizer may not stop at
+    /// once, and the next run waits for it (see startDiarizationIfNeeded).
+    private func cancelDiarization() {
+        diarizationRunID += 1
+        diarizationTask?.cancel()
+        isDiarizing = false
     }
 
     /// Re-runs diarization with a pinned (or auto) speaker count.
@@ -1704,10 +1903,8 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     func rediarize(speakerCount: Int?) {
         guard speakerCountHint != speakerCount || speakerTurns == nil else { return }
         speakerCountHint = speakerCount
-        diarizationTask?.cancel()
-        diarizationTask = nil
+        cancelDiarization()
         speakerTurns = nil
-        isDiarizing = false
         startDiarizationIfNeeded()
     }
 
@@ -1751,28 +1948,40 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         isDiarizing = true
         diarizationError = nil
         diarizationProgress = 0
+        diarizationRunID += 1
+        let run = diarizationRunID
+        let previousRun = diarizationTask
 
         diarizationTask = Task {
+            // A cancelled run can still be inside the diarizer — a fast
+            // re-transcription gets here before it has wound down. Runs share
+            // one diarizer instance, so they go one at a time.
+            await previousRun?.value
+            guard run == diarizationRunID else { return }
             do {
                 let turns = try await DiarizationService.shared.diarize(
                     fileURL: fileURL,
                     numberOfSpeakers: speakerCountHint
                 ) { progress in
                     DispatchQueue.main.async {
+                        guard run == self.diarizationRunID else { return }
                         self.diarizationProgress = progress
                     }
                 }
                 await MainActor.run {
+                    guard run == self.diarizationRunID else { return }
                     self.speakerTurns = turns
                     self.isDiarizing = false
                     self.exportDiarizationDebug(source: "local")
                 }
             } catch is CancellationError {
                 await MainActor.run {
+                    guard run == self.diarizationRunID else { return }
                     self.isDiarizing = false
                 }
             } catch {
                 await MainActor.run {
+                    guard run == self.diarizationRunID else { return }
                     self.diarizationError = error.localizedDescription
                     self.isDiarizing = false
                 }
@@ -1785,7 +1994,7 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
             self.resetPlaybackToStart()
         }
     }
-
+    
     /// The end-of-playback state: stopped and rewound to 0:00.
     private func resetPlaybackToStart() {
         isPlaying = false
@@ -1794,8 +2003,13 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         currentTime = 0
         audioPlayer?.currentTime = 0
     }
-    
+
     func retranscribe() {
+        // Speaker turns and LLM output describe the transcript being
+        // replaced; they must not show up next to the new one
+        cancelDiarization()
+        processedText = ""
+
         // Reset all state for a fresh transcription
         transcribedText = ""
         wordCount = 0
@@ -1824,17 +2038,32 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     func startTranscription() {
+        // A new run replaces one that is still in flight. Ending that one
+        // first stops its timers and clears its progress state; the new run
+        // id makes whatever it still delivers stale.
+        endRunIfStillActive(runID)
+        transcriptionTask?.cancel()
+        runID += 1
+        let run = runID
+        hasStartedRun = true
+        activeModelId = selectedModel
+        wasCancelled = false
+        errorMessage = nil
+        // Each run has its own clock
+        transcriptionStartTime = nil
+        transcriptionTime = 0
         isTranscribing = true
-        // Note: transcription timer starts when actual transcription text arrives,
-        // not here — model loading/initialization shouldn't count as transcription time.
+        // Note: the transcription clock starts when actual transcription text arrives
+        // (local) or the upload begins (cloud), not here — model loading and audio
+        // preparation shouldn't count as transcription time.
         
         // Get selected language
         let selectedLanguage = LanguageManager.shared.selectedLanguage.code == "auto" ? nil : LanguageManager.shared.selectedLanguage.code
         
         // Determine which service to use based on selected model
-        if selectedModel.hasPrefix("berget") {
+        if ModelManager.engine(for: selectedModel) == .cloud {
             guard !UserDefaults.standard.bool(forKey: "localOnlyMode") else {
-                handleTranscriptionError(CloudTranscriptionError.apiError(localized("local_only_cloud_blocked")))
+                failTranscription(localized("local_only_cloud_blocked"))
                 return
             }
             // Cloud transcription (id format "berget:<api model id>";
@@ -1842,232 +2071,263 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
             let apiModel = selectedModel.hasPrefix("berget:")
                 ? String(selectedModel.dropFirst("berget:".count))
                 : "KBLab/kb-whisper-large"
-            startBergetTranscription(model: apiModel, language: selectedLanguage)
+            startBergetTranscription(model: apiModel, language: selectedLanguage, run: run)
         } else {
-            // Use local WhisperKit service
-            startLocalTranscription()
+            // Local engines (WhisperKit, Parakeet). An id no engine claims
+            // goes this way too: TranscriptionService reports it as unsupported.
+            startLocalTranscription(run: run)
         }
     }
     
-    private func startLocalTranscription() {
+    private func startLocalTranscription(run: Int) {
         statusMessage = localized("processing_local_model")
         
-        // All local models now use WhisperKit (streaming)
-        // This includes OpenAI models and KB CoreML models
-        startWhisperKitTranscription()
+        // TranscriptionService streams the same updates for every local engine
+        startWhisperKitTranscription(run: run)
     }
     
-    private func startWhisperKitTranscription() {
-        // Original streaming WhisperKit implementation
-        transcriptionService = TranscriptionService()
+    private func startWhisperKitTranscription(run: Int) {
+        let service = TranscriptionService()
+        transcriptionService = service
 
         transcriptionTask = Task {
+            // Cancelled or replaced before it got to run: don't start the
+            // engine at all
+            guard isCurrentRun(run) else {
+                endRunIfStillActive(run)
+                return
+            }
             do {
                 // Stream transcription updates
-                for try await update in transcriptionService!.transcribe(fileURL: fileURL) {
-                    await MainActor.run {
-                        if update.progress < 0.15 && !update.isComplete {
-                            // Low-progress updates are status messages (model loading, init, etc.)
-                            // Show as status text, don't set as transcribed text
-                            self.statusMessage = update.text
-                        } else {
-                            // Actual transcription content
-                            self.transcribedText = update.text
-                            self.progress = update.progress
-                            self.segments = update.segments
-                            self.wordCount = update.text.split(separator: " ").count
-                            self.statusMessage = ""
+                for try await update in service.transcribe(fileURL: fileURL) {
+                    // An update that was already queued when the run was
+                    // cancelled or replaced is not applied. The rest of the
+                    // iteration runs on the main actor without suspending,
+                    // so a cancel cannot land between this check and the
+                    // writes below.
+                    guard isCurrentRun(run) else { break }
+                    if update.progress < 0.15 && !update.isComplete {
+                        // Low-progress updates are status messages (model loading, init, etc.)
+                        // Show as status text, don't set as transcribed text
+                        self.statusMessage = update.text
+                    } else if !update.isComplete && update.text == localized("transcribing") {
+                        // WhisperKit sends this placeholder as content until
+                        // it has decoded some text. It is a status as well:
+                        // kept as transcript it would be counted, exported,
+                        // and left behind as a "partial transcript" if the
+                        // run then failed. Decoding has begun, though, so
+                        // the clock starts.
+                        self.statusMessage = update.text
+                        self.startTranscriptionClock()
+                    } else {
+                        // Actual transcription content
+                        self.transcribedText = update.text
+                        self.progress = update.progress
+                        self.segments = update.segments
+                        self.wordCount = update.text.split(separator: " ").count
+                        self.statusMessage = ""
                             
-                            // Start transcription timer on first real content
-                            if self.transcriptionStartTime == nil {
-                                self.transcriptionStartTime = Date()
-                                self.transcriptionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                                    if let startTime = self?.transcriptionStartTime {
-                                        self?.transcriptionTime = Date().timeIntervalSince(startTime)
-                                    }
-                                }
-                            }
-                        }
+                        // Start transcription timer on first real content
+                        self.startTranscriptionClock()
+                    }
                         
-                        if update.isComplete {
-                            self.finishTranscription()
-                        }
+                    if update.isComplete {
+                        self.finishTranscription()
                     }
                 }
             } catch is CancellationError {
-                // User-initiated stop — reset state cleanly, no error UI
-                await MainActor.run {
-                    self.finishTranscription()
-                }
+                // User-initiated stop — no error UI; the run is ended below
             } catch {
-                await MainActor.run {
-                    self.handleTranscriptionError(error)
+                // A failure that comes in after the run was cancelled or
+                // replaced is not a result to show
+                if isCurrentRun(run) {
+                    handleTranscriptionError(error)
                 }
+            }
+            // A cancelled stream ends without a final update and without an
+            // error; the run must not stay marked as in flight
+            endRunIfStillActive(run)
+        }
+    }
+
+    /// Starts the clock behind the transcription-time stat, once per run.
+    private func startTranscriptionClock() {
+        guard transcriptionStartTime == nil else { return }
+        transcriptionStartTime = Date()
+        // Timer blocks are @Sendable, but a timer fires on the run loop it
+        // was scheduled on. The view model only schedules from the main
+        // actor, so its timer blocks run on the main thread and may assume
+        // main-actor isolation (checked at runtime).
+        transcriptionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let startTime = self.transcriptionStartTime else { return }
+                self.transcriptionTime = Date().timeIntervalSince(startTime)
             }
         }
     }
 
-    private func startBergetTranscription(model: String, language: String?) {
+    private func startBergetTranscription(model: String, language: String?, run: Int) {
         guard !bergetKey.isEmpty else {
-            handleTranscriptionError(CloudTranscriptionError.apiError("Berget API key not configured"))
+            failTranscription(localized("berget_api_key_missing"))
             return
         }
         
         statusMessage = localized("preparing_audio_file")
-        bergetService = BergetTranscriptionService(apiKey: bergetKey, model: model)
+        let service = BergetTranscriptionService(apiKey: bergetKey, model: model)
+        bergetService = service
 
         transcriptionTask = Task {
+            // Cancelled or replaced before it got to run
+            guard isCurrentRun(run) else {
+                endRunIfStillActive(run)
+                return
+            }
             do {
                 // Preprocess audio
-                await MainActor.run {
-                    self.isPreprocessing = true
-                }
+                isPreprocessing = true
                 
                 let processedAudio = try await AudioPreprocessor.shared.preprocessAudio(
                     url: fileURL,
                     onProgress: { message in
                         DispatchQueue.main.async {
+                            guard run == self.runID else { return }
                             self.statusMessage = message
                         }
                     }
                 )
+                // Temporary files go when this scope is left, however the run
+                // ends. Requests are awaited even after a cancel, so a file is
+                // never deleted while an upload is still reading it.
+                defer { AudioPreprocessor.shared.cleanupProcessedAudio(processedAudio) }
                 
-                await MainActor.run {
-                    self.isPreprocessing = false
-                    self.totalChunks = processedAudio.chunks.count
+                // Preprocessing does not observe cancellation; a run that was
+                // cancelled meanwhile stops here, before anything is uploaded
+                if isCurrentRun(run) {
+                    isPreprocessing = false
+                    totalChunks = processedAudio.chunks.count
+                    // Preparation is over: what follows is transcription time
+                    startTranscriptionClock()
+
+                    if processedAudio.chunks.count > 1 {
+                        // Handle chunked transcription
+                        await transcribeChunksWithBerget(processedAudio: processedAudio, language: language, service: service, run: run)
+                    } else if let chunk = processedAudio.chunks.first {
+                        // Single file transcription
+                        await transcribeSingleFileWithBerget(url: chunk.url, language: language, service: service, run: run)
+                    } else {
+                        failTranscription(localized("no_audio_in_file"))
+                    }
                 }
-                
-                if processedAudio.chunks.count > 1 {
-                    // Handle chunked transcription
-                    await transcribeChunksWithBerget(processedAudio: processedAudio, language: language)
-                } else {
-                    // Single file transcription
-                    await transcribeSingleFileWithBerget(url: processedAudio.chunks[0].url, language: language)
-                }
-                
-                // Cleanup temporary files
-                AudioPreprocessor.shared.cleanupProcessedAudio(processedAudio)
             } catch is CancellationError {
-                // User-initiated stop — reset state cleanly, no error UI
-                await MainActor.run {
-                    self.finishTranscription()
-                }
+                // User-initiated stop — no error UI; the run is ended below
             } catch {
-                await MainActor.run {
-                    self.handleTranscriptionError(error)
+                // A failure that comes in after the run was cancelled or
+                // replaced is not a result to show
+                if isCurrentRun(run) {
+                    handleTranscriptionError(error)
                 }
             }
+            // A run that stopped because it was cancelled has no result and
+            // no error, but must not stay marked as in flight
+            endRunIfStillActive(run)
         }
     }
     
-    private func transcribeSingleFileWithBerget(url: URL, language: String?) async {
-        guard let bergetService else { return }
-
-        await MainActor.run {
-            self.statusMessage = localized("sending_audio_berget")
-            self.showSingleFileProgress = true
-            self.singleFileProgress = 0
+    /// Sends one file to Berget and suspends until the service calls back.
+    /// The response is reduced to a `CloudTranscript` inside the completion
+    /// handler: `TranscriptionResult` is not Sendable, so the handler must not
+    /// pass it on to the main actor.
+    private func cloudTranscript(
+        from service: BergetTranscriptionService,
+        audioURL: URL,
+        language: String?,
+        onProgress: @escaping @Sendable (String) -> Void
+    ) async -> Result<CloudTranscript, Error> {
+        await withCheckedContinuation { continuation in
+            service.transcribe(
+                audioURL: audioURL,
+                language: language,
+                onProgress: onProgress,
+                completion: { result in
+                    continuation.resume(returning: result.map { CloudTranscript($0) })
+                }
+            )
         }
+    }
+
+    private func transcribeSingleFileWithBerget(url: URL, language: String?, service: BergetTranscriptionService, run: Int) async {
+        // Set directly: this already runs on the main actor, and a hop would
+        // let a cancel slip in between the caller's check and these writes
+        statusMessage = localized("sending_audio_berget")
+        showSingleFileProgress = true
+        singleFileProgress = 0
         
         // Get duration for progress estimation
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         let duration = try? await asset.load(.duration)
         let durationInSeconds = duration != nil ? CMTimeGetSeconds(duration!) : 60.0
         let expectedTime = max(durationInSeconds / 9.0, 2.0) // 9x realtime with minimum 2 seconds
         
-        // Start progress timer
-        let timerBox = SendableTimerBox()
-        await MainActor.run {
-            timerBox.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
+        // Cancelled while the duration was loading: nothing is uploaded
+        guard isCurrentRun(run) else { return }
+
+        // Start progress timer (isolation: see startTranscriptionClock)
+        cloudProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
                 self.singleFileProgress = min(self.singleFileProgress + (0.1 / expectedTime), 0.95)
             }
         }
         
         // Wait for the upload to complete before returning so the caller doesn't
         // delete the temp file while the request is still reading it
-        await withCheckedContinuation { continuation in
-            bergetService.transcribe(
-                audioURL: url,
-                language: language,
-                onProgress: { text in
-                    DispatchQueue.main.async {
-                        self.transcribedText = text
-                        self.wordCount = text.split(separator: " ").count
-                        self.statusMessage = localized("transcribing")
-                        self.singleFileProgress = min(self.singleFileProgress, 0.8) // Update progress if we get intermediate results
-                    }
-                },
-                completion: { result in
-                    timerBox.invalidate()
-                    DispatchQueue.main.async {
-                        self.singleFileProgress = 1.0
-                        self.showSingleFileProgress = false
-
-                        switch result {
-                        case .success(let transcriptionResult):
-                            // Prefer joined segment text (clean) over the raw
-                            // text field, which may embed speaker prefixes
-                            let joined = transcriptionResult.segments.map(\.text).joined(separator: " ")
-                            self.transcribedText = joined.isEmpty ? transcriptionResult.text : joined
-                            self.segments = transcriptionResult.segments.map { segment in
-                                TranscriptionSegmentData(
-                                    start: segment.start,
-                                    end: segment.end,
-                                    text: segment.text,
-                                    words: segment.words?.map { word in
-                                        WordTimestamp(word: word.word, start: word.start, end: word.end, confidence: 1.0)
-                                    }
-                                )
-                            }
-                            // Cloud diarization: prefer word-level speaker
-                            // labels (align+diarize) — they capture handovers
-                            // mid-segment; fall back to segment-level labels
-                            func speakerId(_ label: String?) -> Int? {
-                                guard let label else { return nil }
-                                return Int(label.components(separatedBy: "_").last ?? "")
-                            }
-                            var turns: [SpeakerTurn] = []
-                            let speakerWords = transcriptionResult.segments
-                                .flatMap { $0.words ?? [] }
-                                .compactMap { word -> (Int, Double, Double)? in
-                                    guard let id = speakerId(word.speaker) else { return nil }
-                                    return (id, word.start, word.end)
-                                }
-                            if !speakerWords.isEmpty {
-                                // Merge consecutive same-speaker words into turns
-                                for (id, start, end) in speakerWords {
-                                    if let last = turns.last, last.speakerId == id {
-                                        turns[turns.count - 1] = SpeakerTurn(speakerId: id, start: last.start, end: end)
-                                    } else {
-                                        turns.append(SpeakerTurn(speakerId: id, start: start, end: end))
-                                    }
-                                }
-                            } else {
-                                turns = transcriptionResult.segments.compactMap { segment in
-                                    guard let id = speakerId(segment.speaker) else { return nil }
-                                    return SpeakerTurn(speakerId: id, start: segment.start, end: segment.end)
-                                }
-                            }
-                            if !turns.isEmpty {
-                                self.speakerTurns = turns
-                                self.isCloudDiarization = true
-                                self.exportDiarizationDebug(source: "cloud")
-                            }
-                            self.wordCount = self.transcribedText.split(separator: " ").count
-                            self.finishTranscription()
-                        case .failure(let error):
-                            self.handleTranscriptionError(error)
-                        }
-
-                        continuation.resume()
-                    }
+        let outcome = await cloudTranscript(
+            from: service,
+            audioURL: url,
+            language: language,
+            onProgress: { text in
+                DispatchQueue.main.async {
+                    guard run == self.runID else { return }
+                    self.transcribedText = text
+                    self.wordCount = text.split(separator: " ").count
+                    self.statusMessage = localized("transcribing")
+                    self.singleFileProgress = min(self.singleFileProgress, 0.8) // Update progress if we get intermediate results
                 }
-            )
+            }
+        )
+
+        // A request cannot be recalled once sent. If the run was cancelled or
+        // replaced while it was out, its response is dropped here.
+        guard isCurrentRun(run) else { return }
+
+        cloudProgressTimer?.invalidate()
+        cloudProgressTimer = nil
+        singleFileProgress = 1.0
+        showSingleFileProgress = false
+
+        switch outcome {
+        case .success(let transcript):
+            // Prefer joined segment text (clean) over the raw
+            // text field, which may embed speaker prefixes
+            let joined = transcript.segments.map(\.text).joined(separator: " ")
+            // Trimmed, so a response without speech is an empty transcript
+            transcribedText = (joined.isEmpty ? transcript.text : joined)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            segments = transcript.segments
+            if !transcript.speakerTurns.isEmpty {
+                speakerTurns = transcript.speakerTurns
+                isCloudDiarization = true
+                exportDiarizationDebug(source: "cloud")
+            }
+            wordCount = transcribedText.split(separator: " ").count
+            finishTranscription()
+        case .failure(let error):
+            handleTranscriptionError(error)
         }
     }
     
     @MainActor
-    private func transcribeChunksWithBerget(processedAudio: AudioPreprocessor.ProcessedAudio, language: String?) async {
+    private func transcribeChunksWithBerget(processedAudio: AudioPreprocessor.ProcessedAudio, language: String?, service: BergetTranscriptionService, run: Int) async {
         var transcriptionResults: [(chunk: AudioPreprocessor.AudioChunk, result: TranscriptionResult)] = []
         
         // Set flag to indicate we're processing chunks
@@ -2075,60 +2335,70 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         self.failedChunks = []
         
         for (index, chunk) in processedAudio.chunks.enumerated() {
+            // Cancelled: the remaining chunks are not uploaded
+            guard isCurrentRun(run) else { return }
+
             self.currentChunk = index + 1
             self.statusMessage = String(format: localized("transcribing_chunk"), index + 1, processedAudio.chunks.count)
             self.chunkProgress = 0
             
-            // Start a timer to simulate progress (9x realtime)
+            // Start a timer to simulate progress (9x realtime;
+            // isolation: see startTranscriptionClock)
             let chunkDuration = chunk.endTime - chunk.startTime
             let expectedTime = chunkDuration / 9.0
-            let chunkTimerBox = SendableTimerBox()
-            
-            chunkTimerBox.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
-                self.chunkProgress = min(self.chunkProgress + (0.1 / expectedTime), 0.95)
+            cloudProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.chunkProgress = min(self.chunkProgress + (0.1 / expectedTime), 0.95)
+                }
             }
             
-            await withCheckedContinuation { continuation in
-                bergetService?.transcribe(
-                    audioURL: chunk.url,
-                    language: language,
-                    onProgress: { text in
-                        DispatchQueue.main.async {
-                            // Update chunk progress
-                            self.chunkProgress = 0.5
-                        }
-                    },
-                    completion: { result in
-                        chunkTimerBox.invalidate()
-                        
-                        DispatchQueue.main.async {
-                            self.chunkProgress = 1.0
-                            
-                            switch result {
-                            case .success(let transcriptionResult):
-                                transcriptionResults.append((chunk: chunk, result: transcriptionResult))
-                                
-                            case .failure:
-                                self.failedChunks.append(index + 1)
-                            }
-                            
-                            continuation.resume()
-                        }
+            let outcome = await cloudTranscript(
+                from: service,
+                audioURL: chunk.url,
+                language: language,
+                onProgress: { _ in
+                    DispatchQueue.main.async {
+                        guard run == self.runID else { return }
+                        // Update chunk progress
+                        self.chunkProgress = 0.5
                     }
-                )
+                }
+            )
+                        
+            // The response to a run that was cancelled or replaced while the
+            // request was out is dropped, and the loop ends
+            guard isCurrentRun(run) else { return }
+                            
+            cloudProgressTimer?.invalidate()
+            cloudProgressTimer = nil
+            self.chunkProgress = 1.0
+                                
+            switch outcome {
+            case .success(let transcript):
+                transcriptionResults.append((chunk: chunk, result: transcript.transcriptionResult))
+                            
+            case .failure:
+                self.failedChunks.append(index + 1)
             }
         }
         
         // Merge results
         if !transcriptionResults.isEmpty {
             await MainActor.run {
+                // MainActor.run suspends on the way in, so the run may have
+                // been cancelled since the loop's last check
+                guard self.isCurrentRun(run) else { return }
                 self.statusMessage = localized("merging_results")
                 
                 let mergedResult = AudioPreprocessor.shared.mergeChunkedTranscriptions(transcriptionResults)
                 
                 if mergedResult.text.isEmpty && transcriptionResults.count > 0 {
-                    // Fallback: just concatenate all texts if merge failed
+                    // Fallback: just concatenate all texts if merge failed.
+                    // Trimmed, so chunks without speech give an empty
+                    // transcript rather than a few spaces.
                     self.transcribedText = transcriptionResults.map { $0.result.text }.joined(separator: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     self.segments = []
                 } else {
                     self.transcribedText = mergedResult.text
@@ -2142,10 +2412,12 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
                     }
                 }
                 
-                // Warn about failed chunks
+                // Some chunks failed: the transcript has gaps. Reported next
+                // to it like an error — appended to the text it would be
+                // counted, exported and sent to the LLM as if it were speech
                 if !self.failedChunks.isEmpty {
                     let failedList = self.failedChunks.map { String($0) }.joined(separator: ", ")
-                    self.transcribedText += "\n\n⚠️ Warning: Chunk(s) \(failedList) of \(processedAudio.chunks.count) failed to transcribe. Some audio may be missing from the result."
+                    self.errorMessage = String(format: localized("chunks_failed"), failedList, processedAudio.chunks.count)
                 }
                 
                 self.wordCount = self.transcribedText.split(separator: " ").count
@@ -2154,8 +2426,9 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
             }
         } else {
             await MainActor.run {
+                guard self.isCurrentRun(run) else { return }
                 self.isProcessingChunks = false
-                self.handleTranscriptionError(CloudTranscriptionError.apiError("All \(processedAudio.chunks.count) chunks failed to transcribe. No results received."))
+                self.failTranscription(String(format: localized("all_chunks_failed"), processedAudio.chunks.count))
             }
         }
     }
@@ -2165,6 +2438,8 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         self.estimatedTimeRemaining = 0
         self.transcriptionTimer?.invalidate()
         self.transcriptionTimer = nil
+        self.cloudProgressTimer?.invalidate()
+        self.cloudProgressTimer = nil
         // Keep the final transcription time displayed
         if let startTime = self.transcriptionStartTime {
             self.transcriptionTime = Date().timeIntervalSince(startTime)
@@ -2178,43 +2453,25 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
         self.singleFileProgress = 0
         self.isProcessingChunks = false
         self.statusMessage = ""
+
+        // Speakers mode was chosen before this run had segments, or the run
+        // was redone while it is showing: diarize now that they exist. Not
+        // after a cancel — any segments then belong to an earlier run.
+        if speakersModeActive && !wasCancelled {
+            startDiarizationIfNeeded()
+        }
+    }
+
+    /// Ends the run as failed. The message goes to `errorMessage` and from
+    /// there to its own card; `transcribedText` keeps whatever was
+    /// transcribed before the failure.
+    private func failTranscription(_ message: String) {
+        errorMessage = message
+        finishTranscription()
     }
     
     private func handleTranscriptionError(_ error: Error) {
-        self.isTranscribing = false
-        self.errorMessage = error.localizedDescription
-        
-        // Stop timer on error
-        self.transcriptionTimer?.invalidate()
-        self.transcriptionTimer = nil
-        
-        // Reset all progress tracking
-        self.currentChunk = 0
-        self.totalChunks = 0
-        self.chunkProgress = 0
-        self.isPreprocessing = false
-        self.isProcessingChunks = false
-        self.showSingleFileProgress = false
-        self.singleFileProgress = 0
-        
-        // Show error in UI
-        let modelName = getModelDisplayName(selectedModel)
-        self.transcribedText = """
-        ⚠️ Transcription Error
-        
-        Model: \(modelName)
-        Error: \(error.localizedDescription)
-        
-        Please check:
-        1. API key is configured (for cloud models)
-        2. Model is downloaded (for local models)
-        3. Audio file is valid
-        4. Internet connection (for cloud models)
-        """
-    }
-    
-    private func getModelDisplayName(_ modelId: String) -> String {
-        ModelManager.shared.displayName(for: modelId)
+        failTranscription(error.localizedDescription)
     }
     
     func togglePlayPause() {
@@ -2254,9 +2511,12 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
     
     func startTimer() {
+        // Isolation: see startTranscriptionClock
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, !self.isScrubbing else { return }
-            self.currentTime = self.audioPlayer?.currentTime ?? 0
+            MainActor.assumeIsolated {
+                guard let self, !self.isScrubbing else { return }
+                self.currentTime = self.audioPlayer?.currentTime ?? 0
+            }
         }
     }
     
@@ -2344,6 +2604,89 @@ class TranscriptionViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 }
 
 
+
+// MARK: - Cloud response
+
+/// What the view model uses of a Berget response, as Sendable values. The
+/// service hands its completion handler a `TranscriptionResult`, which is not
+/// Sendable; this is built from it there, and only this crosses to the main
+/// actor.
+private struct CloudTranscript: Sendable {
+    /// The response's own text field. It may embed speaker prefixes, so the
+    /// segment texts are preferred where there are any.
+    let text: String
+    let segments: [TranscriptionSegmentData]
+    /// Server-side diarization, empty when the response carried no speakers.
+    let speakerTurns: [SpeakerTurn]
+
+    init(_ result: TranscriptionResult) {
+        text = result.text
+        segments = result.segments.map { segment in
+            TranscriptionSegmentData(
+                start: segment.start,
+                end: segment.end,
+                text: segment.text,
+                words: segment.words?.map { word in
+                    WordTimestamp(word: word.word, start: word.start, end: word.end, confidence: 1.0)
+                }
+            )
+        }
+
+        // Cloud diarization: prefer word-level speaker
+        // labels (align+diarize) — they capture handovers
+        // mid-segment; fall back to segment-level labels
+        func speakerId(_ label: String?) -> Int? {
+            guard let label else { return nil }
+            return Int(label.components(separatedBy: "_").last ?? "")
+        }
+        var turns: [SpeakerTurn] = []
+        let speakerWords = result.segments
+            .flatMap { $0.words ?? [] }
+            .compactMap { word -> (Int, Double, Double)? in
+                guard let id = speakerId(word.speaker) else { return nil }
+                return (id, word.start, word.end)
+            }
+        if !speakerWords.isEmpty {
+            // Merge consecutive same-speaker words into turns
+            for (id, start, end) in speakerWords {
+                if let last = turns.last, last.speakerId == id {
+                    turns[turns.count - 1] = SpeakerTurn(speakerId: id, start: last.start, end: end)
+                } else {
+                    turns.append(SpeakerTurn(speakerId: id, start: start, end: end))
+                }
+            }
+        } else {
+            turns = result.segments.compactMap { segment in
+                guard let id = speakerId(segment.speaker) else { return nil }
+                return SpeakerTurn(speakerId: id, start: segment.start, end: segment.end)
+            }
+        }
+        speakerTurns = turns
+    }
+
+    /// Back in the package's type, for `AudioPreprocessor.mergeChunkedTranscriptions`.
+    /// The merge reads the text and each segment's timing and text, which is
+    /// what is restored; the remaining fields are placeholders.
+    var transcriptionResult: TranscriptionResult {
+        TranscriptionResult(
+            text: text,
+            segments: segments.enumerated().map { index, segment in
+                TranscriptionSegment(
+                    id: index,
+                    start: segment.start,
+                    end: segment.end,
+                    text: segment.text,
+                    confidence: nil,
+                    speaker: nil
+                )
+            },
+            language: "",
+            duration: 0,
+            timestamp: Date(),
+            modelUsed: ""
+        )
+    }
+}
 
 // MARK: - Auto-Scrolling Text View
 

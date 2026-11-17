@@ -151,6 +151,16 @@
 "words" = "Words";
 "tokens" = "Tokens";
 "transcribing" = "Transcribing...";
+"no_speech_detected" = "No speech detected\nThe recording may be silent or too short to transcribe.";
+"transcription_cancelled" = "Transcription cancelled";
+"transcription_failed" = "Transcription failed";
+"transcription_incomplete" = "Transcription incomplete";
+"transcription_error_hint_cloud" = "Check that your API key is valid, that you are online and that the file contains audio.";
+"transcription_error_hint_local" = "Check that the model has been downloaded and that the file contains audio.";
+"berget_api_key_missing" = "No Berget API key is set. Add one in Settings.";
+"no_audio_in_file" = "No audio could be read from the file.";
+"chunks_failed" = "Chunks not transcribed: %@ (of %d). Some of the audio is missing from the transcript.";
+"all_chunks_failed" = "None of the %d chunks could be transcribed.";
 "llm_processing_failed" = "Processing failed: %@";
 "llm_unavailable_local_only" = "Local-only mode is on, so cloud models are disabled, and no Ollama models were found. Start Ollama to process text on this Mac.";
 "llm_unavailable_no_provider" = "No language model is available. Add a Berget API key in Settings, or start Ollama.";
