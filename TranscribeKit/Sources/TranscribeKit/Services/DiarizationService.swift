@@ -38,10 +38,98 @@ public final class DiarizationService {
     public static let shared = DiarizationService()
 
     private let logger = Logger(subsystem: "com.mickekring.transcribe", category: "Diarization")
+    /// Set only once its models have loaded.
     private var speakerKit: SpeakerKit?
+    /// The initialisation in flight, shared by every `diarize` call that
+    /// arrives while it runs.
+    private var initialization: Task<SpeakerKit, Error>?
     /// Options used by the most recent run, recorded into debug exports so
     /// tuning experiments are self-documenting.
     public private(set) var lastOptionsDescription = ""
+
+    // MARK: - Models
+
+    /// Every file that must be on disk for the speaker models to load, by
+    /// the folder SpeakerKit downloads as a unit: the three models of the
+    /// Pyannote pipeline in the variants SpeakerKit picks for this OS, and
+    /// the compiled models it loads from each (PyannoteModelLoader.load).
+    nonisolated static func requiredModelFiles(in repoDir: URL) -> [(folder: URL, files: [URL])] {
+        let models: [(info: ModelInfo, names: [String])] = [
+            (.segmenter(), ["SpeakerSegmenter"]),
+            (.embedder(), ["SpeakerEmbedderPreprocessor", "SpeakerEmbedder"]),
+            (.plda(), ["PldaProjector"]),
+        ]
+        return models.map { model in
+            let folder = model.info.modelURL(baseURL: repoDir)
+            let files = model.names.flatMap { name in
+                ["weights/weight.bin", "model.mil", "coremldata.bin"].map {
+                    folder.appendingPathComponent("\(name).mlmodelc").appendingPathComponent($0)
+                }
+            }
+            return (folder, files)
+        }
+    }
+
+    /// The model folders that are missing or lack files. A download that was
+    /// interrupted leaves folders like that behind, so the existence of a
+    /// folder says nothing about whether the models in it can be loaded.
+    nonisolated static func incompleteModelFolders(in repoDir: URL) -> [URL] {
+        requiredModelFiles(in: repoDir)
+            .filter { model in !model.files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) } }
+            .map(\.folder)
+    }
+
+    /// Returns SpeakerKit with its models loaded, creating it on first use.
+    /// Calls that overlap share one initialisation.
+    private func loadedSpeakerKit() async throws -> SpeakerKit {
+        if let speakerKit { return speakerKit }
+        if let initialization { return try await initialization.value }
+
+        let task = Task { try await self.makeSpeakerKit() }
+        initialization = task
+        defer { initialization = nil }
+        // Kept only if it loaded. A SpeakerKit that failed stays tied to the
+        // model folder it was given; holding on to it would repeat the
+        // failure on every later run instead of looking at the disk again.
+        let kit = try await task.value
+        speakerKit = kit
+        return kit
+    }
+
+    private func makeSpeakerKit() async throws -> SpeakerKit {
+        let downloadBase = ModelManager.shared.downloadBase
+        let repoDir = downloadBase.appendingPathComponent("models/argmaxinc/speakerkit-coreml")
+
+        // When the Pyannote models are already on disk, pin them via
+        // modelFolder — the SDK then skips its Hub download/check
+        // entirely, guaranteeing zero network for diarization.
+        let incompleteFolders = Self.incompleteModelFolders(in: repoDir)
+        let hasLocalModels = incompleteFolders.isEmpty
+        if !hasLocalModels {
+            if UserDefaults.standard.bool(forKey: "localOnlyMode") {
+                throw DiarizationError.localOnlyNoModels
+            }
+            // SpeakerKit takes any non-empty model folder for a finished
+            // download (ModelDownloader.patternsExistLocally) and would not
+            // fetch what is missing from it. Removing the partial folders
+            // makes it download them again.
+            for folder in incompleteFolders {
+                try? FileManager.default.removeItem(at: folder)
+            }
+        }
+        logger.info("Initializing SpeakerKit (local models: \(hasLocalModels))")
+        let config = PyannoteConfig(
+            downloadBase: downloadBase.path,
+            modelFolder: hasLocalModels ? repoDir.path : nil
+        )
+        let kit = try await SpeakerKit(config)
+        // Load here rather than on the first diarization, so that a failure
+        // to load surfaces before the instance is kept.
+        try await kit.ensureModelsLoaded()
+        return kit
+    }
+
+    // MARK: - Diarization
 
     /// Diarizes an audio (or video) file and returns speaker turns ordered by
     /// start time. Downloads the diarization models on first use; they are
@@ -74,26 +162,7 @@ public final class DiarizationService {
         }.value
         guard !samples.isEmpty else { throw DiarizationError.noAudio }
 
-        if speakerKit == nil {
-            // When the Pyannote models are already on disk, pin them via
-            // modelFolder — the SDK then skips its Hub download/check
-            // entirely, guaranteeing zero network for diarization.
-            let repoDir = ModelManager.shared.downloadBase
-                .appendingPathComponent("models/argmaxinc/speakerkit-coreml")
-            let hasLocalModels = FileManager.default.fileExists(
-                atPath: repoDir.appendingPathComponent("speaker_segmenter").path
-            )
-            if !hasLocalModels && UserDefaults.standard.bool(forKey: "localOnlyMode") {
-                throw DiarizationError.localOnlyNoModels
-            }
-            logger.info("Initializing SpeakerKit (local models: \(hasLocalModels))")
-            let config = PyannoteConfig(
-                downloadBase: ModelManager.shared.downloadBase.path,
-                modelFolder: hasLocalModels ? repoDir.path : nil
-            )
-            speakerKit = try await SpeakerKit(config)
-        }
-        guard let speakerKit else { throw DiarizationError.noAudio }
+        let speakerKit = try await loadedSpeakerKit()
 
         let start = Date()
         // A known speaker count pins the clustering stage — significantly more

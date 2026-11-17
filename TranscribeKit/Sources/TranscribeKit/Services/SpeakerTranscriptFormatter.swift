@@ -20,8 +20,18 @@ public enum SpeakerTranscriptFormatter {
         speakerName: (Int) -> String,
         unknownLabel: String
     ) -> String {
-        let allWords = segments.flatMap { $0.words ?? [] }
-        if !allWords.isEmpty && !turns.isEmpty {
+        let hasWordTimings = segments.contains { !($0.words ?? []).isEmpty }
+        if hasWordTimings && !turns.isEmpty {
+            // A segment can lack word timings while its neighbours have them
+            // (cloud alignment gives none to a segment it cannot align). Its
+            // text is still part of the transcript: it goes in as one unit
+            // spanning the segment instead of dropping out.
+            let allWords = segments.flatMap { segment -> [WordTimestamp] in
+                if let words = segment.words, !words.isEmpty { return words }
+                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return [] }
+                return [WordTimestamp(word: text, start: segment.start, end: segment.end, confidence: 0)]
+            }
             return formatWordLevel(words: allWords, turns: turns,
                                    speakerName: speakerName, unknownLabel: unknownLabel)
         }
@@ -84,6 +94,7 @@ public enum SpeakerTranscriptFormatter {
     ///    ±0.7s of the detected boundary — people change speakers in
     ///    silences, and word timings know where the silences are. Fixes the
     ///    "sentence-start lands on the previous speaker" class of errors.
+    ///    Two boundaries never snap to the same pause.
     static func cleanTurns(_ turns: [SpeakerTurn], words: [WordTimestamp]) -> [SpeakerTurn] {
         // 1: drop debris, merge adjacent same-speaker turns
         var filtered: [SpeakerTurn] = []
@@ -112,8 +123,15 @@ public enum SpeakerTranscriptFormatter {
         for i in 1..<snapped.count {
             let boundary = snapped[i].start
             let window = 0.7
+            // Only a pause strictly between the boundaries on either side
+            // (the earlier one where it has already been snapped to). A turn
+            // shorter than the window has both its boundaries within reach
+            // of the same pause; if both took it, the turn would end where
+            // it starts and its words would go to the speaker around it.
+            let earlierBoundary = snapped[i - 1].start
+            let laterBoundary = i + 1 < snapped.count ? snapped[i + 1].start : snapped[i].end
             if let bestGap = gaps
-                .filter({ abs($0.at - boundary) <= window })
+                .filter({ abs($0.at - boundary) <= window && $0.at > earlierBoundary && $0.at < laterBoundary })
                 .max(by: { $0.size < $1.size }) {
                 let newBoundary = bestGap.at
                 snapped[i - 1] = SpeakerTurn(speakerId: snapped[i - 1].speakerId, start: snapped[i - 1].start, end: newBoundary)

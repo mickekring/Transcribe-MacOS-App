@@ -232,14 +232,20 @@ public class ModelManager: ObservableObject {
     // MARK: - Model Deletion
     
     public func deleteModel(_ modelName: String) {
-        if let path = cachedModelFolder(for: modelName) {
-            let url = URL(fileURLWithPath: path)
-            try? FileManager.default.removeItem(at: url)
+        let recordedFolder = cachedModelFolder(for: modelName).map { URL(fileURLWithPath: $0) }
+        if let recordedFolder {
+            try? FileManager.default.removeItem(at: recordedFolder)
         }
         if ParakeetModelSpec.spec(for: modelName) != nil {
             // Also drop a half-finished download so it can't linger unseen
             let staging = HuggingFaceDownloader.stagingDirectory(for: parakeetModelFolder(for: modelName))
             try? FileManager.default.removeItem(at: staging)
+        }
+        if Self.engine(for: modelName) == .whisperKit,
+           let folder = recordedFolder ?? WhisperKitService.defaultModelFolder(for: modelName, downloadBase: downloadBase) {
+            // Same for Whisper models: the Hub downloader keeps unfinished
+            // files (and its per-file bookkeeping) outside the model folder
+            try? FileManager.default.removeItem(at: WhisperKitService.stagingDirectory(forModelFolder: folder))
         }
         removeModelFolderPath(for: modelName)
     }

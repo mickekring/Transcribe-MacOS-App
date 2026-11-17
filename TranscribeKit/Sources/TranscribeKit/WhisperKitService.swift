@@ -19,6 +19,10 @@ public class WhisperKitService {
     private var initializationTask: Task<Void, Error>?
     private var initializingModelId: String?
     private var currentModelId: String?
+    /// Bumped by `unloadModel()`. A load compares the value it started with
+    /// against the current one before installing its model, so an unload that
+    /// arrives while a load is in flight is not undone when the load finishes.
+    private var unloadGeneration = 0
     private var activeTranscriptionTask: Task<Void, Never>?
     private var activeCancellationFlag: TranscriptionCancellationFlag?
     /// In-flight model downloads by model id, cancellable from the UI.
@@ -70,7 +74,7 @@ public class WhisperKitService {
     // MARK: - Model Metadata
     
     /// Maps a model ID to the HuggingFace repo that hosts it.
-    private func modelRepo(for modelId: String) -> String {
+    nonisolated static func modelRepo(for modelId: String) -> String {
         if modelId.starts(with: "kb_whisper-") {
             return "mickekringai/kb-whisper-coreml"
         }
@@ -80,8 +84,11 @@ public class WhisperKitService {
         return "argmaxinc/whisperkit-coreml"
     }
 
-    /// Maps a model ID to the WhisperKit variant name used inside the repo.
-    private func modelVariant(for modelId: String) -> String {
+    /// Maps a model ID to the WhisperKit variant name used inside the repo,
+    /// or nil for an id this app does not ship. There is deliberately no
+    /// default: a fallback variant would download a different model and file
+    /// it under the unknown id.
+    nonisolated static func modelVariant(for modelId: String) -> String? {
         switch modelId {
         case "kb_whisper-base-coreml": return "base"
         case "kb_whisper-small-coreml": return "small"
@@ -96,17 +103,40 @@ public class WhisperKitService {
         case "openai_whisper-medium": return "openai_whisper-medium"
         case "openai_whisper-large-v2": return "openai_whisper-large-v2"
         case "openai_whisper-large-v3": return "openai_whisper-large-v3"
-        default: return "openai_whisper-base"
+        default: return nil
         }
+    }
+
+    /// Where the Hub downloader puts a model's finished files:
+    /// `{downloadBase}/models/{repo}/{variant}` (HubApi.localRepoLocation
+    /// plus the variant folder WhisperKit.download matches).
+    nonisolated static func defaultModelFolder(for modelId: String, downloadBase: URL) -> URL? {
+        guard let variant = modelVariant(for: modelId) else { return nil }
+        return downloadBase
+            .appendingPathComponent("models")
+            .appendingPathComponent(modelRepo(for: modelId))
+            .appendingPathComponent(variant)
+    }
+
+    /// The Hub downloader's staging area for a model folder:
+    /// `{repo}/.cache/huggingface/download/{variant}`. Files that are still
+    /// transferring live there as `<name>.<etag>.incomplete` — for a model
+    /// that is the multi-gigabyte weights — next to one small `.metadata`
+    /// file per finished file (HubApi.snapshot).
+    nonisolated static func stagingDirectory(forModelFolder folder: URL) -> URL {
+        folder.deletingLastPathComponent()
+            .appendingPathComponent(".cache/huggingface/download")
+            .appendingPathComponent(folder.lastPathComponent)
     }
     
     // MARK: - Initialization
     
     public func initialize(modelId: String) async throws {
-        // Only Whisper-family ids belong here. Anything else would fall
-        // through to the default variant below — and a failed load of its
-        // folder would delete another engine's model as "corrupt".
-        guard ModelManager.engine(for: modelId) == .whisperKit else {
+        // Only ids this service ships belong here: another engine's model, if
+        // it got this far, would be loaded as Whisper files and — its folder
+        // not looking like a Whisper model — deleted as an incomplete one.
+        guard ModelManager.engine(for: modelId) == .whisperKit,
+              Self.modelVariant(for: modelId) != nil else {
             throw TranscriptionError.unsupportedModel
         }
         // Coalesce concurrent loads instead of misreporting them as
@@ -120,6 +150,10 @@ public class WhisperKitService {
             _ = try? await task.value
         }
 
+        // Already in memory: a reload would cost seconds to minutes and hold
+        // two copies of the model while it runs.
+        if whisperKit != nil, currentModelId == modelId { return }
+
         let task = Task { try await self.performInitialization(modelId: modelId) }
         initializationTask = task
         initializingModelId = modelId
@@ -131,38 +165,36 @@ public class WhisperKitService {
     }
 
     private func performInitialization(modelId: String) async throws {
+        guard let variant = Self.modelVariant(for: modelId) else {
+            throw TranscriptionError.unsupportedModel
+        }
         let modelManager = ModelManager.shared
-        let variant = modelVariant(for: modelId)
-        let repo = modelRepo(for: modelId)
+        let repo = Self.modelRepo(for: modelId)
         let downloadBase = modelManager.downloadBase
+        let generation = unloadGeneration
 
         // Check if we already have this model downloaded locally
         if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
-            logger.info("Loading cached model \(modelId, privacy: .public) from \(cachedFolder, privacy: .public)")
-            // tokenizerFolder: resolve the tokenizer from our download base
-            // (WhisperKit caches it there) so model load never needs the network.
-            let config = WhisperKitConfig(
-                modelFolder: cachedFolder,
-                tokenizerFolder: downloadBase,
-                computeOptions: computeOptions,
-                verbose: true,
-                download: false
-            )
-
+            logger.info("Loading cached model \(modelId, privacy: .public) from \(cachedFolder, privacy: .private)")
             do {
-                let start = Date()
-                let kit = try await WhisperKit(config)
-                logger.info("Model \(modelId, privacy: .public) loaded in \(Date().timeIntervalSince(start), format: .fixed(precision: 1))s")
-                whisperKit = kit
-                currentModelId = modelId
+                try await loadAndInstall(modelId, from: cachedFolder, generation: generation)
                 return
+            } catch is CancellationError {
+                // Unloaded while loading: nothing is wrong with the files
+                throw CancellationError()
             } catch {
-                // Cached model failed to load — fall through to re-download
-                logger.error("Cached model \(modelId, privacy: .public) failed to load: \(error.localizedDescription, privacy: .public)")
+                // The description can embed the model's path, so it stays private
+                logger.error("Cached model \(modelId, privacy: .public) failed to load: \(error.localizedDescription, privacy: .private)")
+                // Only a folder that is missing files is worth deleting. Any
+                // other failure — memory pressure, a Neural Engine compile
+                // that gave up, a tokenizer that needs the network — would
+                // not be cured by a re-download, and deleting the files would
+                // cost the user gigabytes for nothing.
+                guard !modelFolderIsComplete(URL(fileURLWithPath: cachedFolder)) else { throw error }
                 modelManager.deleteModel(modelId)
             }
         }
-        
+
         // If a background download is already in progress (from dropdown selection),
         // wait for it to finish instead of starting a second download.
         if modelManager.isDownloading[modelId] == true {
@@ -171,59 +203,85 @@ public class WhisperKitService {
             }
             // Download finished — check if model is now cached
             if let cachedFolder = modelManager.cachedModelFolder(for: modelId) {
-                let config = WhisperKitConfig(
-                    modelFolder: cachedFolder,
-                    tokenizerFolder: downloadBase,
-                    computeOptions: computeOptions,
-                    verbose: true,
-                    download: false
-                )
-                let kit = try await WhisperKit(config)
-                whisperKit = kit
-                currentModelId = modelId
+                try await loadAndInstall(modelId, from: cachedFolder, generation: generation)
                 return
             }
-            // If download failed, fall through to re-download below
+            // The user cancelled that download; starting it again here would
+            // undo the cancel.
+            if userCancelledDownloads.contains(modelId) {
+                throw CancellationError()
+            }
+            // It failed for another reason — fall through and retry it below
         }
-        
+
         // Model not cached locally — download with progress tracking, then load
         logger.info("Model \(modelId, privacy: .public) not cached, downloading from \(repo, privacy: .public)")
 
-        // Signal download started
+        do {
+            let modelFolder = try await downloadModel(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
+            try await loadAndInstall(modelId, from: modelFolder.path, generation: generation)
+        } catch {
+            whisperKit = nil
+            throw error
+        }
+    }
+
+    /// Loads the model in `folder` and makes it the current model.
+    private func loadAndInstall(_ modelId: String, from folder: String, generation: Int) async throws {
+        // An unload that arrived while the model was still downloading: the
+        // model is no longer wanted in memory, so don't start loading it.
+        guard generation == unloadGeneration else { throw CancellationError() }
+
+        // tokenizerFolder: the tokenizer lives under our download base (it is
+        // fetched there with the model, see downloadTokenizerIfNeeded).
+        let config = WhisperKitConfig(
+            modelFolder: folder,
+            tokenizerFolder: ModelManager.shared.downloadBase,
+            computeOptions: computeOptions,
+            verbose: true,
+            download: false
+        )
+        let start = Date()
+        let kit = try await TranscribeWhisperKit(config)
+
+        // An unload during the load wins: installing the model now would
+        // bring back the memory the caller just freed.
+        guard generation == unloadGeneration else { throw CancellationError() }
+
+        logger.info("Model \(modelId, privacy: .public) loaded in \(Date().timeIntervalSince(start), format: .fixed(precision: 1))s")
+        whisperKit = kit
+        currentModelId = modelId
+    }
+
+    /// Downloads a model and records it as available, keeping the download
+    /// state the UI observes up to date. Both ways a download can start (the
+    /// model dropdown, a transcription with a model that isn't on disk yet)
+    /// go through here.
+    private func downloadModel(modelId: String, variant: String, repo: String, downloadBase: URL) async throws -> URL {
+        let modelManager = ModelManager.shared
         modelManager.isDownloading[modelId] = true
         modelManager.downloadProgress[modelId] = 0
 
         do {
-            // Phase 1: Download with progress callback (cancellable from the UI)
             let modelFolder = try await runDownload(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
 
-            // Download complete
             modelManager.isDownloading[modelId] = false
             modelManager.downloadProgress[modelId] = 1.0
             modelManager.downloadSpeed.removeValue(forKey: modelId)
-            
-            // Phase 2: Load the downloaded model (no network needed)
-            let config = WhisperKitConfig(
-                modelFolder: modelFolder.path,
-                tokenizerFolder: downloadBase,
-                computeOptions: computeOptions,
-                verbose: true,
-                download: false
-            )
-            
-            let kit = try await WhisperKit(config)
-            whisperKit = kit
-            currentModelId = modelId
-            
-            // Persist the resolved model folder path for future offline use
+            // Recorded as soon as the files are verified, not after the first
+            // successful load: a load can fail for reasons that have nothing
+            // to do with the download, and must not cost the user the files.
             modelManager.saveModelFolderPath(modelFolder.path, for: modelId)
+            return modelFolder
         } catch {
-            // Clear download state on failure
             modelManager.isDownloading[modelId] = false
             modelManager.downloadProgress.removeValue(forKey: modelId)
             modelManager.downloadSpeed.removeValue(forKey: modelId)
-            whisperKit = nil
-            cleanupPartialDownload(modelId: modelId)
+            // A cancelled download is abandoned; a failed one keeps its
+            // partial files so the next attempt resumes.
+            if error is CancellationError {
+                cleanupPartialDownload(modelId: modelId)
+            }
             throw error
         }
     }
@@ -260,6 +318,9 @@ public class WhisperKitService {
     enum ModelDownloadError: LocalizedError {
         case stalledRepeatedly
         case localOnlyMode
+        /// Local-only mode is on and the model's tokenizer is not on disk, so
+        /// loading the model would mean a request to the Hub.
+        case tokenizerNeedsNetwork
 
         var errorDescription: String? {
             switch self {
@@ -267,6 +328,8 @@ public class WhisperKitService {
                 return "The download kept stalling. Check your internet connection and try again."
             case .localOnlyMode:
                 return "Local-only mode is enabled — model downloads are disabled. Turn it off in Settings to download models."
+            case .tokenizerNeedsNetwork:
+                return localized("local_only_tokenizer_missing")
             }
         }
     }
@@ -288,6 +351,12 @@ public class WhisperKitService {
                 // The downloader reports success even when cancelled
                 // mid-transfer — only a verified-complete folder counts.
                 if modelFolderIsComplete(folder) {
+                    try await downloadTokenizerIfNeeded(forModelIn: folder, modelId: modelId, downloadBase: downloadBase)
+                    // A cancel during the tokenizer fetch has no task to stop
+                    // (it is a few megabytes), but it is still a cancel.
+                    if userCancelledDownloads.contains(modelId) {
+                        throw CancellationError()
+                    }
                     return folder
                 }
                 if userCancelledDownloads.contains(modelId) {
@@ -308,8 +377,43 @@ public class WhisperKitService {
                 }
                 attempt += 1
                 logger.warning("Download of \(modelId, privacy: .public) stalled, retrying (attempt \(attempt)) — resuming from partial file")
+            } catch {
+                // The downloader reports a cancelled transfer as
+                // URLError(.cancelled) (Downloader.cancel). Whatever shape it
+                // takes, a download the user cancelled ends as a
+                // cancellation, never as an error to show.
+                if userCancelledDownloads.contains(modelId) {
+                    throw CancellationError()
+                }
+                throw error
             }
         }
+    }
+
+    /// Fetches the tokenizer a freshly downloaded model needs, unless
+    /// WhisperKit can already load one from disk.
+    ///
+    /// The model repositories hold only the CoreML files. Left alone,
+    /// WhisperKit downloads the tokenizer the first time the model is loaded
+    /// — also with `download: false`, which only governs the model files —
+    /// so a "downloaded" model would still need the network once. Fetching it
+    /// here makes the download complete. It goes through the Hub client and
+    /// to the location WhisperKit itself would use, so the load finds the
+    /// files where it looks first.
+    private func downloadTokenizerIfNeeded(forModelIn folder: URL, modelId: String, downloadBase: URL) async throws {
+        guard let repoId = WhisperTokenizerFiles.repoId(forModelFolder: folder) else {
+            // Without the model's dimensions there is no telling which
+            // tokenizer it wants; WhisperKit resolves it at first load, as it
+            // did before.
+            logger.warning("Could not determine the tokenizer for \(modelId, privacy: .public) from its config.json")
+            return
+        }
+        guard WhisperTokenizerFiles.localFolder(repoId: repoId, tokenizerBase: downloadBase, modelFolder: folder) == nil else {
+            return
+        }
+        logger.info("Downloading tokenizer \(repoId, privacy: .public) for \(modelId, privacy: .public)")
+        _ = try await HubApiWrapper(downloadBase: downloadBase)
+            .snapshot(from: HubApiWrapper.Repo(id: repoId), matching: WhisperTokenizerFiles.downloadedFiles)
     }
 
     /// Total bytes of the model currently on disk: the final variant folder
@@ -390,19 +494,20 @@ public class WhisperKitService {
         }
     }
 
-    /// Removes a partially downloaded model folder after a failed download so
-    /// orphaned multi-gigabyte partials don't accumulate invisibly on disk.
+    /// Removes everything a cancelled download left on disk so orphaned
+    /// multi-gigabyte partials don't accumulate invisibly: the files that had
+    /// already finished, and the staging area holding the unfinished ones —
+    /// which is where the bulk of an interrupted download actually is.
+    ///
+    /// Not for a download that merely failed or stalled: those keep their
+    /// partial files so the next attempt resumes instead of starting over.
     private func cleanupPartialDownload(modelId: String) {
         let modelManager = ModelManager.shared
         // Never remove a model that was previously recorded as fully downloaded
-        guard modelManager.cachedModelFolder(for: modelId) == nil else { return }
-        // Mirrors the HubApi layout used by WhisperKit.download:
-        // {downloadBase}/models/{repo}/{variant}
-        let folder = modelManager.downloadBase
-            .appendingPathComponent("models")
-            .appendingPathComponent(modelRepo(for: modelId))
-            .appendingPathComponent(modelVariant(for: modelId))
+        guard modelManager.cachedModelFolder(for: modelId) == nil,
+              let folder = Self.defaultModelFolder(for: modelId, downloadBase: modelManager.downloadBase) else { return }
         try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.removeItem(at: Self.stagingDirectory(forModelFolder: folder))
     }
     
     /// Downloads a model without loading it into memory.
@@ -410,34 +515,20 @@ public class WhisperKitService {
     public func downloadOnly(modelId: String) async throws {
         let modelManager = ModelManager.shared
         
-        guard ModelManager.engine(for: modelId) == .whisperKit else {
+        guard ModelManager.engine(for: modelId) == .whisperKit,
+              let variant = Self.modelVariant(for: modelId) else {
             throw TranscriptionError.unsupportedModel
         }
         // Skip if already downloaded or already downloading
         guard modelManager.cachedModelFolder(for: modelId) == nil else { return }
         guard modelManager.isDownloading[modelId] != true else { return }
-        
-        let variant = modelVariant(for: modelId)
-        let repo = modelRepo(for: modelId)
-        let downloadBase = modelManager.downloadBase
-        
-        modelManager.isDownloading[modelId] = true
-        modelManager.downloadProgress[modelId] = 0
-        
-        do {
-            let modelFolder = try await runDownload(modelId: modelId, variant: variant, repo: repo, downloadBase: downloadBase)
 
-            modelManager.isDownloading[modelId] = false
-            modelManager.downloadProgress[modelId] = 1.0
-            modelManager.downloadSpeed.removeValue(forKey: modelId)
-            modelManager.saveModelFolderPath(modelFolder.path, for: modelId)
-        } catch {
-            modelManager.isDownloading[modelId] = false
-            modelManager.downloadProgress.removeValue(forKey: modelId)
-            modelManager.downloadSpeed.removeValue(forKey: modelId)
-            cleanupPartialDownload(modelId: modelId)
-            throw error
-        }
+        _ = try await downloadModel(
+            modelId: modelId,
+            variant: variant,
+            repo: Self.modelRepo(for: modelId),
+            downloadBase: modelManager.downloadBase
+        )
     }
 
     public func loadModel(_ modelName: String) async throws {
@@ -445,6 +536,8 @@ public class WhisperKitService {
     }
     
     public func unloadModel() {
+        // Also invalidates a load that is still in flight (see loadAndInstall)
+        unloadGeneration += 1
         whisperKit = nil
         currentModelId = nil
     }
@@ -456,11 +549,36 @@ public class WhisperKitService {
         activeTranscriptionTask?.cancel()
     }
 
+    /// How the language of a transcription is settled before decoding.
+    enum LanguageChoice: Equatable {
+        /// Decode in this language.
+        case fixed(String)
+        /// Nothing fixes the language: detect it from the audio.
+        case detectFromAudio
+    }
+
+    /// What to decode in when the user asked for `requested` ("auto" or nil
+    /// meaning no preference) on `modelId`. The KB and NB models are
+    /// fine-tunes for one language each, so for them "auto" has an answer
+    /// without listening; only the multilingual OpenAI models need detection.
+    nonisolated static func languageChoice(requested: String?, modelId: String) -> LanguageChoice {
+        if let requested, !requested.isEmpty, requested != "auto" {
+            return .fixed(requested)
+        }
+        if modelId.hasPrefix("kb_whisper-") { return .fixed("sv") }
+        if modelId.hasPrefix("nb_whisper-") { return .fixed("no") }
+        return .detectFromAudio
+    }
+
     public func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         let cancelFlag = TranscriptionCancellationFlag()
         activeCancellationFlag = cancelFlag
 
-        return AsyncThrowingStream(TranscriptionUpdate.self) { continuation in
+        // Bounded, newest-wins: see TranscriptionUpdate.streamBufferLimit
+        return AsyncThrowingStream(
+            TranscriptionUpdate.self,
+            bufferingPolicy: .bufferingNewest(TranscriptionUpdate.streamBufferLimit)
+        ) { continuation in
             let task = Task { @MainActor in
                 do {
                     try Task.checkCancellation()
@@ -538,9 +656,35 @@ public class WhisperKitService {
                         isComplete: false
                     ))
                     
-                    // Get language code for transcription
-                    let languageCode = language ?? "auto"
-                    
+                    // Resolve the language to decode in. "Auto" has to become a
+                    // concrete language before decoding: with a nil language
+                    // and the prefill on, WhisperKit detects nothing (its
+                    // detectLanguage defaults to !usePrefillPrompt) and
+                    // prefills its default language — English.
+                    var decodeLanguage: String?
+                    var detectLanguagePerWindow = false
+                    switch Self.languageChoice(requested: language, modelId: modelId) {
+                    case .fixed(let code):
+                        decodeLanguage = code
+                        self.logger.info("Decoding language: \(code, privacy: .public)")
+                    case .detectFromAudio:
+                        do {
+                            // Detected once, from the first 30 seconds, and
+                            // held for the whole file.
+                            let detected = try await whisperKit.detectLanguage(audioPath: fileURL.path)
+                            decodeLanguage = detected.language
+                            self.logger.info("Decoding language: \(detected.language, privacy: .public) (detected from the audio)")
+                        } catch {
+                            // Leave the choice to the model, window by window.
+                            // The prefill stays on, so it still cannot switch
+                            // to translating; the other options are forcing
+                            // English or dropping the prefill, which lets it.
+                            detectLanguagePerWindow = true
+                            self.logger.warning("Language detection failed, detecting per window instead: \(error.localizedDescription, privacy: .private)")
+                        }
+                        try Task.checkCancellation()
+                    }
+
                     // Create decoding options.
                     // - usePrefillPrompt MUST be true for the language to be
                     //   enforced: WhisperKit applies it by prefilling the decoder
@@ -557,8 +701,10 @@ public class WhisperKitService {
                     // file, which matters for 45+ minute recordings.
                     let decodeOptions = DecodingOptions(
                         task: .transcribe,
-                        language: languageCode == "auto" ? nil : languageCode,
+                        language: decodeLanguage,
                         usePrefillPrompt: true,
+                        // Only when the one-off detection above failed
+                        detectLanguage: detectLanguagePerWindow,
                         skipSpecialTokens: true,
                         withoutTimestamps: false,
                         // Always on: word timings power word-level speaker
@@ -573,25 +719,42 @@ public class WhisperKitService {
                         concurrentWorkerCount: 1,
                         chunkingStrategy: .vad
                     )
-                    
-                    // Wrap mutable callback state in a Sendable container
-                    // This is safe because the callback is only invoked synchronously
-                    // within WhisperKit's transcription loop on a single thread.
+
+                    // WhisperKit reports on this run from other threads (see
+                    // StreamingCallbackState); the state object collects it.
                     let callbackState = StreamingCallbackState(continuation: continuation)
-                    
+
                     // Transcribe with streaming callback. Returning false from
                     // the callback early-stops WhisperKit inference on cancel.
                     let callback: @Sendable (TranscriptionProgress) -> Bool? = { progress in
                         guard !cancelFlag.isCancelled else { return false }
-                        return callbackState.handleProgress(progress)
+                        callbackState.handleProgress(progress)
+                        return true
                     }
-                    self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .public) model=\(modelId, privacy: .public)")
+
+                    // Until the first words are decoded there is no transcript
+                    // to show. This is a status (progress below the content
+                    // floor), not a placeholder passed off as text.
+                    continuation.yield(TranscriptionUpdate(
+                        text: localized("transcribing"),
+                        progress: 0.12,
+                        segments: [],
+                        isComplete: false
+                    ))
+
+                    // File names are the user's data: not in the public log
+                    self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .private) model=\(modelId, privacy: .public)")
                     let transcribeStart = Date()
-                    let results = try await whisperKit.transcribe(
-                        audioPath: fileURL.path,
-                        decodeOptions: decodeOptions,
-                        callback: callback
-                    )
+                    let results = try await StreamingCallbackState.$current.withValue(callbackState) {
+                        try await whisperKit.transcribe(
+                            audioPath: fileURL.path,
+                            decodeOptions: decodeOptions,
+                            callback: callback
+                        )
+                    }
+                    // Progress callbacks can still be in flight; from here on
+                    // they must not add to the stream.
+                    callbackState.finish()
                     self.logger.info("Transcription finished in \(Date().timeIntervalSince(transcribeStart), format: .fixed(precision: 1))s")
 
                     // If cancelled, don't report the partial output as a
@@ -600,9 +763,15 @@ public class WhisperKitService {
                         throw CancellationError()
                     }
 
-                    // Finalize the callback state (saves last window text)
-                    callbackState.finalize()
-                    
+                    // Nor a transcript with a hole in it. WhisperKit leaves a
+                    // chunk that failed out of what it returns and mentions it
+                    // only in its debug log (updateSeekOffsetsForResults); if
+                    // every chunk failed, the result is empty and looks done.
+                    if let failure = callbackState.chunkFailure {
+                        self.logger.error("\(failure.failedChunks) of \(failure.chunkCount) chunks failed to transcribe: \(failure.error.localizedDescription, privacy: .private)")
+                        throw failure.error
+                    }
+
                     // Process final result. VAD chunking returns one
                     // TranscriptionResult per chunk — merge them all; taking
                     // only the first would drop most of the transcription.
@@ -682,86 +851,319 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
     }
 }
 
-// Wraps mutable streaming state so it can be captured by a @Sendable callback.
-// All access is serialized by WhisperKit's transcription loop, so this is safe.
-private final class StreamingCallbackState: @unchecked Sendable {
+/// Everything WhisperKit reports about one transcription run while it is
+/// running: the text decoded so far (streamed to the UI), how far into the
+/// audio the decoder is, and whether any chunk failed.
+///
+/// All of it is guarded by a lock. WhisperKit does not call the progress
+/// callback from its decoding loop but from a detached task per decoded token
+/// (TextDecoder.decodeText), so calls overlap each other, can arrive out of
+/// order, and can trail in after the transcription has returned.
+final class StreamingCallbackState: @unchecked Sendable {
+    /// The run the current task is transcribing for. WhisperKit hands the
+    /// per-chunk results to no one, so `TranscribeWhisperKit` picks them up
+    /// where they are produced and needs to know whose they are; a task-local
+    /// keeps runs apart without assuming there is only one at a time.
+    @TaskLocal static var current: StreamingCallbackState?
+
+    /// Minimum time between two live-text updates. Each one carries the
+    /// whole transcript so far, so one per token would copy a growing string
+    /// dozens of times a second.
+    static let updateInterval: TimeInterval = 0.2
+
+    /// How many tokens an update may trail the newest one seen for its window
+    /// and still be taken for a late arrival. A larger drop means the window
+    /// is being decoded again from the start (temperature fallback), which is
+    /// newer, not older.
+    static let reorderTolerance = 8
+
     private let continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
-    private var lastUpdateTime = Date()
-    private let updateInterval: TimeInterval = 0.2
-    private var completedSegments: [Int: String] = [:]
+    private let lock = NSLock()
+
+    /// Text of the windows the decoder has moved past.
+    private var finishedText = ""
     private var currentWindowId = -1
     private var currentWindowText = ""
-    private var lastDisplayedText = ""
-    private let startTime = Date()
-    private var maxWindowId = 0
-    
-    public init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
+    private var currentWindowTokenCount = 0
+    private var lastYieldedText = ""
+    private var lastYieldTime = Date.distantPast
+    private var isFinished = false
+
+    /// Where each VAD chunk starts in the audio, in samples, and the length
+    /// of the audio they cover. Empty for audio that fits in one window.
+    private var chunkOffsets: [Int] = []
+    private var totalSamples = 0
+
+    private var chunkCount = 0
+    private var failedChunks = 0
+    private var firstFailure: Error?
+
+    init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
         self.continuation = continuation
     }
-    
-    public func handleProgress(_ progress: TranscriptionProgress) -> Bool {
-        let now = Date()
-        
-        if progress.windowId != currentWindowId {
-            if currentWindowId >= 0 && !currentWindowText.isEmpty {
-                completedSegments[currentWindowId] = currentWindowText.trimmingCharacters(in: .whitespaces)
+
+    func handleProgress(_ progress: TranscriptionProgress) {
+        update(windowId: progress.windowId, tokenCount: progress.tokens.count, text: progress.text, now: Date())
+    }
+
+    /// Takes in one progress report. `tokenCount` orders reports within a
+    /// window: it only grows while a window is being decoded.
+    func update(windowId: Int, tokenCount: Int, text: String, now: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !isFinished else { return }
+
+        if windowId != currentWindowId {
+            // For chunked audio the window id is the index of the chunk, and
+            // with one worker chunks are decoded in order: a report for an
+            // earlier one is a straggler. A clip short enough to need no
+            // chunking numbers its decoding windows itself, and that count
+            // can repeat or step back after temperature fallbacks, so there
+            // any change of id is taken as the next window.
+            if !chunkOffsets.isEmpty, windowId < currentWindowId { return }
+
+            if !currentWindowText.isEmpty {
+                finishedText += finishedText.isEmpty ? currentWindowText : " " + currentWindowText
             }
-            currentWindowId = progress.windowId
+            currentWindowId = windowId
+            currentWindowText = ""
+            currentWindowTokenCount = 0
+        } else if tokenCount <= currentWindowTokenCount,
+                  currentWindowTokenCount - tokenCount <= Self.reorderTolerance {
+            // Overtaken by a newer report for this window: showing it would
+            // make the live text step backwards.
+            return
         }
-        currentWindowText = strippingSpecialTokens(progress.text).trimmingCharacters(in: .whitespaces)
-        maxWindowId = max(maxWindowId, progress.windowId)
-        
-        // Build the complete text from all segments
-        var fullText = ""
-        
-        let sortedWindows = completedSegments.keys.sorted()
-        for windowId in sortedWindows {
-            if let segmentText = completedSegments[windowId] {
-                if !fullText.isEmpty {
-                    fullText += " "
-                }
-                fullText += segmentText
-            }
-        }
-        
-        if !fullText.isEmpty && !currentWindowText.isEmpty {
-            fullText += " " + currentWindowText
-        } else if fullText.isEmpty {
+        currentWindowTokenCount = tokenCount
+        currentWindowText = strippingSpecialTokens(text).trimmingCharacters(in: .whitespaces)
+
+        // Yield only when there is something new to show and the last update
+        // is old enough. Nothing is lost by skipping: the next report, or the
+        // final result, carries the same text and more.
+        guard now.timeIntervalSince(lastYieldTime) >= Self.updateInterval else { return }
+        let fullText: String
+        if finishedText.isEmpty {
             fullText = currentWindowText
+        } else if currentWindowText.isEmpty {
+            fullText = finishedText
+        } else {
+            fullText = finishedText + " " + currentWindowText
         }
-        
-        let textChanged = fullText != lastDisplayedText
-        let timeElapsed = now.timeIntervalSince(lastUpdateTime) >= updateInterval
-        
-        if textChanged || timeElapsed {
-            lastUpdateTime = now
-            lastDisplayedText = fullText
-            
-            let elapsedTime = now.timeIntervalSince(startTime)
-            let segmentCount = Double(completedSegments.count + 1)
-            
-            let timeProgress = min(elapsedTime / 20.0, 0.9)
-            let segmentProgress = min(segmentCount / 10.0, 0.9)
-            let estimatedProgress = min(0.3 + max(timeProgress, segmentProgress) * 0.65, 0.95)
-            
-            continuation.yield(TranscriptionUpdate(
-                text: fullText.isEmpty ? localized("transcribing") : fullText,
-                progress: estimatedProgress,
-                segments: [],
-                isComplete: false
-            ))
-        }
-        
-        return true
+        guard !fullText.isEmpty, fullText != lastYieldedText else { return }
+        lastYieldTime = now
+        lastYieldedText = fullText
+
+        continuation.yield(TranscriptionUpdate(
+            text: fullText,
+            progress: contentProgress,
+            segments: [],
+            isComplete: false
+        ))
     }
-    
-    public func finalize() {
-        if currentWindowId >= 0 && !currentWindowText.isEmpty {
-            completedSegments[currentWindowId] = currentWindowText
+
+    /// How far the decoder is through the audio, mapped into the band the
+    /// consumers reserve for content (below it they expect status messages;
+    /// 1.0 belongs to the final result). The position is the start of the
+    /// chunk WhisperKit says it is decoding, so it only moves when audio has
+    /// actually been transcribed. Call with the lock held.
+    private var contentProgress: Double {
+        let floor = TranscriptionUpdate.contentProgressFloor
+        guard totalSamples > 0, chunkOffsets.indices.contains(currentWindowId) else { return floor }
+        let fraction = Double(chunkOffsets[currentWindowId]) / Double(totalSamples)
+        return floor + (0.95 - floor) * min(max(fraction, 0), 1)
+    }
+
+    /// Records how WhisperKit split the audio: the sample offset and length
+    /// of each chunk, in decoding order. The progress callback's window id is
+    /// the index of the chunk being decoded.
+    func setChunkLayout(offsets: [Int], lengths: [Int]) {
+        lock.lock()
+        defer { lock.unlock() }
+        chunkOffsets = offsets
+        totalSamples = zip(offsets, lengths).map { $0 + $1 }.max() ?? 0
+    }
+
+    /// Records the outcome of every chunk. Generic so the caller's result
+    /// type does not have to be spelled here.
+    func recordChunkResults<Success>(_ results: [Result<Success, Error>]) {
+        lock.lock()
+        defer { lock.unlock() }
+        chunkCount += results.count
+        for case .failure(let error) in results {
+            failedChunks += 1
+            if firstFailure == nil, !(error is CancellationError) {
+                firstFailure = error
+            }
         }
     }
 
+    /// Set when at least one chunk failed: the first failure that is not a
+    /// cancellation, or a cancellation if those are all there is.
+    var chunkFailure: (error: Error, failedChunks: Int, chunkCount: Int)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard failedChunks > 0 else { return nil }
+        return (firstFailure ?? CancellationError(), failedChunks, chunkCount)
+    }
 
+    /// Stops live updates. Called when the transcription has returned, so a
+    /// progress report that is still in flight cannot follow the final result.
+    func finish() {
+        lock.lock()
+        defer { lock.unlock() }
+        isFinished = true
+    }
+}
+
+/// WhisperKit with the hooks this app needs and the stock class does not
+/// offer. Everything else — loading, chunking, decoding — is inherited as is.
+final class TranscribeWhisperKit: WhisperKit {
+
+    /// Hands the outcome of every chunk to the run it belongs to.
+    ///
+    /// For audio longer than one window, `transcribe` splits it into VAD
+    /// chunks and sends them here; of what comes back it keeps the successes
+    /// and drops the failures. This is the one place where both are visible.
+    /// The transcription itself is untouched: same call, same arguments.
+    ///
+    /// The result type is spelled with a module selector because the plain
+    /// name is this package's own `TranscriptionResult`, and
+    /// `WhisperKit.TranscriptionResult` would look for it inside the class.
+    override func transcribeWithOptions(
+        audioArrays: [[Float]],
+        decodeOptionsArray: [DecodingOptions?] = [nil],
+        seekOffsets: [Int]? = nil,
+        callback: TranscriptionCallback? = nil
+    ) async -> [Result<[WhisperKit::TranscriptionResult], Swift.Error>] {
+        let run = StreamingCallbackState.current
+        if let seekOffsets, seekOffsets.count == audioArrays.count {
+            run?.setChunkLayout(offsets: seekOffsets, lengths: audioArrays.map(\.count))
+        }
+        let results = await super.transcribeWithOptions(
+            audioArrays: audioArrays,
+            decodeOptionsArray: decodeOptionsArray,
+            seekOffsets: seekOffsets,
+            callback: callback
+        )
+        run?.recordChunkResults(results)
+        return results
+    }
+
+    /// Refuses to fetch a tokenizer in local-only mode.
+    ///
+    /// WhisperKit resolves the tokenizer here, after the CoreML models are
+    /// loaded, and falls back to downloading it from the Hub whenever it
+    /// cannot load one from disk (ModelUtilities.loadTokenizer) — regardless
+    /// of `download: false`. In local-only mode that request must not
+    /// happen, so the same lookup is done first and a load that would need
+    /// the network fails with an error that says why.
+    override func loadTokenizerIfNeeded() async throws {
+        // Without the dimensions WhisperKit throws before it looks anywhere
+        if tokenizer == nil,
+           UserDefaults.standard.bool(forKey: "localOnlyMode"),
+           let vocabularySize = textDecoder.logitsSize,
+           let encoderDimension = audioEncoder.embedSize {
+            let repoId = WhisperTokenizerFiles.repoId(vocabularySize: vocabularySize, encoderDimension: encoderDimension)
+            let localFolder = WhisperTokenizerFiles.localFolder(
+                repoId: repoId,
+                tokenizerBase: tokenizerFolder,
+                modelFolder: modelFolder
+            )
+            // WhisperKit also goes to the Hub when the files are there but
+            // do not load, so "present" has to mean "loads": try exactly the
+            // call it will make.
+            guard let localFolder,
+                  (try? await AutoTokenizerWrapper.from(
+                      modelFolder: localFolder,
+                      hubApi: HubApiWrapper(downloadBase: tokenizerFolder)
+                  )) != nil else {
+                throw WhisperKitService.ModelDownloadError.tokenizerNeedsNetwork
+            }
+        }
+        try await super.loadTokenizerIfNeeded()
+    }
+}
+
+/// Which tokenizer WhisperKit wants for a model, and where it looks for it.
+///
+/// WhisperKit keeps this to itself (ModelUtilities.detectVariant,
+/// tokenizerNameForVariant and loadTokenizer are internal or do the lookup
+/// and the download in one step), so the rules are mirrored here as of
+/// argmax-oss-swift 1.0.0. They are what lets the app fetch the tokenizer
+/// together with the model, and tell without a request whether a load would
+/// need the network.
+enum WhisperTokenizerFiles {
+    /// What WhisperKit fetches from a tokenizer repository
+    /// (LanguageModelConfigurationFromHub.loadConfig), minus the chat
+    /// templates no Whisper repository has.
+    static let downloadedFiles = ["config.json", "tokenizer_config.json", "tokenizer.json"]
+
+    /// The repository holding the tokenizer for a model of these dimensions.
+    /// Fine-tunes (KB, NB) use the tokenizer of the OpenAI model they are
+    /// built on, which the dimensions identify.
+    static func repoId(vocabularySize: Int, encoderDimension: Int) -> String {
+        let name: String
+        switch vocabularySize {
+        case 51865: // multilingual
+            switch encoderDimension {
+            case 384: name = "tiny"
+            case 512: name = "base"
+            case 768: name = "small"
+            case 1024: name = "medium"
+            case 1280: name = "large-v2"
+            default: name = "base"
+            }
+        case 51864: // English-only
+            switch encoderDimension {
+            case 384: name = "tiny.en"
+            case 512: name = "base.en"
+            case 768: name = "small.en"
+            case 1024: name = "medium.en"
+            default: name = "base.en"
+            }
+        case 51866: // large-v3 has one more language token
+            name = "large-v3"
+        default:
+            name = "base"
+        }
+        return "openai/whisper-\(name)"
+    }
+
+    /// The tokenizer repository for a downloaded model, read from the Hugging
+    /// Face `config.json` its folder carries. Nil when that file does not
+    /// state the model's dimensions.
+    static func repoId(forModelFolder folder: URL) -> String? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("config.json")),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let vocabularySize = config["vocab_size"] as? Int,
+              let encoderDimension = config["d_model"] as? Int else { return nil }
+        return repoId(vocabularySize: vocabularySize, encoderDimension: encoderDimension)
+    }
+
+    /// The folder WhisperKit will load the tokenizer from, or nil when it
+    /// will download it instead.
+    ///
+    /// It takes the first of its search paths that has a `tokenizer.json`,
+    /// and loading from there needs a `tokenizer_config.json` beside it — if
+    /// that is missing it does not try the next path, it goes to the Hub.
+    static func localFolder(repoId: String, tokenizerBase: URL?, modelFolder: URL?) -> URL? {
+        let repo = HubApiWrapper.Repo(id: repoId)
+        var searchPaths = [HubApiWrapper(downloadBase: tokenizerBase).localRepoLocation(repo)]
+        if let tokenizerBase {
+            searchPaths.append(tokenizerBase)
+        }
+        if let modelFolder {
+            searchPaths.append(modelFolder)
+            searchPaths.append(HubApiWrapper(downloadBase: modelFolder).localRepoLocation(repo))
+        }
+
+        let fm = FileManager.default
+        guard let folder = searchPaths.first(where: {
+            fm.fileExists(atPath: $0.appendingPathComponent("tokenizer.json").path)
+        }) else { return nil }
+        return fm.fileExists(atPath: folder.appendingPathComponent("tokenizer_config.json").path) ? folder : nil
+    }
 }
 
 extension TranscriptionError {
