@@ -11,6 +11,10 @@
 
 /* Settings - General */
 "settings" = "Settings";
+/* Quick Transcribe */
+"quick_placeholder" = "Record a few sentences to get them as text.";
+"quick_local_note" = "Quick Transcribe always runs on a local model.";
+"quick_no_local_model" = "No local model is downloaded. Download one in Settings to use Quick Transcribe.";
 /* YouTube sheet */
 "youtube_sheet_title" = "Transcribe from YouTube";
 "youtube_sheet_hint" = "Only the audio is downloaded where possible, for fast transcription.";

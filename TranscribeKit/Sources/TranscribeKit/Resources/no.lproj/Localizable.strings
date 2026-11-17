@@ -11,6 +11,10 @@
 
 /* Settings - General */
 "settings" = "Innstillinger";
+/* Quick Transcribe */
+"quick_placeholder" = "Ta opp noen setninger, så får du dem som tekst.";
+"quick_local_note" = "Hurtigtranskribering kjører alltid med en lokal modell.";
+"quick_no_local_model" = "Ingen lokal modell er lastet ned. Last ned en i innstillingene for å bruke hurtigtranskribering.";
 /* YouTube sheet */
 "youtube_sheet_title" = "Transkriber fra YouTube";
 "youtube_sheet_hint" = "Om mulig lastes bare lyden ned, for rask transkribering.";
