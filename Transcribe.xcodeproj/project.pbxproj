@@ -641,7 +641,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Transcribe records system audio so that meetings and media can be transcribed.";
+				INFOPLIST_FILE = "Transcribe-Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe uses the microphone to record audio for transcription.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -682,7 +682,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Transcribe records system audio so that meetings and media can be transcribed.";
+				INFOPLIST_FILE = "Transcribe-Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Transcribe uses the microphone to record audio for transcription.";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Keys Xcode cannot generate from INFOPLIST_KEY_ build settings.
+	     Merged into the generated Info.plist of the macOS app. Lives outside
+	     the Transcribe/ folder so it is not also copied in as a resource. -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Transcribe records system audio so that meetings and media can be transcribed.</string>
+</dict>
+</plist>
