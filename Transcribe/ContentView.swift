@@ -527,9 +527,9 @@ struct ContentView: View {
     // MARK: - Lookups
 
     static func icon(for modelId: String) -> String {
+        // Where it runs, not which engine: every local model is a computer
         switch ModelManager.engine(for: modelId) {
-        case .whisperKit: return "laptopcomputer"
-        case .parakeet: return "bolt"
+        case .whisperKit, .parakeet: return "laptopcomputer"
         case .cloud: return "cloud"
         case .none: return "cube"
         }
@@ -627,14 +627,6 @@ private struct ModelPickerRow: View {
     private var isDownloading: Bool { modelManager.isDownloading[modelId] == true }
     private var progress: Double { modelManager.downloadProgress[modelId] ?? 0 }
 
-    private var detail: String? {
-        switch modelId {
-        case "pianissimo_sv-coreml": return localized("model_desc_pianissimo")
-        case "parakeet_tdt-v3-coreml": return localized("model_desc_parakeet")
-        default: return nil
-        }
-    }
-
     var body: some View {
         HStack(spacing: 10) {
             Button(action: onSelect) {
@@ -654,10 +646,6 @@ private struct ModelPickerRow: View {
                                 .tint(.primaryAccent)
                                 .frame(maxWidth: 150)
                                 .padding(.top, 2)
-                        } else if let detail {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(Color.textTertiary)
                         }
                     }
 

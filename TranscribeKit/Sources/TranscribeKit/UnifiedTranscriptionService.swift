@@ -81,7 +81,7 @@ public class UnifiedTranscriptionService: ObservableObject {
     /// Unload current model
     public func unloadModel() {
         Task {
-            await whisperKitService.unloadModel()
+            whisperKitService.unloadModel()
         }
         
         activeService = nil
@@ -263,7 +263,7 @@ public class WhisperKitServiceWrapper: TranscriptionServiceProtocol {
         var finalSegments: [TranscriptionSegment] = []
         var latestSegments: [TranscriptionSegment] = []
         var receivedFinal = false
-        let currentModelId = await whisperKitService.currentModel
+        let currentModelId = whisperKitService.currentModel
 
         for try await update in whisperKitService.transcribe(
             fileURL: audioURL,

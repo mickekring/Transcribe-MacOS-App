@@ -217,8 +217,10 @@ public class ModelManager: ObservableObject {
         if modelId.hasPrefix("berget:") {
             let apiId = String(modelId.dropFirst("berget:".count))
             if let friendly = Self.bergetASRDisplayNames[apiId] { return friendly }
+            // A model Berget added later: its short API name ("pianissimo"),
+            // capitalised so it reads as a name in the list
             let shortName = apiId.components(separatedBy: "/").last ?? apiId
-            return "\(shortName) (Berget)"
+            return "\(shortName.prefix(1).uppercased())\(shortName.dropFirst()) (Berget)"
         }
         return modelId
     }
@@ -227,6 +229,7 @@ public class ModelManager: ObservableObject {
         "KBLab/kb-whisper-large": "KB Whisper Large (Berget)",
         "NbAiLab/nb-whisper-large": "NB Whisper Large (Berget)",
         "Systran/faster-whisper-large-v3": "Faster Whisper V3 (Berget)",
+        "klang/pianissimo": "Pianissimo (Berget)",
     ]
     
     // MARK: - Model Deletion

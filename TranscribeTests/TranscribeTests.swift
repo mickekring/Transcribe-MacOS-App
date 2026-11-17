@@ -6,6 +6,15 @@ import Testing
 
 struct ModelRoutingTests {
 
+    @MainActor
+    @Test func bergetModelsReadAsNames() {
+        let manager = ModelManager.shared
+        #expect(manager.displayName(for: "berget:klang/pianissimo") == "Pianissimo (Berget)")
+        #expect(manager.displayName(for: "berget:KBLab/kb-whisper-large") == "KB Whisper Large (Berget)")
+        // One Berget adds later still starts with a capital
+        #expect(manager.displayName(for: "berget:acme/sonata") == "Sonata (Berget)")
+    }
+
     @Test func everyLocalModelHasAnEngine() {
         for modelId in ModelManager.allLocalModels {
             #expect(ModelManager.engine(for: modelId) != nil, "\(modelId) has no engine")
