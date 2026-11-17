@@ -179,6 +179,7 @@ Adaptive colors in `ColorExtensions.swift` (`NSColor(name:dynamicProvider:)`, wi
 - `.surfaceBackground`, `.cardBackground`, `.elevatedSurface` - Surface hierarchy
 - `.textPrimary/Secondary/Tertiary` - Text hierarchy (all at least 4.5:1)
 - `.recordingRed`, `LinearGradient.accentGradient`
+- The asset-catalog `AccentColor` (system controls, sidebar selection, switches) is a deeper green (`#1C8A5A` dark, `#17804F` light) so white labels on it stay legible; it is not the same as `.primaryAccent` in dark mode on purpose.
 
 Perpetual animations must check `accessibilityReduceMotion`.
 

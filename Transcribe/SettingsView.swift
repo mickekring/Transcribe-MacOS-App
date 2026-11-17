@@ -1,7 +1,7 @@
 import SwiftUI
 import TranscribeKit
 
-private enum SettingsSection: Hashable {
+private enum SettingsSection: String, Hashable {
     case general
     case apiKeys
     case localModels
@@ -80,6 +80,15 @@ struct SettingsView: View {
         .navigationTitle("")
         .frame(width: 1040, height: 640)
         .environmentObject(ollama)
+        #if DEBUG
+        .onAppear {
+            // -debugSettingsSection localModels (see DebugHarness)
+            if let name = UserDefaults.standard.string(forKey: "debugSettingsSection"),
+               let section = SettingsSection(rawValue: name) {
+                selectedSection = section
+            }
+        }
+        #endif
         .alert(localized("model_download_failed_title"), isPresented: Binding(
             get: { modelDownloadError != nil },
             set: { if !$0 { modelDownloadError = nil } }

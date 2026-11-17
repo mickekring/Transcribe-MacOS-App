@@ -1,5 +1,6 @@
 #if DEBUG
 import AVFoundation
+import AppKit
 import SwiftUI
 import TranscribeKit
 
@@ -17,6 +18,10 @@ import TranscribeKit
 ///   -debugInputDevice NAME               with -debugRecordSeconds: pick the
 ///                                        input device whose name contains NAME
 ///   -debugShowModelPicker 1              open the model picker at launch
+///   -debugSettingsSection NAME           open Settings on that section
+///                                        (general, apiKeys, localModels, …)
+///   -debugShowYouTube 1                  open the YouTube sheet at launch
+///   -debugShowAbout 1 / -debugShowQuick 1 open the About / Quick Transcribe window
 ///   -debugHold 1                         with -debugLiveDemo: don't stop at
 ///                                        the end of the speech
 ///   -debugThenTranscribe 1               with -debugLiveDemo: press
@@ -57,6 +62,14 @@ enum DebugHarness {
     static func runLaunchHooks(appState: AppState) {
         if let screen = initialScreen {
             appState.navigate(to: screen)
+        }
+        if let delegate = AppDelegate.shared {
+            if arguments.bool(forKey: "debugShowAbout") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { delegate.showAboutWindow() }
+            }
+            if arguments.bool(forKey: "debugShowQuick") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { delegate.quickTranscribe() }
+            }
         }
         if let code = arguments.string(forKey: "debugTranscribeDemo") {
             Task {

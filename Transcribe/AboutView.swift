@@ -70,6 +70,7 @@ struct AboutView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 6) {
+                        featureRow(localized("about_feature_live"))
                         featureRow(localized("about_feature_nordic"))
                         featureRow(localized("about_feature_languages"))
                         featureRow(localized("about_feature_llm"))
@@ -120,7 +121,7 @@ struct AboutView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
-        .frame(width: 440, height: 520)
+        .frame(width: 440, height: 556)
         // A window of its own, so it brings the app's backdrop with it
         .background { AuroraBackdrop() }
         .preferredColorScheme(preferredScheme)

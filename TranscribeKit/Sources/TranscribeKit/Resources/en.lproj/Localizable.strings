@@ -490,3 +490,4 @@
 "local_only_tokenizer_missing" = "This model needs a small file from the internet the first time it is used, and local-only mode is on. Turn off local-only mode once to finish setting up the model.";
 "live_idle_hint_system" = "What your Mac plays appears here while you record.";
 "mic_starting" = "Starting the microphone…";
+"about_feature_live" = "Fast transcription and live text with Pianissimo & Parakeet";

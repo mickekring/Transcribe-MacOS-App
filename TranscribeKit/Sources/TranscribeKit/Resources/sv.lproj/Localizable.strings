@@ -490,3 +490,4 @@
 "local_only_tokenizer_missing" = "Modellen behöver hämta en liten fil från internet första gången den används, och endast lokalt läge är på. Stäng av endast lokalt läge en gång för att slutföra installationen av modellen.";
 "live_idle_hint_system" = "Det som spelas upp på datorn visas här medan du spelar in.";
 "mic_starting" = "Startar mikrofonen…";
+"about_feature_live" = "Snabb transkribering och livetext med Pianissimo & Parakeet";

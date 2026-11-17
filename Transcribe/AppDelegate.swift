@@ -5,6 +5,15 @@ import os
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    /// The app's delegate. With SwiftUI's delegate adaptor `NSApp.delegate`
+    /// is SwiftUI's own object, not this one.
+    private(set) static weak var shared: AppDelegate?
+
+    override init() {
+        super.init()
+        Self.shared = self
+    }
+
     private var aboutWindow: NSWindow?
     private var quickTranscribeWindow: NSWindow?
     private var statusBarItem: NSStatusItem?
@@ -193,7 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func showAboutWindow() {
         if aboutWindow == nil {
             aboutWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 556),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false

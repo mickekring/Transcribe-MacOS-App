@@ -122,6 +122,12 @@ struct ContentView: View {
             if UserDefaults.standard.bool(forKey: "debugShowModelPicker") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { showModelPopover = true }
             }
+            if UserDefaults.standard.string(forKey: "debugSettingsSection") != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { openSettings() }
+            }
+            if UserDefaults.standard.bool(forKey: "debugShowYouTube") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { showYouTubeView = true }
+            }
             #endif
         }
         .onDisappear {
