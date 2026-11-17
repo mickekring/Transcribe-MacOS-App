@@ -12,6 +12,13 @@
 /* Settings - General */
 "settings" = "Innstillinger";
 /* YouTube sheet */
+"youtube_sheet_title" = "Transkriber fra YouTube";
+"youtube_sheet_hint" = "Om mulig lastes bare lyden ned, for rask transkribering.";
+"youtube_paste_link" = "Lim inn en YouTube-lenke";
+"youtube_fetching_info" = "Henter informasjon om videoen…";
+"youtube_downloading" = "Laster ned…";
+"youtube_starting_transcription" = "Starter transkribering…";
+"youtube_try_again" = "Prøv igjen";
 "youtube_untitled_video" = "YouTube-video";
 "youtube_local_only" = "Kun lokal modus er aktivert – YouTube-import er slått av. Slå av modusen i innstillingene for å bruke den.";
 "youtube_error_invalid_url" = "Ugyldig YouTube-lenke. Kontroller lenken og prøv igjen.";

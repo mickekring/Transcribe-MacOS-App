@@ -12,6 +12,13 @@
 /* Settings - General */
 "settings" = "Settings";
 /* YouTube sheet */
+"youtube_sheet_title" = "Transcribe from YouTube";
+"youtube_sheet_hint" = "Only the audio is downloaded where possible, for fast transcription.";
+"youtube_paste_link" = "Paste a YouTube link";
+"youtube_fetching_info" = "Fetching video details…";
+"youtube_downloading" = "Downloading…";
+"youtube_starting_transcription" = "Starting transcription…";
+"youtube_try_again" = "Try Again";
 "youtube_untitled_video" = "YouTube video";
 "youtube_local_only" = "Local-only mode is enabled — YouTube import is disabled. Turn it off in Settings to use it.";
 "youtube_error_invalid_url" = "Invalid YouTube link. Check the link and try again.";
