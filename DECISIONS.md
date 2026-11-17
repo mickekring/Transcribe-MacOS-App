@@ -45,6 +45,8 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 **The engine starts off the main thread.** Opening the input device talks to the audio server and blocks while macOS shows its microphone-permission dialog; doing it on the main thread froze the window behind that dialog.
 
+**A configuration change re-taps the same engine; it does not build a new one.** A fresh `AVAudioEngine` opens the default input first, so binding another device changes its configuration about 100 ms after it starts, and the engine stops itself. Building a new engine in response repeats that forever — with any non-default microphone nothing was recorded (found by recording from a loopback device; the log showed a new engine every ~150 ms). Both `MicrophoneCapture` and the microphone in `SystemAudioCaptureService` now re-read the input format and re-tap the stopped engine, rebuild only if that fails (device unplugged), cap the number of changes followed in a row, and resume an engine that was already stopped when it was taken over (a change that fired before the observer was attached).
+
 ---
 
 ## 2026-11-17: Liquid Glass on Controls, Solid Content
