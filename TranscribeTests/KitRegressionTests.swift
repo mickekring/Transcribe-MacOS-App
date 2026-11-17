@@ -1,4 +1,6 @@
+import AVFoundation
 import Foundation
+import os
 import Testing
 @testable import TranscribeKit
 // Only these two: WhisperKit and TranscribeKit both have a TranscriptionResult
@@ -393,5 +395,363 @@ struct StreamingCallbackStateTests {
             decodeOptions: DecodingOptions(concurrentWorkerCount: 1, chunkingStrategy: .vad)
         )
         #expect(harness.state.chunkFailure == nil)
+    }
+}
+
+// MARK: - Cloud uploads: when to split
+
+struct AudioPreprocessingTests {
+
+    /// Writes a mono 16-bit PCM WAV with a tone in it.
+    private func writeWAV(to url: URL, seconds: Double, sampleRate: Int = 16_000) throws {
+        let frameCount = Int(seconds * Double(sampleRate))
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        let dataSize = UInt32(frameCount * 2)
+        data.append(contentsOf: Array("RIFF".utf8))
+        append(UInt32(36) + dataSize)
+        data.append(contentsOf: Array("WAVEfmt ".utf8))
+        append(UInt32(16))                  // fmt chunk size
+        append(UInt16(1))                   // PCM
+        append(UInt16(1))                   // channels
+        append(UInt32(sampleRate))
+        append(UInt32(sampleRate * 2))      // byte rate
+        append(UInt16(2))                   // block align
+        append(UInt16(16))                  // bits per sample
+        data.append(contentsOf: Array("data".utf8))
+        append(dataSize)
+        for frame in 0..<frameCount {
+            append(Int16(8_000 * sin(2 * Double.pi * 440 * Double(frame) / Double(sampleRate))))
+        }
+        try data.write(to: url)
+    }
+
+    private func duration(of url: URL) async throws -> Double {
+        try await AVURLAsset(url: url).load(.duration).seconds
+    }
+
+    @Test func aSourceOverTheLimitThatConvertsSmallIsUploadedWhole() async throws {
+        let scratch = try ScratchDirectory()
+        let source = scratch.url.appendingPathComponent("recording.wav")
+        try writeWAV(to: source, seconds: 12)   // 384 kB
+        // The service's limits, scaled down: the source is over the upload
+        // limit, its 32 kbps conversion (some 50 kB) is far below it. Chunks
+        // are 4 s so that splitting, if it happened, would show.
+        let preprocessor = AudioPreprocessor(maxFileSize: 150_000, chunkDuration: 4, overlapDuration: 1)
+
+        let processed = try await preprocessor.preprocessAudio(url: source)
+        defer { preprocessor.cleanupProcessedAudio(processed) }
+
+        #expect(processed.chunks.count == 1)
+        #expect(processed.url.pathExtension == "m4a")
+        #expect(processed.chunks.first?.url == processed.url)
+        #expect(abs((processed.chunks.first?.endTime ?? 0) - 12) < 0.5)
+        #expect(abs(processed.originalDuration - 12) < 0.01)
+        #expect(abs(try await duration(of: processed.url) - 12) < 0.5)
+    }
+
+    @Test func aConversionStillOverTheLimitIsSplitWithOverlap() async throws {
+        let scratch = try ScratchDirectory()
+        let source = scratch.url.appendingPathComponent("recording.wav")
+        try writeWAV(to: source, seconds: 12)
+        // No conversion of 12 s fits in 2 kB
+        let preprocessor = AudioPreprocessor(maxFileSize: 2_000, chunkDuration: 4, overlapDuration: 1)
+
+        let processed = try await preprocessor.preprocessAudio(url: source)
+        #expect(processed.chunks.map(\.startTime) == [0, 3, 6, 9])
+        #expect(processed.chunks.map(\.index) == [0, 1, 2, 3])
+        for chunk in processed.chunks.dropLast() {
+            #expect(abs(chunk.endTime - chunk.startTime - 4) < 0.001)
+            #expect(abs(try await duration(of: chunk.url) - 4) < 0.5)
+        }
+
+        // Cleanup takes the temporary files and leaves the user's file alone
+        let temporary = [processed.url] + processed.chunks.map(\.url)
+        preprocessor.cleanupProcessedAudio(processed)
+        #expect(temporary.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test func aSmallNativeFileIsSentAsItIs() async throws {
+        let scratch = try ScratchDirectory()
+        let source = scratch.url.appendingPathComponent("recording.wav")
+        try writeWAV(to: source, seconds: 2)
+        let processed = try await AudioPreprocessor.shared.preprocessAudio(url: source)
+        #expect(processed.url == source)
+        #expect(processed.chunks.count == 1)
+        #expect(!processed.needsCleanup)
+    }
+
+    @Test func extractsTheAudioOfAContainerForLocalTranscription() async throws {
+        let scratch = try ScratchDirectory()
+        let wav = scratch.url.appendingPathComponent("recording.wav")
+        try writeWAV(to: wav, seconds: 3)
+        // An MPEG-4 container, which the local engines do not read directly:
+        // the AAC conversion under the name a video file would have.
+        let preprocessor = AudioPreprocessor(maxFileSize: 50_000)
+        let converted = try await preprocessor.preprocessAudio(url: wav)
+        defer { preprocessor.cleanupProcessedAudio(converted) }
+        let container = scratch.url.appendingPathComponent("recording.mp4")
+        try FileManager.default.copyItem(at: converted.url, to: container)
+        #expect(AudioPreprocessor.shared.needsConversionForWhisperKit(url: container))
+
+        let extracted = try await AudioPreprocessor.shared.extractAudioForWhisperKit(url: container)
+        defer { try? FileManager.default.removeItem(at: extracted) }
+        #expect(extracted.pathExtension == "wav")
+        #expect(abs(try await duration(of: extracted) - 3) < 0.2)
+    }
+}
+
+// MARK: - Cloud uploads: joining chunks
+
+struct ChunkOverlapTests {
+
+    /// "ord0 ord1 …": distinct words, so every repetition is unambiguous.
+    private func text(_ range: Range<Int>) -> String {
+        range.map { "ord\($0)" }.joined(separator: " ")
+    }
+
+    // 30 s of overlap is 60 to 100 words of ordinary speech; the search used
+    // to stop after 50.
+    @Test(arguments: [8, 50, 51, 75, 110, 150])
+    func removesAnOverlapOfRealisticLength(overlapWords: Int) {
+        let previous = text(0..<400)
+        let current = text((400 - overlapWords)..<600)
+        let remainder = AudioPreprocessor.removeOverlap(previousText: previous, currentText: current, overlapDuration: 30)
+        #expect(remainder == text(400..<600))
+    }
+
+    @Test func theSeamHasNoRepeatedWord() {
+        // The match used to be returned from its last word, so that word
+        // appeared on both sides of every seam.
+        let previous = text(0..<100)
+        let current = text(90..<120)
+        let remainder = AudioPreprocessor.removeOverlap(previousText: previous, currentText: current, overlapDuration: 30)
+        #expect(remainder.split(separator: " ").first == "ord100")
+    }
+
+    @Test func textWithoutAnOverlapIsKeptWhole() {
+        let previous = text(0..<200)
+        let current = text(500..<700)
+        #expect(AudioPreprocessor.removeOverlap(previousText: previous, currentText: current, overlapDuration: 30) == current)
+        #expect(AudioPreprocessor.removeOverlap(previousText: "", currentText: current, overlapDuration: 30) == current)
+    }
+
+    @Test func aFewWordsInCommonAreNotAnOverlap() {
+        let previous = text(0..<200)
+        // The last three words of the previous text happen to recur
+        let current = text(300..<320) + " " + text(197..<200) + " " + text(320..<340)
+        #expect(AudioPreprocessor.removeOverlap(previousText: previous, currentText: current, overlapDuration: 30) == current)
+    }
+
+    @Test func aChunkThatOnlyRepeatsLeavesNothing() {
+        let previous = text(0..<200)
+        #expect(AudioPreprocessor.removeOverlap(previousText: previous, currentText: text(150..<200), overlapDuration: 30).isEmpty)
+    }
+}
+
+struct ChunkMergeTests {
+
+    private func chunk(_ index: Int, _ start: Double, _ end: Double) -> AudioPreprocessor.AudioChunk {
+        AudioPreprocessor.AudioChunk(url: URL(fileURLWithPath: "/chunk\(index).m4a"), startTime: start, endTime: end, index: index)
+    }
+
+    private func result(_ segments: [TranscriptionSegment], text: String = "") -> TranscriptionResult {
+        TranscriptionResult(text: text, segments: segments, language: "sv", duration: 0, timestamp: Date(), modelUsed: "test")
+    }
+
+    private func segment(_ start: Double, _ end: Double, _ text: String, words: [(String, Double, Double)]? = nil) -> TranscriptionSegment {
+        TranscriptionSegment(
+            id: 0, start: start, end: end, text: text, confidence: nil, speaker: "SPEAKER_00",
+            words: words?.map { TranscriptionWord(word: $0.0, start: $0.1, end: $0.2, speaker: "SPEAKER_00") }
+        )
+    }
+
+    /// Chunk times as the preprocessor makes them: 9 minutes, 30 s overlap.
+    private var firstChunk: AudioPreprocessor.AudioChunk { chunk(0, 0, 540) }
+    private var secondChunk: AudioPreprocessor.AudioChunk { chunk(1, 510, 1050) }
+
+    @Test func aSegmentAcrossTheEndOfTheOverlapIsCutNotDropped() {
+        let first = result([
+            segment(520, 530, "detta är slutet på första delen"),
+            segment(530, 539.8, "och här tar den slut"),
+        ])
+        let second = result([
+            // Entirely inside the overlap: the first chunk has it
+            segment(10, 20, "detta är slutet på första delen"),
+            // Starts in the overlap (which ends at 30 s), ends after it
+            segment(20, 33, "och här tar den slut nu börjar andra delen", words: [
+                ("och", 20.0, 20.4), ("här", 20.5, 20.9), ("tar", 21.0, 21.4), ("den", 21.5, 21.9), ("slut", 29.2, 29.8),
+                ("nu", 29.9, 30.3), ("börjar", 30.4, 31.0), ("andra", 31.1, 31.6), ("delen", 31.7, 32.5),
+            ]),
+            segment(40, 45, "som fortsätter", words: [("som", 40.0, 40.5), ("fortsätter", 40.6, 45.0)]),
+        ])
+
+        let merged = AudioPreprocessor.shared.mergeChunkedTranscriptions([(firstChunk, first), (secondChunk, second)])
+
+        #expect(merged.segments.map(\.text) == [
+            "detta är slutet på första delen",
+            "och här tar den slut",
+            "nu börjar andra delen",
+            "som fortsätter",
+        ])
+        // Text and segments say the same thing
+        #expect(merged.text == merged.segments.map(\.text).joined(separator: " "))
+        #expect(merged.segments.map(\.id) == [0, 1, 2, 3])
+
+        // The cut segment starts at its first kept word, on the file's timeline
+        let cut = merged.segments[2]
+        #expect(abs(cut.start - 539.9) < 0.0001)
+        #expect(abs(cut.end - 543) < 0.0001)
+        #expect(cut.words?.map(\.word) == ["nu", "börjar", "andra", "delen"])
+        #expect(abs((cut.words?.first?.start ?? 0) - 539.9) < 0.0001)
+
+        // Word timings survive the merge, shifted to the file's timeline
+        let last = merged.segments[3]
+        #expect(last.words?.map(\.start) == [550.0, 550.6])
+        #expect(last.words?.last?.end == 555.0)
+        #expect(last.words?.first?.speaker == "SPEAKER_00")
+    }
+
+    @Test func aSegmentWithoutWordTimingsLosesOnlyTheWordsItRepeats() {
+        let first = result([segment(525, 539.5, "ett två tre fyra fem sex sju")])
+        let second = result([segment(15, 34, "ett två tre fyra fem sex sju åtta nio")])
+
+        let merged = AudioPreprocessor.shared.mergeChunkedTranscriptions([(firstChunk, first), (secondChunk, second)])
+
+        #expect(merged.segments.map(\.text) == ["ett två tre fyra fem sex sju", "åtta nio"])
+        #expect(merged.text == "ett två tre fyra fem sex sju åtta nio")
+        #expect(merged.segments[1].start == 540)
+        #expect(merged.segments[1].end == 544)
+    }
+
+    @Test func nothingIsCutFromAChunkWhosePredecessorIsMissing() {
+        // The middle chunk failed; the third one's first 30 s are not in any
+        // other transcription.
+        let first = result([segment(0, 10, "första")])
+        let third = result([segment(5, 15, "börjar mitt i"), segment(40, 50, "och fortsätter")])
+
+        let merged = AudioPreprocessor.shared.mergeChunkedTranscriptions([(firstChunk, first), (chunk(2, 1020, 1560), third)])
+
+        #expect(merged.segments.map(\.text) == ["första", "börjar mitt i", "och fortsätter"])
+        #expect(merged.segments[1].start == 1025)
+    }
+
+    @Test func resultsWithoutSegmentsAreJoinedByTheirText() {
+        let words = { (range: Range<Int>) in range.map { "ord\($0)" }.joined(separator: " ") }
+        let first = result([], text: words(0..<400))
+        let second = result([], text: words(320..<600))
+
+        let merged = AudioPreprocessor.shared.mergeChunkedTranscriptions([(firstChunk, first), (secondChunk, second)])
+
+        #expect(merged.text == words(0..<600))
+        #expect(merged.segments.isEmpty)
+    }
+
+    @Test func nothingToMergeGivesAnEmptyResult() {
+        let merged = AudioPreprocessor.shared.mergeChunkedTranscriptions([])
+        #expect(merged.text.isEmpty)
+        #expect(merged.segments.isEmpty)
+    }
+}
+
+// MARK: - Cloud transcription
+
+struct BergetResponseTests {
+
+    @Test func aWordWithoutTimingIsKeptAtItsNeighboursTime() {
+        // The aligner cannot place numerals; they come back without start/end
+        let words = BergetTranscriptionService.words(from: [
+            ["word": "Det", "start": 1.0, "end": 1.2, "speaker": "SPEAKER_01"],
+            ["word": "kostar", "start": 1.2, "end": 1.6, "speaker": "SPEAKER_01"],
+            ["word": "250"],
+            ["word": "kronor", "start": 2.0, "end": 2.4, "speaker": "SPEAKER_01"],
+        ], segmentStart: 1.0)
+
+        #expect(words.map(\.word) == ["Det", "kostar", "250", "kronor"])
+        #expect(words[2].start == 1.6)
+        #expect(words[2].end == 1.6)
+        #expect(words[2].speaker == nil)
+        #expect(words[3].start == 2.0)
+    }
+
+    @Test func untimedWordsAtTheStartTakeTheNextTimedWord() {
+        let words = BergetTranscriptionService.words(from: [
+            ["word": "3"],
+            ["word": "%"],
+            ["word": "ränta", "start": 5.0, "end": 5.5],
+        ], segmentStart: 4.0)
+        #expect(words.map(\.start) == [5.0, 5.0, 5.0])
+        #expect(words.map(\.end) == [5.0, 5.0, 5.5])
+    }
+
+    @Test func aSegmentOfOnlyUntimedWordsUsesItsOwnStart() {
+        let words = BergetTranscriptionService.words(from: [["word": "2024"], ["word": "2025"]], segmentStart: 12.5)
+        #expect(words.map(\.word) == ["2024", "2025"])
+        #expect(words.allSatisfy { $0.start == 12.5 && $0.end == 12.5 })
+    }
+
+    @Test func readsNestedAndFlatSegmentLists() {
+        let segment: [String: Any] = [
+            "start": 0.0, "end": 2.5, "speaker": "SPEAKER_00", "text": " Klockan är 12 ",
+            "words": [
+                ["word": "Klockan", "start": 0.1, "end": 0.6],
+                ["word": "är", "start": 0.7, "end": 0.9],
+                ["word": "12"],
+            ],
+        ]
+        let nested = BergetTranscriptionService.segments(fromResponse: ["text": "x", "segments": ["segments": [segment]]])
+        let flat = BergetTranscriptionService.segments(fromResponse: ["text": "x", "segments": [segment]])
+
+        for segments in [nested, flat] {
+            #expect(segments.count == 1)
+            #expect(segments.first?.text == "Klockan är 12")
+            #expect(segments.first?.speaker == "SPEAKER_00")
+            #expect(segments.first?.words?.map(\.word) == ["Klockan", "är", "12"])
+        }
+        #expect(BergetTranscriptionService.segments(fromResponse: ["text": "x"]).isEmpty)
+    }
+}
+
+struct BergetCancellationTests {
+    /// A file that does not exist: the request fails while it is being put
+    /// together, before anything is sent.
+    private let missingFile = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).m4a")
+
+    @Test func theCallbackVariantReportsItsOutcome() async {
+        let service = BergetTranscriptionService(apiKey: "test")
+        let result = await withCheckedContinuation { continuation in
+            service.transcribe(audioURL: missingFile) { result in
+                continuation.resume(returning: result)
+            }
+        }
+        #expect(throws: (any Error).self) { try result.get() }
+    }
+
+    @Test @MainActor func nothingIsReportedAfterCancel() async throws {
+        let service = BergetTranscriptionService(apiKey: "test")
+        let reported = OSAllocatedUnfairLock(initialState: false)
+        service.transcribe(audioURL: missingFile) { _ in
+            reported.withLock { $0 = true }
+        }
+        // Completion handlers run on the main actor, which this test holds
+        // until it suspends: the cancel is certain to come first.
+        service.cancel()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!reported.withLock { $0 })
+    }
+
+    @Test func cancellingTheCallingTaskThrowsCancellationError() async {
+        let service = BergetTranscriptionService(apiKey: "test")
+        let file = missingFile
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await service.transcribe(audioURL: file)
+        }
+        await #expect(throws: CancellationError.self) {
+            _ = try await task.value
+        }
     }
 }

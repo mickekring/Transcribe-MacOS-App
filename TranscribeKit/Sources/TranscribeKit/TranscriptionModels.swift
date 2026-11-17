@@ -1,7 +1,7 @@
 import Foundation
 import CoreAudio
 
-public struct TranscriptionResult: Identifiable, Codable {
+public struct TranscriptionResult: Identifiable, Codable, Sendable {
     public let id: UUID
     public let text: String
     public let segments: [TranscriptionSegment]
@@ -38,7 +38,7 @@ public struct AudioInputDevice: Identifiable, Hashable {
 }
 #endif
 
-public struct TranscriptionSegment: Codable {
+public struct TranscriptionSegment: Codable, Sendable {
     public let id: Int
     public let start: TimeInterval
     public let end: TimeInterval
@@ -60,7 +60,7 @@ public struct TranscriptionSegment: Codable {
     }
 }
 
-public struct TranscriptionWord: Codable {
+public struct TranscriptionWord: Codable, Sendable {
     public let word: String
     public let start: TimeInterval
     public let end: TimeInterval

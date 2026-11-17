@@ -1,24 +1,39 @@
 import Foundation
 import AVFoundation
+import os
 
 public class AudioPreprocessor {
     nonisolated(unsafe) public static let shared = AudioPreprocessor()
-    
-    // Maximum file size (25 MB)
+
+    // Maximum upload size.
     // Berget accepts up to 100 MB per request and processes ~25x realtime
     // within its 30-minute cap, so hours of 16 kHz mono AAC fit in ONE
     // request. Single requests matter beyond efficiency: speaker labels
     // (SPEAKER_00...) are only consistent within one transcription, so
     // chunking would scramble diarization.
-    private let maxFileSize: Int64 = 95 * 1024 * 1024
-    
-    // Maximum duration (10 minutes)
-    private let maxDuration: Double = 6 * 60 * 60  // ~6h fits Berget's 30-min processing cap with margin
-    
+    private let maxFileSize: Int64
+
+    // Maximum duration of one upload
+    private let maxDuration: Double  // ~6h fits Berget's 30-min processing cap with margin
+
     // Chunk duration with overlap (9 minutes chunks with 30 seconds overlap)
-    private let chunkDuration: Double = 540.0  // 9 minutes
-    private let overlapDuration: Double = 30.0  // 30 seconds overlap
-    
+    private let chunkDuration: Double
+    private let overlapDuration: Double
+
+    /// The defaults are the limits of the service; tests pass small ones so a
+    /// few seconds of audio exercise the same decisions as hours of it.
+    init(
+        maxFileSize: Int64 = 95 * 1024 * 1024,
+        maxDuration: Double = 6 * 60 * 60,
+        chunkDuration: Double = 540.0,
+        overlapDuration: Double = 30.0
+    ) {
+        self.maxFileSize = maxFileSize
+        self.maxDuration = maxDuration
+        self.chunkDuration = chunkDuration
+        self.overlapDuration = overlapDuration
+    }
+
     public struct ProcessedAudio {
         public let url: URL
         public let chunks: [AudioChunk]
@@ -40,31 +55,14 @@ public class AudioPreprocessor {
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProcessedAudio {
         onProgress?(localized("analyzing_audio_file"))
-        
-        let asset = AVAsset(url: url)
-        let duration = try await asset.load(.duration)
-        let durationInSeconds = CMTimeGetSeconds(duration)
-        
-        // Check file size
-        let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = fileAttributes[.size] as? Int64 ?? 0
-        
-        // Determine if we need to process the audio
-        let needsConversion = !isOptimalFormat(url: url) || fileSize > maxFileSize
-        let needsChunking = durationInSeconds > maxDuration || fileSize > maxFileSize
-        
-        if !needsConversion && !needsChunking {
-            // Audio is already optimal
-            return ProcessedAudio(
-                url: url,
-                chunks: [AudioChunk(url: url, startTime: 0, endTime: durationInSeconds, index: 0)],
-                needsCleanup: false,
-                originalDuration: durationInSeconds,
-                originalURL: url
-            )
-        }
 
-        // Convert to optimal format if needed
+        let durationInSeconds = try await Self.duration(of: url)
+        let fileSize = try Self.fileSize(of: url)
+
+        // Convert to the compact upload format unless the file already is one
+        // the service takes and is small enough to send as it is
+        let needsConversion = !isOptimalFormat(url: url) || fileSize > maxFileSize
+
         var processedURL = url
         var needsCleanup = false
 
@@ -74,26 +72,51 @@ public class AudioPreprocessor {
             needsCleanup = true
         }
 
-        // Chunk if needed
-        var chunks: [AudioChunk] = []
-        if needsChunking {
-            onProgress?(localized("splitting_audio_chunks"))
-            chunks = try await createChunks(url: processedURL, duration: durationInSeconds)
-            // Chunks are always temporary files, even when no conversion happened
-            needsCleanup = true
-        } else {
-            chunks = [AudioChunk(url: processedURL, startTime: 0, endTime: durationInSeconds, index: 0)]
-        }
+        do {
+            // Whether to split is decided by what will be uploaded, not by
+            // the file the user picked: an hour of video or of 48 kHz stereo
+            // WAV is hundreds of megabytes but some 15 MB once converted.
+            // Splitting it anyway would cost the consistent speaker labels
+            // that only a single request gives.
+            let uploadDuration = needsConversion ? try await Self.duration(of: processedURL) : durationInSeconds
+            let uploadSize = needsConversion ? try Self.fileSize(of: processedURL) : fileSize
+            let needsChunking = uploadDuration > maxDuration || uploadSize > maxFileSize
 
-        return ProcessedAudio(
-            url: processedURL,
-            chunks: chunks,
-            needsCleanup: needsCleanup,
-            originalDuration: durationInSeconds,
-            originalURL: url
-        )
+            let chunks: [AudioChunk]
+            if needsChunking {
+                onProgress?(localized("splitting_audio_chunks"))
+                chunks = try await createChunks(url: processedURL, duration: uploadDuration)
+                // Chunks are always temporary files, even when no conversion happened
+                needsCleanup = true
+            } else {
+                chunks = [AudioChunk(url: processedURL, startTime: 0, endTime: uploadDuration, index: 0)]
+            }
+
+            return ProcessedAudio(
+                url: processedURL,
+                chunks: chunks,
+                needsCleanup: needsCleanup,
+                originalDuration: durationInSeconds,
+                originalURL: url
+            )
+        } catch {
+            // The caller never gets a ProcessedAudio to clean up
+            if needsConversion {
+                try? FileManager.default.removeItem(at: processedURL)
+            }
+            throw error
+        }
     }
-    
+
+    private static func duration(of url: URL) async throws -> Double {
+        CMTimeGetSeconds(try await AVURLAsset(url: url).load(.duration))
+    }
+
+    private static func fileSize(of url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes[.size] as? Int64 ?? 0
+    }
+
     /// Audio-only formats that WhisperKit/ExtAudioFile can read directly.
     private static let nativeAudioExtensions: Set<String> = [
         "wav", "mp3", "m4a", "flac", "aac", "aif", "aiff", "caf"
@@ -178,10 +201,8 @@ public class AudioPreprocessor {
             throw AudioProcessingError.exportFailed("Cannot configure audio writer")
         }
         writer.add(writerInput)
-        
-        reader.startReading()
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
+
+        try Self.start(reader: reader, writer: writer, sessionStart: .zero, outputURL: outputURL)
 
         try await transferAudio(
             reader: reader,
@@ -192,6 +213,36 @@ public class AudioPreprocessor {
         )
 
         return outputURL
+    }
+
+    /// Starts the reader and the writer. Both report failure through their
+    /// return value rather than by throwing, and starting a session on a
+    /// writer that did not start raises an Objective-C exception.
+    private static func start(reader: AVAssetReader, writer: AVAssetWriter, sessionStart: CMTime, outputURL: URL) throws {
+        guard reader.startReading() else {
+            throw AudioProcessingError.exportFailed(
+                reader.error?.localizedDescription ?? "Cannot start reading audio")
+        }
+        guard writer.startWriting() else {
+            reader.cancelReading()
+            // The writer may have created its output file before failing
+            try? FileManager.default.removeItem(at: outputURL)
+            throw AudioProcessingError.exportFailed(
+                writer.error?.localizedDescription ?? "Cannot start writing audio")
+        }
+        writer.startSession(atSourceTime: sessionStart)
+    }
+
+    /// What the pump in `transferAudio` works on. AVFoundation calls the pump
+    /// on another queue and none of these types is Sendable, so the pump
+    /// reaches them through a lock instead of capturing them bare: the lock,
+    /// not a comment about which queue runs what, is what makes each call
+    /// see the state the previous one left.
+    private struct TransferState {
+        let readerOutput: AVAssetReaderTrackOutput
+        let writer: AVAssetWriter
+        let writerInput: AVAssetWriterInput
+        var hasResumed = false
     }
 
     /// Pumps all sample buffers from `readerOutput` into `writerInput`, then
@@ -208,29 +259,34 @@ public class AudioPreprocessor {
     ) async throws {
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                // Only mutated on the serial queue below, so no lock is needed.
-                var hasResumed = false
+                let transfer = OSAllocatedUnfairLock(uncheckedState: TransferState(
+                    readerOutput: readerOutput,
+                    writer: writer,
+                    writerInput: writerInput
+                ))
                 writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "audio.extraction")) {
-                    guard !hasResumed else { return }
-                    while writerInput.isReadyForMoreMediaData {
-                        guard writer.status != .failed else {
-                            hasResumed = true
-                            continuation.resume(throwing: writer.error
-                                ?? AudioProcessingError.exportFailed("Audio writer failed"))
-                            return
-                        }
-                        if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                            guard writerInput.append(sampleBuffer) else {
-                                hasResumed = true
-                                continuation.resume(throwing: writer.error
-                                    ?? AudioProcessingError.exportFailed("Failed to append audio data"))
+                    transfer.withLockUnchecked { state in
+                        guard !state.hasResumed else { return }
+                        while state.writerInput.isReadyForMoreMediaData {
+                            guard state.writer.status != .failed else {
+                                state.hasResumed = true
+                                continuation.resume(throwing: state.writer.error
+                                    ?? AudioProcessingError.exportFailed("Audio writer failed"))
                                 return
                             }
-                        } else {
-                            writerInput.markAsFinished()
-                            hasResumed = true
-                            continuation.resume()
-                            return
+                            if let sampleBuffer = state.readerOutput.copyNextSampleBuffer() {
+                                guard state.writerInput.append(sampleBuffer) else {
+                                    state.hasResumed = true
+                                    continuation.resume(throwing: state.writer.error
+                                        ?? AudioProcessingError.exportFailed("Failed to append audio data"))
+                                    return
+                                }
+                            } else {
+                                state.writerInput.markAsFinished()
+                                state.hasResumed = true
+                                continuation.resume()
+                                return
+                            }
                         }
                     }
                 }
@@ -318,9 +374,7 @@ public class AudioPreprocessor {
         }
         writer.add(writerInput)
 
-        reader.startReading()
-        writer.startWriting()
-        writer.startSession(atSourceTime: timeRange?.start ?? .zero)
+        try Self.start(reader: reader, writer: writer, sessionStart: timeRange?.start ?? .zero, outputURL: outputURL)
 
         try await transferAudio(
             reader: reader,
@@ -394,11 +448,18 @@ public class AudioPreprocessor {
         }
     }
     
+    /// Joins the transcriptions of consecutive, overlapping chunks into one
+    /// result on the timeline of the whole file.
+    ///
+    /// Each chunk after the first repeats the end of the one before it; the
+    /// repeated part is taken from the earlier chunk and cut from the later
+    /// one. Word timings are carried along. Speaker labels are carried as
+    /// they are, but they are numbered per request and so do not identify
+    /// the same person across chunks.
     public func mergeChunkedTranscriptions(
         _ transcriptions: [(chunk: AudioChunk, result: TranscriptionResult)]
     ) -> TranscriptionResult {
-        // Safety check
-        guard !transcriptions.isEmpty else {
+        guard let firstResult = transcriptions.first?.result else {
             return TranscriptionResult(
                 text: "",
                 segments: [],
@@ -408,62 +469,57 @@ public class AudioPreprocessor {
                 modelUsed: "unknown"
             )
         }
-        
+
         var mergedText = ""
         var mergedSegments: [TranscriptionSegment] = []
-        var segmentId = 0
-        
+
+        func appendText(_ text: String) {
+            let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            mergedText += mergedText.isEmpty ? text : " " + text
+        }
+
         for (index, (chunk, result)) in transcriptions.enumerated() {
-            if index == 0 {
-                // First chunk - use all text
-                mergedText = result.text
-                
-                // Map segments with incremental IDs
-                for segment in result.segments {
-                    mergedSegments.append(TranscriptionSegment(
-                        id: segmentId,
-                        start: segment.start + chunk.startTime,
-                        end: segment.end + chunk.startTime,
-                        text: segment.text,
-                        confidence: segment.confidence,
-                        speaker: segment.speaker
-                    ))
-                    segmentId += 1
-                }
-            } else {
-                // Subsequent chunks - remove overlap
-                let overlapText = removeOverlap(
-                    previousText: mergedText,
-                    currentText: result.text,
-                    overlapDuration: overlapDuration
-                )
-                
-                if !overlapText.isEmpty {
-                    mergedText += " " + overlapText
-                }
-                
-                // Adjust segment timestamps
-                for segment in result.segments {
-                    // Skip segments in the overlap region
-                    if segment.start >= overlapDuration {
-                        mergedSegments.append(TranscriptionSegment(
-                            id: segmentId,
-                            start: segment.start + chunk.startTime,
-                            end: segment.end + chunk.startTime,
-                            text: segment.text,
-                            confidence: segment.confidence,
-                            speaker: segment.speaker
-                        ))
-                        segmentId += 1
+            // How much of the start of this chunk the previous one already
+            // covers. Taken from the chunks themselves rather than assumed:
+            // when the chunk before this one is missing (it failed), nothing
+            // of this one has been transcribed yet and nothing may be cut.
+            let overlap = index == 0 ? 0 : max(0, transcriptions[index - 1].chunk.endTime - chunk.startTime)
+
+            guard !result.segments.isEmpty else {
+                // No timings to go by: find the repeated words instead
+                appendText(overlap > 0
+                    ? Self.removeOverlap(previousText: mergedText, currentText: result.text, overlapDuration: overlap)
+                    : result.text)
+                continue
+            }
+
+            // The text is built from the segments that are kept, so the two
+            // cannot disagree about what the overlap was.
+            for segment in result.segments {
+                guard let kept = Self.trimming(segment, toStartAfter: overlap, previousText: mergedText) else { continue }
+                mergedSegments.append(TranscriptionSegment(
+                    id: mergedSegments.count,
+                    start: kept.start + chunk.startTime,
+                    end: kept.end + chunk.startTime,
+                    text: kept.text,
+                    confidence: kept.confidence,
+                    speaker: kept.speaker,
+                    words: kept.words?.map { word in
+                        TranscriptionWord(
+                            word: word.word,
+                            start: word.start + chunk.startTime,
+                            end: word.end + chunk.startTime,
+                            speaker: word.speaker
+                        )
                     }
-                }
+                ))
+                appendText(kept.text)
             }
         }
-        
-        // Use the first result as template and update with merged data
-        let firstResult = transcriptions.first!.result
+
         return TranscriptionResult(
-            text: mergedText.trimmingCharacters(in: .whitespacesAndNewlines),
+            text: mergedText,
             segments: mergedSegments,
             language: firstResult.language,
             duration: transcriptions.map { $0.chunk.endTime - $0.chunk.startTime }.reduce(0, +),
@@ -471,65 +527,94 @@ public class AudioPreprocessor {
             modelUsed: firstResult.modelUsed
         )
     }
-    
-    private func removeOverlap(previousText: String, currentText: String, overlapDuration: Double) -> String {
-        // Safety check for empty texts
-        guard !previousText.isEmpty && !currentText.isEmpty else {
+
+    /// The part of a segment that lies after the first `overlap` seconds of
+    /// its chunk — the part the previous chunk has not already transcribed —
+    /// or nil when there is none. Times stay relative to the chunk.
+    ///
+    /// A segment that starts inside the overlap and ends after it is cut, not
+    /// dropped: dropping it loses the words spoken after the overlap, which
+    /// no other chunk has.
+    static func trimming(_ segment: TranscriptionSegment, toStartAfter overlap: Double, previousText: String) -> TranscriptionSegment? {
+        guard overlap > 0, segment.start < overlap else { return segment }
+        guard segment.end > overlap else { return nil }
+
+        if let words = segment.words, !words.isEmpty {
+            // A word belongs to the chunk that heard most of it
+            let kept = words.filter { ($0.start + $0.end) / 2 >= overlap }
+            guard let firstKept = kept.first else { return nil }
+            guard kept.count < words.count else { return segment }
+            return TranscriptionSegment(
+                id: segment.id,
+                start: firstKept.start,
+                end: segment.end,
+                text: kept.map { $0.word.trimmingCharacters(in: .whitespaces) }.joined(separator: " "),
+                confidence: segment.confidence,
+                speaker: segment.speaker,
+                words: kept
+            )
+        }
+
+        // No word timings to cut at: drop the words it repeats instead
+        let fullText = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = removeOverlap(previousText: previousText, currentText: fullText, overlapDuration: overlap)
+        guard !text.isEmpty else { return nil }
+        return TranscriptionSegment(
+            id: segment.id,
+            start: text == fullText ? segment.start : overlap,
+            end: segment.end,
+            text: text,
+            confidence: segment.confidence,
+            speaker: segment.speaker,
+            words: nil
+        )
+    }
+
+    /// An upper bound on how fast people talk, for sizing the search below.
+    /// Conversation runs at two to three words a second.
+    private static let maxWordsPerSecond = 6.0
+
+    /// Returns `currentText` without the words at its start that repeat the
+    /// end of `previousText`, for two transcriptions whose audio overlaps by
+    /// `overlapDuration` seconds. When no repetition is found the text is
+    /// returned whole — duplicated words are better than lost ones.
+    static func removeOverlap(previousText: String, currentText: String, overlapDuration: Double) -> String {
+        let currentWords = currentText.split(separator: " ")
+        guard !previousText.isEmpty, !currentWords.isEmpty else {
             return currentText
         }
-        
-        let previousWords = Array(previousText.split(separator: " ").suffix(50)) // Last 50 words
-        let currentWords = Array(currentText.split(separator: " "))
-        
-        // Safety check for very short texts
-        guard previousWords.count > 0 && currentWords.count > 0 else {
-            return currentText
-        }
-        
-        // Find where the overlap starts in the current text
-        var bestMatch = 0
+
+        // The repetition ends somewhere within the words spoken in
+        // `overlapDuration` seconds, so that is how far to look — and how
+        // much of the previous text can take part in a match. (A fixed 50
+        // words is some 20 seconds of speech: with a 30-second overlap the
+        // end of the repetition was never inside the search.)
+        let window = Int((overlapDuration * maxWordsPerSecond).rounded(.up))
+        let previousWords = previousText.split(separator: " ").suffix(window)
+
+        // For each position in the current text, count how many words ending
+        // there equal the last words of the previous text. The longest such
+        // run marks the end of the repetition.
+        var lastRepeatedIndex = 0
         var bestScore = 0
-        
-        // Look for matching sequences
-        for i in 0..<min(50, currentWords.count) {
+        for index in 0..<min(window, currentWords.count) {
             var score = 0
-            let maxJ = min(previousWords.count, min(currentWords.count - i, i + 1))
-            
-            for j in 0..<maxJ {
-                // Bounds check
-                let prevIndex = previousWords.count - 1 - j
-                let currIndex = i - j
-                
-                if prevIndex >= 0 && prevIndex < previousWords.count &&
-                   currIndex >= 0 && currIndex < currentWords.count {
-                    if previousWords[prevIndex] == currentWords[currIndex] {
-                        score += 1
-                    } else {
-                        break
-                    }
-                } else {
-                    break
-                }
+            while score <= index, score < previousWords.count,
+                  previousWords[previousWords.endIndex - 1 - score] == currentWords[index - score] {
+                score += 1
             }
-            
             if score > bestScore {
                 bestScore = score
-                bestMatch = i
+                lastRepeatedIndex = index
             }
         }
-        
-        // Return text after the overlap
-        if bestMatch > 0 && bestScore > 5 { // Require at least 5 matching words
-            // Safe array slicing
-            if bestMatch < currentWords.count {
-                return currentWords[bestMatch...].joined(separator: " ")
-            } else {
-                return ""
-            }
-        } else {
-            // No good overlap found, return all text (might have some duplication)
+
+        // A few words in common are coincidence, not an overlap
+        guard bestScore > 5 else {
             return currentWords.joined(separator: " ")
         }
+        // The new text starts after the last repeated word
+        return currentWords[(lastRepeatedIndex + 1)...].joined(separator: " ")
     }
 }
 
