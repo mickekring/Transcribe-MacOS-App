@@ -133,6 +133,31 @@ extension View {
     }
 }
 
+/// The label of a toolbar control that picks a value (language, model):
+/// icon, current value and a chevron, so every chooser reads the same and
+/// differs from the action buttons next to it. The padding keeps the text
+/// clear of the glass capsule's edge.
+struct ToolbarChooserLabel<Icon: View>: View {
+    let title: String
+    @ViewBuilder let icon: Icon
+
+    var body: some View {
+        HStack(spacing: 7) {
+            icon
+            // Set explicitly: the toolbar draws a button's title heavier
+            // than a menu's, and the two choosers sit side by side
+            Text(title)
+                .fontWeight(.medium)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 6)
+    }
+}
+
 /// Back button for a screen's toolbar (the system gives it glass).
 struct BackToolbarButton: View {
     let action: () -> Void

@@ -433,69 +433,134 @@ struct RecordingView: View {
 // MARK: - Live transcript
 
 /// The live transcript: settled text in the primary colour, the part still
-/// being revised dimmed behind it.
+/// being revised dimmed behind it. Like the transcript screen it sits
+/// directly on the window background — no card, no rules — so it reads as
+/// part of the screen rather than a box placed on it.
 struct LiveTranscriptPanel: View {
     @ObservedObject var live: LiveTranscriptController
     let isRecording: Bool
     /// Shown before anything has been said.
     var idleHint: String = localized("live_idle_hint")
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Text scrolling out at the top fades over this distance instead of
+    /// being cut off. The text starts this far down, so at rest nothing is faded.
+    private let topFade: CGFloat = 22
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                StatusBadge(
-                    text: live.modelName.isEmpty ? localized("live_text") : "\(localized("live_text")) · \(live.modelName)",
-                    color: live.phase == .listening && isRecording ? .primaryAccent : .textTertiary,
-                    isPulsing: live.phase == .listening && isRecording
-                )
-                Spacer()
-                if live.phase == .preparing || live.phase == .finishing {
-                    AccentSpinner(size: 14, lineWidth: 2)
+            if showsText {
+                header
+
+                ScrollView {
+                    transcript
+                        // A comfortable reading measure on wide windows
+                        .frame(maxWidth: 820, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, topFade)
+                        .padding(.bottom, 12)
+                        .padding(.trailing, 12)
+                }
+                // Read from the top; once the text outgrows the panel, follow
+                // the newest words.
+                .defaultScrollAnchor(.top, for: .alignment)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: topFade)
+                        Color.black
+                    }
+                }
+
+                Text(localized("live_preview_note"))
+                    .font(.caption)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.top, 10)
+            } else {
+                emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(.leading, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .animation(.easeOut(duration: 0.25), value: showsText)
+    }
+
+    private var showsText: Bool {
+        if case .failed = live.phase { return true }
+        return live.hasText
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            StatusBadge(
+                text: live.modelName.isEmpty ? localized("live_text") : "\(localized("live_text")) · \(live.modelName)",
+                color: isListening ? .primaryAccent : .textTertiary,
+                isPulsing: isListening
+            )
+            Spacer()
+            if live.phase == .preparing || live.phase == .finishing {
+                AccentSpinner(size: 14, lineWidth: 2)
+            }
+        }
+        .frame(height: 20)
+    }
+
+    private var isListening: Bool {
+        live.phase == .listening && isRecording
+    }
+
+    /// Before the first words: what will appear here, centred in the space
+    /// the text is about to fill. It also carries the status (loading,
+    /// listening) until the header takes over with the text.
+    private var emptyState: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(Color.primaryAccent.opacity(isRecording ? 0.18 : 0.12))
+                    .frame(width: 68, height: 68)
+                if isRecording && live.phase == .preparing {
+                    AccentSpinner(size: 26, lineWidth: 2.5)
+                } else {
+                    Image(systemName: isRecording ? "waveform" : "captions.bubble")
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(Color.primaryAccent)
+                        .symbolEffect(.variableColor.iterative, isActive: isListening && !reduceMotion)
+                        .contentTransition(.symbolEffect(.replace))
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .accessibilityHidden(true)
 
-            Divider().overlay(Color.borderLight)
-
-            ScrollView {
-                transcript
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
+            VStack(spacing: 8) {
+                Text(placeholder)
+                    .font(.system(.title3, design: .rounded).weight(.medium))
+                    .foregroundStyle(Color.textSecondary)
+                Text(localized("live_preview_note"))
+                    .font(.callout)
+                    .foregroundStyle(Color.textTertiary)
             }
-            // Read from the top; once the text outgrows the panel, follow
-            // the newest words.
-            .defaultScrollAnchor(.top, for: .alignment)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
-
-            Divider().overlay(Color.borderLight)
-
-            Text(localized("live_preview_note"))
-                .font(.caption)
-                .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 480)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentCard(cornerRadius: Metrics.panelRadius)
+        // Optically centred: a little above the middle
+        .padding(.bottom, 40)
     }
 
     @ViewBuilder
     private var transcript: some View {
         if case .failed(let message) = live.phase {
             Label(message, systemImage: "exclamationmark.triangle")
+                .font(.body)
                 .foregroundStyle(Color.textSecondary)
-        } else if live.hasText {
+        } else {
             // One Text so settled and tentative words wrap as a single paragraph
             Text("\(Text(live.confirmed).foregroundStyle(Color.textPrimary))\(separator)\(Text(live.volatile).foregroundStyle(Color.textTertiary))")
-                .font(.system(size: 17))
-                .lineSpacing(6)
+                .font(.system(size: 20))
+                .lineSpacing(7)
                 .textSelection(.enabled)
                 .animation(.easeOut(duration: 0.15), value: live.volatile)
-        } else {
-            Text(placeholder)
-                .font(.system(size: 17))
-                .foregroundStyle(Color.textTertiary)
         }
     }
 

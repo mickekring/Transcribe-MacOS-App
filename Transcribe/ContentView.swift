@@ -340,13 +340,12 @@ struct ContentView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Label {
-                Text(languageManager.selectedLanguage.localizedName)
-            } icon: {
+            ToolbarChooserLabel(title: languageManager.selectedLanguage.localizedName) {
                 Image(systemName: "globe")
             }
-            .labelStyle(.titleAndIcon)
         }
+        // The label draws its own chevron, the same one the model picker has
+        .menuIndicator(.hidden)
         .help(localized("language"))
         .accessibilityLabel("\(localized("language")): \(languageManager.selectedLanguage.localizedName)")
     }
@@ -371,18 +370,18 @@ struct ContentView: View {
         return (id, modelManager.downloadProgress[id] ?? 0)
     }
 
+    private var modelButtonTitle: String {
+        if let download = activeDownload {
+            return "\(modelManager.displayName(for: download.modelId)) \(Int(download.progress * 100)) %"
+        }
+        return selectedModel.isEmpty ? localized("select_model") : modelManager.displayName(for: selectedModel)
+    }
+
     private var modelPicker: some View {
         Button {
             showModelPopover.toggle()
         } label: {
-            Label {
-                if let download = activeDownload {
-                    Text("\(modelManager.displayName(for: download.modelId)) \(Int(download.progress * 100)) %")
-                        .monospacedDigit()
-                } else {
-                    Text(selectedModel.isEmpty ? localized("select_model") : modelManager.displayName(for: selectedModel))
-                }
-            } icon: {
+            ToolbarChooserLabel(title: modelButtonTitle) {
                 if activeDownload != nil {
                     Image(systemName: "arrow.down.circle")
                         .symbolEffect(.pulse)
@@ -390,7 +389,7 @@ struct ContentView: View {
                     Image(systemName: Self.icon(for: selectedModel))
                 }
             }
-            .labelStyle(.titleAndIcon)
+            .monospacedDigit()
         }
         .help(localized("model"))
         .accessibilityLabel("\(localized("model")): \(modelManager.displayName(for: selectedModel))")
