@@ -29,9 +29,7 @@ let package = Package(
             ],
             path: "Transcribe",
             exclude: [
-                "Info.plist",
-                "Transcribe.entitlements",
-                "Resources/whisper"
+                "Transcribe.entitlements"
             ]
         ),
         .testTarget(

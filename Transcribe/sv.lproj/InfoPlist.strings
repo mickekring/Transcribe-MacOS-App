@@ -1,0 +1,3 @@
+/* Shown by macOS when it asks for permission. */
+"NSMicrophoneUsageDescription" = "Transcribe använder mikrofonen för att spela in ljud som ska transkriberas.";
+"NSAudioCaptureUsageDescription" = "Transcribe spelar in systemljud så att möten och media kan transkriberas.";
