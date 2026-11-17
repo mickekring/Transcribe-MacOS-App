@@ -154,6 +154,8 @@ struct RecordingView: View {
         Group {
             if capture.isPausedForSleep {
                 StatusBadge(text: localized("recording_paused_sleep"), color: .orange)
+            } else if capture.isStarting {
+                StatusBadge(text: localized("mic_starting"), color: .orange, isPulsing: true)
             } else if capture.isRecording {
                 StatusBadge(text: localized("recording_in_progress"), color: .recordingRed, isPulsing: true)
             } else if capture.hasRecording {
@@ -190,8 +192,8 @@ struct RecordingView: View {
                 .regular.tint(isRecording ? Color.recordingRed : Color.primaryAccent).interactive(),
                 in: .circle
             )
-            .disabled(capture.hasRecording && !isRecording)
-            .opacity(capture.hasRecording && !isRecording ? 0.45 : 1)
+            .disabled((capture.hasRecording && !isRecording) || capture.isStarting)
+            .opacity((capture.hasRecording && !isRecording) || capture.isStarting ? 0.45 : 1)
             .keyboardShortcut(.space, modifiers: [])
             .help(isRecording ? localized("stop_recording") : localized("start_recording"))
             .accessibilityLabel(isRecording ? localized("stop_recording") : localized("start_recording"))
@@ -435,14 +437,16 @@ struct RecordingView: View {
 struct LiveTranscriptPanel: View {
     @ObservedObject var live: LiveTranscriptController
     let isRecording: Bool
+    /// Shown before anything has been said.
+    var idleHint: String = localized("live_idle_hint")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 StatusBadge(
                     text: live.modelName.isEmpty ? localized("live_text") : "\(localized("live_text")) · \(live.modelName)",
-                    color: live.phase == .listening ? .primaryAccent : .textTertiary,
-                    isPulsing: live.phase == .listening
+                    color: live.phase == .listening && isRecording ? .primaryAccent : .textTertiary,
+                    isPulsing: live.phase == .listening && isRecording
                 )
                 Spacer()
                 if live.phase == .preparing || live.phase == .finishing {
@@ -502,9 +506,8 @@ struct LiveTranscriptPanel: View {
 
     private var placeholder: String {
         switch live.phase {
-        case .preparing: return localized("live_loading_model")
-        case .listening: return localized("live_listening")
-        default: return isRecording ? localized("live_listening") : localized("live_idle_hint")
+        case .preparing: return isRecording ? localized("live_loading_model") : idleHint
+        default: return isRecording ? localized("live_listening") : idleHint
         }
     }
 }

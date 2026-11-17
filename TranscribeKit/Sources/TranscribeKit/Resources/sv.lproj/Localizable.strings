@@ -488,3 +488,5 @@
 "model_desc_parakeet" = "25 europeiska språk · snabb · livetext";
 "model_selected_after_download" = "Väljs när nedladdningen är klar";
 "local_only_tokenizer_missing" = "Modellen behöver hämta en liten fil från internet första gången den används, och endast lokalt läge är på. Stäng av endast lokalt läge en gång för att slutföra installationen av modellen.";
+"live_idle_hint_system" = "Det som spelas upp på datorn visas här medan du spelar in.";
+"mic_starting" = "Startar mikrofonen…";

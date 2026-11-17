@@ -18,6 +18,9 @@ import TranscribeKit
 @MainActor
 final class MicrophoneCapture: ObservableObject {
     @Published private(set) var isRecording = false
+    /// Record was pressed and the input device is still being opened —
+    /// a Bluetooth headset or macOS's permission dialog can take a while.
+    @Published private(set) var isStarting = false
     @Published private(set) var hasRecording = false
     @Published private(set) var isPausedForSleep = false
     /// Seconds of audio written to the current (or last) recording.
@@ -48,6 +51,8 @@ final class MicrophoneCapture: ObservableObject {
     /// Bumped whenever the wanted engine changes, so a slow start that has
     /// been superseded discards its result.
     private var engineGeneration = 0
+    /// Recent configuration changes of the current engine, to stop a loop.
+    private var configurationChanges: [Date] = []
     private var configurationObserver: NSObjectProtocol?
     private var wasMonitoringBeforeSleep = false
     private var sleepObserver: NSObjectProtocol?
@@ -105,6 +110,8 @@ final class MicrophoneCapture: ObservableObject {
         if usesInjectedAudio { needsEngine = false }
         #endif
         if needsEngine {
+            isStarting = true
+            defer { isStarting = false }
             // Wait for a start already under way, or begin one
             let start = engineStart ?? launchEngine(reportFailure: true)
             guard await start.value, engine != nil else { return false }
@@ -254,6 +261,20 @@ final class MicrophoneCapture: ObservableObject {
             try bind(input, to: deviceID)
         }
 
+        try tapAndStart(engine, state: state, fileRate: fileRate, liveRate: liveRate, onReading: onReading)
+        return EngineBox(engine: engine)
+    }
+
+    /// Installs the tap for the input's current format and starts the engine.
+    private nonisolated static func tapAndStart(
+        _ engine: AVAudioEngine,
+        state: TapState,
+        fileRate: Double,
+        liveRate: Double,
+        onReading: @escaping @Sendable (TapState.Reading) -> Void
+    ) throws {
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw CaptureError.noInputDevice
@@ -270,20 +291,76 @@ final class MicrophoneCapture: ObservableObject {
             input.removeTap(onBus: 0)
             throw error
         }
-        return EngineBox(engine: engine)
     }
 
     private func adopt(_ engine: AVAudioEngine) {
         self.engine = engine
+        configurationChanges = []
         // The engine stops itself when the input hardware changes (device
-        // unplugged, AirPods connected, sample rate switched). Rebuild it so
-        // the recording carries on instead of silently going quiet.
+        // unplugged, AirPods connected, sample rate switched).
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.restartEngineKeepingRecording()
+                self?.engineConfigurationChanged(engine)
             }
+        }
+        // A change between starting and being taken over here went
+        // unobserved; it left the engine stopped.
+        if !engine.isRunning {
+            engineConfigurationChanged(engine)
+        }
+    }
+
+    /// Resumes an engine that stopped because its input changed, so the
+    /// recording carries on instead of silently going quiet.
+    ///
+    /// The same engine is re-tapped with the input's new format. Building a
+    /// fresh engine instead never settles for a device other than the
+    /// default: a new engine opens the default input first, so binding the
+    /// chosen device changes its configuration once more right after start —
+    /// which, handled by building yet another engine, repeats forever.
+    private func engineConfigurationChanged(_ changed: AVAudioEngine) {
+        guard changed === engine else { return }
+
+        // A device that keeps changing (or a bug) must not spin forever
+        let now = Date()
+        configurationChanges = configurationChanges.filter { now.timeIntervalSince($0) < 5 } + [now]
+        guard configurationChanges.count <= 6 else {
+            tearDownEngine()
+            engineFailedToStart(CaptureError.deviceUnavailable(kAudioUnitErr_FailedInitialization))
+            return
+        }
+
+        engineGeneration += 1
+        let generation = engineGeneration
+        let box = EngineBox(engine: changed)
+        let state = tapState
+        let fileRate = Self.fileSampleRate
+        let liveRate = Self.liveSampleRate
+        let onReading: @Sendable (TapState.Reading) -> Void = { [weak self] reading in
+            DispatchQueue.main.async {
+                self?.apply(reading)
+            }
+        }
+
+        engineStart = Task { [weak self] () -> Bool in
+            let error: Error? = await Task.detached(priority: .userInitiated) {
+                do {
+                    try Self.tapAndStart(box.engine, state: state, fileRate: fileRate, liveRate: liveRate, onReading: onReading)
+                    return nil
+                } catch {
+                    return error
+                }
+            }.value
+            guard let self, self.engineGeneration == generation else { return false }
+            self.engineStart = nil
+            guard error != nil else { return true }
+            // The input this engine was bound to is gone (unplugged): start
+            // over on whatever is available now.
+            self.tearDownEngine()
+            self.launchEngine(reportFailure: true)
+            return false
         }
     }
 
@@ -326,8 +403,8 @@ final class MicrophoneCapture: ObservableObject {
         engine.stop()
     }
 
-    /// Rebuilds the engine (new device or new hardware format). An open
-    /// recording file stays open and keeps receiving audio.
+    /// Builds a new engine (another device was chosen). An open recording
+    /// file stays open and keeps receiving audio.
     private func restartEngineKeepingRecording() {
         guard engine != nil || engineStart != nil else { return }
         tearDownEngine()

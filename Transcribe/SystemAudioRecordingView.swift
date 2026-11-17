@@ -52,7 +52,7 @@ struct SystemAudioRecordingView: View {
                 .frame(maxWidth: showsLivePanel ? 440 : .infinity, maxHeight: .infinity)
 
             if showsLivePanel {
-                LiveTranscriptPanel(live: live, isRecording: capture.isCapturing)
+                LiveTranscriptPanel(live: live, isRecording: capture.isCapturing, idleHint: localized("live_idle_hint_system"))
                     .padding(.vertical, Metrics.gutter)
                     .padding(.trailing, Metrics.gutter)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -70,6 +70,11 @@ struct SystemAudioRecordingView: View {
         // Cancelled when the screen goes away, so a start that had not begun
         // yet cannot open a stream nobody is left to stop.
         .task(id: monitoringRequest) {
+            // The meter only starts by itself once access has been granted.
+            // Opening the stream is what makes macOS ask, and that should
+            // happen when the user presses Record, not merely by opening this
+            // screen (Record opens the stream itself if it isn't running).
+            guard CGPreflightScreenCaptureAccess() else { return }
             await capture.startMonitoring()
         }
         .onDisappear {

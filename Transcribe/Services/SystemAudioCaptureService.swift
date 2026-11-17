@@ -81,6 +81,8 @@ final class SystemAudioCaptureService: ObservableObject {
     /// an old tap are ignored.
     private var micGeneration = 0
     private var micConfigurationObserver: NSObjectProtocol?
+    /// Recent configuration changes of the current microphone engine, to stop a loop.
+    private var micConfigurationChanges: [Date] = []
 
     private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
@@ -420,13 +422,10 @@ final class SystemAudioCaptureService: ObservableObject {
             }
         }
         // The engine stops itself when the input hardware changes (device
-        // unplugged, AirPods connected, sample rate switched). Rebuild it,
-        // with a converter for the new format, so the microphone stays in the
-        // recording instead of silently dropping out of it.
-        let onConfigurationChange: @Sendable () -> Void = { [weak self] in
+        // unplugged, AirPods connected, sample rate switched).
+        let onConfigurationChange: @Sendable (EngineReference) -> Void = { [weak self] changed in
             MainActor.assumeIsolated {
-                guard let self, self.micGeneration == generation else { return }
-                self.restartMicKeepingRecording()
+                self?.micConfigurationChanged(changed.engine)
             }
         }
 
@@ -454,7 +453,13 @@ final class SystemAudioCaptureService: ObservableObject {
                 }
                 self.micEngine = box.engine
                 self.micConfigurationObserver = box.observer
+                self.micConfigurationChanges = []
                 self.mixer.attachMicrophone(box.feed)
+                // A change that arrived before the engine was taken over
+                // found no engine to resume; it left this one stopped.
+                if !box.engine.isRunning {
+                    self.micConfigurationChanged(box.engine)
+                }
                 return true
             case .failure:
                 guard self.micGeneration == generation else { return false }
@@ -470,7 +475,7 @@ final class SystemAudioCaptureService: ObservableObject {
         deviceID: AudioDeviceID?,
         mixer: SystemAudioMixer,
         onReading: @escaping @Sendable (SystemAudioMixer.MicrophoneReading) -> Void,
-        onConfigurationChange: @escaping @Sendable () -> Void
+        onConfigurationChange: @escaping @Sendable (EngineReference) -> Void
     ) throws -> MicEngineBox {
         let engine = AVAudioEngine()
         let input = engine.inputNode
@@ -478,6 +483,29 @@ final class SystemAudioCaptureService: ObservableObject {
             try bind(input, to: deviceID)
         }
 
+        let reference = EngineReference(engine: engine)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { _ in
+            onConfigurationChange(reference)
+        }
+        do {
+            let feed = try tapAndStartMic(engine, mixer: mixer, onReading: onReading)
+            return MicEngineBox(engine: engine, feed: feed, observer: observer)
+        } catch {
+            NotificationCenter.default.removeObserver(observer)
+            throw error
+        }
+    }
+
+    /// Installs the tap for the input's current format and starts the engine.
+    private nonisolated static func tapAndStartMic(
+        _ engine: AVAudioEngine,
+        mixer: SystemAudioMixer,
+        onReading: @escaping @Sendable (SystemAudioMixer.MicrophoneReading) -> Void
+    ) throws -> MicrophoneFeed {
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw MicrophoneError.noInputDevice
@@ -491,24 +519,14 @@ final class SystemAudioCaptureService: ObservableObject {
             onReading(feed.process(buffer))
         }
 
-        // Observed from before the engine starts, so a hardware change in the
-        // moment between starting here and being taken over on the main
-        // actor is not missed.
-        let observer = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { _ in
-            onConfigurationChange()
-        }
-
         engine.prepare()
         do {
             try engine.start()
         } catch {
-            NotificationCenter.default.removeObserver(observer)
             input.removeTap(onBus: 0)
             throw error
         }
-        return MicEngineBox(engine: engine, feed: feed, observer: observer)
+        return feed
     }
 
     private func tearDownMicEngine() {
@@ -547,13 +565,68 @@ final class SystemAudioCaptureService: ObservableObject {
         }
     }
 
-    /// Rebuilds the engine (new device or new hardware format). A recording
-    /// in progress carries on: the microphone rejoins the mix as soon as the
+    /// Builds a new engine (another device was chosen). A recording in
+    /// progress carries on: the microphone rejoins the mix as soon as the
     /// new engine delivers.
     private func restartMicKeepingRecording() {
         guard micEngine != nil || micStart != nil else { return }
         tearDownMicEngine()
         launchMicEngine(reportFailure: true)
+    }
+
+    /// Resumes a microphone engine that stopped because its input changed,
+    /// with a converter for the new format, so the microphone stays in the
+    /// recording instead of silently dropping out of it.
+    ///
+    /// The same engine is re-tapped. Building a fresh one instead never
+    /// settles for a device other than the default: a new engine opens the
+    /// default input first, so binding the chosen device changes its
+    /// configuration once more right after start — which, handled by building
+    /// yet another engine, repeats forever.
+    private func micConfigurationChanged(_ changed: AVAudioEngine) {
+        guard let micEngine, changed === micEngine else { return }
+
+        // A device that keeps changing (or a bug) must not spin forever
+        let now = Date()
+        micConfigurationChanges = micConfigurationChanges.filter { now.timeIntervalSince($0) < 5 } + [now]
+        guard micConfigurationChanges.count <= 6 else {
+            microphoneFailed()
+            return
+        }
+
+        micGeneration += 1
+        let generation = micGeneration
+        // The old converter is for the old format
+        mixer.detachMicrophone()
+        let mixer = self.mixer
+        let reference = EngineReference(engine: micEngine)
+        let onReading: @Sendable (SystemAudioMixer.MicrophoneReading) -> Void = { [weak self] reading in
+            DispatchQueue.main.async {
+                self?.apply(reading, generation: generation)
+            }
+        }
+
+        micStart = Task { [weak self] () -> Bool in
+            let result: Result<FeedBox, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    return .success(FeedBox(feed: try Self.tapAndStartMic(reference.engine, mixer: mixer, onReading: onReading)))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard let self, self.micGeneration == generation else { return false }
+            self.micStart = nil
+            switch result {
+            case .success(let box):
+                self.mixer.attachMicrophone(box.feed)
+                return true
+            case .failure:
+                // The device this engine was bound to is gone: start over on
+                // whatever is available now
+                self.restartMicKeepingRecording()
+                return false
+            }
+        }
     }
 
     /// The microphone can't be used. Says so and turns the option off, so
@@ -771,6 +844,10 @@ private struct MicEngineBox: @unchecked Sendable {
 /// Carries an engine to the background task that stops it.
 private struct EngineReference: @unchecked Sendable {
     let engine: AVAudioEngine
+}
+
+private struct FeedBox: @unchecked Sendable {
+    let feed: MicrophoneFeed
 }
 
 // MARK: - SCStream Output Delegate

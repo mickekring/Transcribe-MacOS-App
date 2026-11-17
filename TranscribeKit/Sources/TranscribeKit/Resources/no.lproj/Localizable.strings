@@ -486,3 +486,5 @@
 "model_desc_parakeet" = "25 europeiske språk · rask · sanntidstekst";
 "model_selected_after_download" = "Velges når nedlastingen er ferdig";
 "local_only_tokenizer_missing" = "Modellen må hente en liten fil fra internett første gang den brukes, og kun lokal modus er på. Slå av kun lokal modus én gang for å fullføre oppsettet av modellen.";
+"live_idle_hint_system" = "Det maskinen spiller av, vises her mens du tar opp.";
+"mic_starting" = "Starter mikrofonen…";
