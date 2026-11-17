@@ -174,6 +174,7 @@ Liquid Glass is for controls that float above content; content is solid. Follow 
 - Running text (the transcript, live text) sits directly on the window background: no card, no grey fill, no divider lines. The owner finds borders and rules cluttered
 - Smaller grouped content (settings groups, status cards): `.contentCard()` — never a material or glass
 - `AuroraBackdrop` is the only window background; screens do not paint their own
+- The app icon is an Icon Composer document, `Transcribe/AppIcon.icon`: a green gradient fill (its own darker gradient in dark mode) and one glass layer, `mic.svg`. The microphone is drawn by hand because SF Symbols may not be used in app icons. Edit it in Icon Composer (in Xcode's Applications) or edit the JSON/SVG directly, and preview every appearance with `ictool AppIcon.icon --export-image --platform macOS --rendition Default|Dark|TintedDark|ClearLight …`
 
 Adaptive colors in `ColorExtensions.swift` (`NSColor(name:dynamicProvider:)`, with Increase Contrast variants):
 - `.primaryAccent` - Brand green for accent text, icons and fills (`#3ECF8E` dark, `#17804F` light so it passes 4.5:1 on white)
