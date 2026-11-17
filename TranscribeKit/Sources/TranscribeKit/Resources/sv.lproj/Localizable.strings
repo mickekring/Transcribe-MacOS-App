@@ -11,6 +11,23 @@
 
 /* Settings - General */
 "settings" = "Inställningar";
+/* YouTube sheet */
+"youtube_untitled_video" = "YouTube-video";
+"youtube_local_only" = "Endast lokalt läge är aktiverat – YouTube-import är avstängd. Stäng av läget i inställningarna för att använda den.";
+"youtube_error_invalid_url" = "Ogiltig YouTube-länk. Kontrollera länken och försök igen.";
+"youtube_error_no_stream" = "Kunde inte hitta något lämpligt format att ladda ner.";
+"youtube_error_download_failed" = "Nedladdningen misslyckades. Försök igen.";
+"youtube_error_write_failed" = "Nedladdningen kunde inte sparas på disken: %@";
+"youtube_error_private" = "Videon är privat.";
+"youtube_error_age_restricted" = "Videon har åldersgräns och kan inte laddas ner utan inloggning.";
+"youtube_error_members_only" = "Videon är bara tillgänglig för kanalens medlemmar.";
+"youtube_error_live" = "Livesändningar kan inte laddas ner medan de pågår.";
+"youtube_error_recording_unavailable" = "Inspelningen av livesändningen är inte tillgänglig.";
+"youtube_error_region_blocked" = "Videon är inte tillgänglig i ditt land.";
+"youtube_error_unavailable" = "Videon är inte tillgänglig. Den kan ha tagits bort.";
+"youtube_error_no_response" = "YouTube svarade inte. Försök igen om en stund.";
+"youtube_error_extraction" = "Videon kunde inte läsas från YouTube. YouTube kan ha ändrat något – försök igen senare eller uppdatera appen.";
+/* Settings - General (continued) */
 "general" = "Allmänt";
 "transcription" = "Transkribering";
 "local_models" = "Lokala modeller";

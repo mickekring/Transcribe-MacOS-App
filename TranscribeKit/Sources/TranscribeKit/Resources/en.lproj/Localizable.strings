@@ -11,6 +11,23 @@
 
 /* Settings - General */
 "settings" = "Settings";
+/* YouTube sheet */
+"youtube_untitled_video" = "YouTube video";
+"youtube_local_only" = "Local-only mode is enabled — YouTube import is disabled. Turn it off in Settings to use it.";
+"youtube_error_invalid_url" = "Invalid YouTube link. Check the link and try again.";
+"youtube_error_no_stream" = "Couldn't find a suitable format to download.";
+"youtube_error_download_failed" = "The download failed. Try again.";
+"youtube_error_write_failed" = "The download couldn't be saved to disk: %@";
+"youtube_error_private" = "This video is private.";
+"youtube_error_age_restricted" = "This video is age-restricted and can't be downloaded without signing in.";
+"youtube_error_members_only" = "This video is only available to members of the channel.";
+"youtube_error_live" = "Live streams can't be downloaded while they are being broadcast.";
+"youtube_error_recording_unavailable" = "The recording of this live stream isn't available.";
+"youtube_error_region_blocked" = "This video isn't available in your country.";
+"youtube_error_unavailable" = "This video is unavailable. It may have been removed.";
+"youtube_error_no_response" = "YouTube didn't respond. Try again in a little while.";
+"youtube_error_extraction" = "The video couldn't be read from YouTube. YouTube may have changed something — try again later, or update the app.";
+/* Settings - General (continued) */
 "general" = "General";
 "transcription" = "Transcription";
 "local_models" = "Local Models";
