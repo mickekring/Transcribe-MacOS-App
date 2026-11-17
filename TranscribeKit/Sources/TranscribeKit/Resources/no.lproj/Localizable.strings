@@ -241,6 +241,13 @@
 
 /* System Audio Recording */
 "system_audio" = "Systemlyd";
+"system_audio_permission_required" = "Tillatelse for systemlyd kreves";
+"system_audio_permission_message" = "Transcribe har ikke tillatelse til å ta opp systemlyd. Slå det på i Systeminnstillinger > Personvern og sikkerhet > Skjerm- og systemlydopptak. Avslutt deretter Transcribe og åpne appen på nytt.";
+"system_audio_start_failed" = "Kunne ikke starte opptak av systemlyd: %@";
+"system_audio_no_display" = "Fant ingen skjerm å ta opp lyd fra.";
+"system_audio_capture_interrupted" = "Opptaket av systemlyd ble stoppet. Opptaket ble lagret frem til da.";
+"system_audio_mic_lost" = "Mikrofonen sluttet å virke. Opptaket fortsetter med bare systemlyd.";
+"system_audio_mic_not_started" = "Mikrofonen kunne ikke startes, så opptaket ble ikke startet. Prøv igjen, eller slå av Inkluder mikrofon.";
 "system_audio_description" = "Ta opp all systemlyd";
 "tap_to_record_system" = "Trykk for å starte opptak av systemlyd";
 "system_audio_recording_in_progress" = "Tar opp systemlyd...";

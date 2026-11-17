@@ -243,6 +243,13 @@
 
 /* System Audio Recording */
 "system_audio" = "System Audio";
+"system_audio_permission_required" = "System Audio Permission Required";
+"system_audio_permission_message" = "Transcribe isn't allowed to record system audio. Turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen Transcribe.";
+"system_audio_start_failed" = "Couldn't start capturing system audio: %@";
+"system_audio_no_display" = "No display was found to capture audio from.";
+"system_audio_capture_interrupted" = "System audio capture was stopped. The recording was saved up to that point.";
+"system_audio_mic_lost" = "The microphone stopped working. The recording continues with system audio only.";
+"system_audio_mic_not_started" = "The microphone couldn't be started, so the recording was not started. Try again, or turn off Include Microphone.";
 "system_audio_description" = "Record all system audio output";
 "tap_to_record_system" = "Press to start capturing system audio";
 "system_audio_recording_in_progress" = "Capturing system audio...";

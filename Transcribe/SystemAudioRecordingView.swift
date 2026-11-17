@@ -1,399 +1,472 @@
 import SwiftUI
+import Combine
 import TranscribeKit
 import AVFoundation
+import CoreAudio
 
+/// System audio recording, optionally mixed with the microphone, with live
+/// text when a Parakeet-family model is available.
 struct SystemAudioRecordingView: View {
-    @StateObject private var captureService = SystemAudioCaptureService()
+    @StateObject private var capture = SystemAudioCaptureService()
+    @StateObject private var live = LiveTranscriptController()
     @EnvironmentObject var appState: AppState
-    @State private var recordingTime: TimeInterval = 0
-    @State private var recordingStartDate: Date?
-    @State private var timer: Timer?
-    @State private var isPlaying = false
-    @State private var audioPlayer: AVAudioPlayer?
-    @State private var showLeaveConfirmation = false
-    @State private var showError = false
-    @State private var errorMessage = ""
-    @State private var micMixingEnabled = false
-    @State private var showPermissionAlert = false
-    @State private var pausedAccumulated: TimeInterval = 0
-    @State private var pauseStartDate: Date?
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button(action: {
-                    if captureService.isCapturing || captureService.hasRecording {
-                        showLeaveConfirmation = true
-                    } else {
-                        appState.goHome()
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14))
-                        Text(localized("back"))
-                            .font(.system(size: 14))
-                    }
-                    .foregroundColor(.primaryAccent)
-                }
-                .buttonStyle(.plain)
-                
-                Spacer()
-                
-                Text(localized("system_audio"))
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.textPrimary)
-                
-                Spacer()
-                
-                // Placeholder for balance
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                    Text(localized("back"))
-                }
-                .opacity(0)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .background(Color.surfaceBackground)
-            .overlay(
-                Rectangle()
-                    .fill(Color.borderLight)
-                    .frame(height: 1),
-                alignment: .bottom
-            )
-            
-            // Main content
-            VStack(spacing: 40) {
-                Spacer()
-                
-                // Info text and mic toggle (before first recording)
-                if !captureService.isCapturing && !captureService.hasRecording {
-                    VStack(spacing: 16) {
-                        Text(micMixingEnabled
-                             ? localized("mic_and_system_audio_info")
-                             : localized("system_audio_permission_info"))
-                            .font(.system(size: 13))
-                            .foregroundColor(.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 340)
-                        
-                        // Include Microphone toggle
-                        Toggle(isOn: $micMixingEnabled) {
-                            Label(localized("include_microphone"), systemImage: "mic.fill")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.textPrimary)
-                        }
-                        .toggleStyle(.switch)
-                        .tint(.primaryAccent)
-                        .frame(maxWidth: 280)
-                        .onChange(of: micMixingEnabled) { _, enabled in
-                            if enabled {
-                                enableMicMixing()
-                            } else {
-                                captureService.stopMicMonitoring()
-                            }
-                        }
-                        
-                        // Mic device picker (shown when mic is enabled and multiple devices exist)
-                        if micMixingEnabled && captureService.inputDevices.count > 1 {
-                            Picker(localized("audio_input_device"), selection: $captureService.selectedMicDeviceID) {
-                                ForEach(captureService.inputDevices) { device in
-                                    Text(device.name).tag(Optional(device.id))
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(maxWidth: 300)
-                            .onChange(of: captureService.selectedMicDeviceID) { _, newValue in
-                                if let deviceID = newValue {
-                                    captureService.setInputDevice(deviceID)
-                                    captureService.restartMicMonitoring()
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Recording visualization
-                ZStack {
-                    // Outer ring
-                    Circle()
-                        .stroke(Color.borderLight, lineWidth: 2)
-                        .frame(width: 200, height: 200)
-                    
-                    // Pulsing animation when capturing
-                    if captureService.isCapturing {
-                        Circle()
-                            .fill(Color.primaryAccent.opacity(0.1))
-                            .frame(width: 200, height: 200)
-                            .scaleEffect(captureService.isCapturing ? 1.1 : 1.0)
-                            .animation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: captureService.isCapturing)
-                    }
-                    
-                    // Center button
-                    Button(action: {
-                        if captureService.isCapturing {
-                            stopCapture()
-                        } else if !captureService.hasRecording {
-                            startCapture()
-                        }
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(captureService.isCapturing ? Color.red : Color.primaryAccent)
-                                .frame(width: 120, height: 120)
-                            
-                            Image(systemName: captureService.isCapturing ? "stop.fill" : "speaker.wave.3.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .scaleEffect(captureService.isCapturing ? 0.95 : 1.0)
-                    .animation(.easeInOut(duration: 0.1), value: captureService.isCapturing)
-                }
-                
-                // Time display and level meters
-                VStack(spacing: 8) {
-                    if captureService.isCapturing || captureService.hasRecording {
-                        Text(formatTime(captureService.isCapturing ? recordingTime : captureService.recordingDuration))
-                            .font(.system(size: 32, weight: .medium, design: .monospaced))
-                            .foregroundColor(.textPrimary)
+    @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var languageManager = LanguageManager.shared
+    @AppStorage("selectedTranscriptionModel") private var selectedModel: String = "kb_whisper-small-coreml"
+    @AppStorage("liveTranscriptionEnabled") private var liveEnabled = true
 
-                        if captureService.isPausedForSleep {
-                            Text(localized("system_audio_recording_paused"))
-                                .font(.system(size: 14))
-                                .foregroundColor(.textSecondary)
-                        } else {
-                            Text(captureService.isCapturing ? localized("system_audio_recording_in_progress") : localized("system_audio_recording_complete"))
-                                .font(.system(size: 14))
-                                .foregroundColor(.textSecondary)
-                        }
-                    } else {
-                        Text(localized("tap_to_record_system"))
-                            .font(.system(size: 16))
-                            .foregroundColor(.textSecondary)
-                    }
-                    
-                    // Level meters — shown whenever monitoring is active (before and during recording)
-                    if captureService.isMonitoring && !captureService.hasRecording {
-                        VStack(spacing: 6) {
-                            // System audio level meter
-                            HStack(spacing: 4) {
-                                Image(systemName: "speaker.wave.2")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.textTertiary)
-                                    .frame(width: 16)
-                                
-                                HStack(spacing: 2) {
-                                    ForEach(0..<20, id: \.self) { index in
-                                        RoundedRectangle(cornerRadius: 1.5)
-                                            .fill(Float(index) / 20.0 < captureService.systemAudioLevel ? Color.primaryAccent : Color.borderLight)
-                                            .frame(width: 8, height: 12)
-                                    }
-                                }
-                                .animation(.linear(duration: 0.05), value: captureService.systemAudioLevel)
-                            }
-                            .frame(width: 220)
-                            
-                            // Mic level meter (shown when mic mixing is enabled)
-                            if micMixingEnabled {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "mic")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.textTertiary)
-                                        .frame(width: 16)
-                                    
-                                    HStack(spacing: 2) {
-                                        ForEach(0..<20, id: \.self) { index in
-                                            RoundedRectangle(cornerRadius: 1.5)
-                                                .fill(Float(index) / 20.0 < captureService.micLevel ? Color.secondaryAccent : Color.borderLight)
-                                                .frame(width: 8, height: 12)
-                                        }
-                                    }
-                                    .animation(.linear(duration: 0.05), value: captureService.micLevel)
-                                }
-                                .frame(width: 220)
-                            }
-                        }
-                    }
-                }
-                
-                // Controls when recording is done
-                if captureService.hasRecording && !captureService.isCapturing {
-                    HStack(spacing: 24) {
-                        // Play/Pause button
-                        Button(action: togglePlayback) {
-                            HStack(spacing: 8) {
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                Text(isPlaying ? localized("pause") : localized("play"))
-                            }
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.cardBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(Color.borderLight, lineWidth: 0.5)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        
-                        // Start over button
-                        Button(action: {
-                            captureService.deleteRecording()
-                            recordingTime = 0
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.counterclockwise")
-                                Text(localized("start_over"))
-                            }
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.cardBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(Color.borderLight, lineWidth: 0.5)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    // Transcribe button
-                    Button(action: {
-                        if let recordingURL = captureService.recordingURL {
-                            appState.transcribeRecording(at: recordingURL)
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform")
-                            Text(localized("transcribe"))
-                        }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 14)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.primaryAccent, Color.secondaryAccent],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                }
-                
-                Spacer()
+    @State private var systemLevels = LevelHistory()
+    @State private var micLevels = LevelHistory(capacity: Self.micMeterBars)
+    @State private var player: AVAudioPlayer?
+    @State private var isPlaying = false
+    /// Bumped to (re)start monitoring: on appear and after "Start over".
+    @State private var monitoringRequest = 0
+    /// A recording is being started; the stream can take a moment to open.
+    @State private var startTask: Task<Void, Never>?
+    @State private var isStarting = false
+    @State private var showMicPermissionAlert = false
+    @State private var showScreenPermissionAlert = false
+    /// The recording was passed to the transcription screen and must survive this view.
+    @State private var handedOff = false
+
+    private let meterTick = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
+
+    /// Meters and option rows share one width so their edges line up.
+    private static let columnWidth: CGFloat = 330
+    private static let micMeterBars = 36
+    /// Told apart from the system meter, which is green or (recording) red.
+    private static let micMeterColor = Color.blue
+
+    /// The model that would produce live text right now, if any.
+    private var liveModelId: String? {
+        ParakeetService.liveModelId(selectedModel: selectedModel, languageCode: languageManager.selectedLanguage.code)
+    }
+
+    private var showsLivePanel: Bool {
+        (liveEnabled && liveModelId != nil) || live.hasText || live.isActive
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            controls
+                .frame(maxWidth: showsLivePanel ? 440 : .infinity, maxHeight: .infinity)
+
+            if showsLivePanel {
+                LiveTranscriptPanel(live: live, isRecording: capture.isCapturing)
+                    .padding(.vertical, Metrics.gutter)
+                    .padding(.trailing, Metrics.gutter)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.surfaceBackground)
         }
-        .onAppear {
-            Task {
-                do {
-                    try await captureService.startMonitoring()
-                } catch {
-                    await MainActor.run {
-                        errorMessage = error.localizedDescription
-                        showError = true
-                    }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: showsLivePanel)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                BackToolbarButton {
+                    appState.navigate(to: .home)
                 }
             }
+        }
+        // Cancelled when the screen goes away, so a start that had not begun
+        // yet cannot open a stream nobody is left to stop.
+        .task(id: monitoringRequest) {
+            await capture.startMonitoring()
         }
         .onDisappear {
-            timer?.invalidate()
-            audioPlayer?.stop()
-            captureService.stopMonitoring()
-        }
-        .alert(localized("system_audio_error"), isPresented: $showError) {
-            Button("OK") { }
-        } message: {
-            Text(errorMessage)
-        }
-        .alert(localized("leave_recording"), isPresented: $showLeaveConfirmation) {
-            Button(localized("stay"), role: .cancel) { }
-            Button(localized("leave"), role: .destructive) {
-                if captureService.isCapturing {
-                    captureService.stopCapture()
-                    timer?.invalidate()
-                    timer = nil
-                }
-                captureService.deleteRecording()
-                captureService.stopMonitoring()
-                appState.goHome()
+            startTask?.cancel()
+            stopPlayback()
+            live.reset()
+            capture.setLiveSink(nil)
+            if !handedOff {
+                // Leaving was confirmed (or there was nothing to lose)
+                capture.deleteRecording()
             }
-        } message: {
-            Text(captureService.isCapturing
-                 ? localized("recording_in_progress_leave")
-                 : localized("untranscribed_recording_leave"))
+            capture.stopMonitoring()
         }
-        .alert(localized("mic_permission_required"), isPresented: $showPermissionAlert) {
-            Button("OK") {
-                micMixingEnabled = false
+        .onReceive(meterTick) { _ in
+            systemLevels.append(capture.systemAudioLevel)
+            micLevels.append(capture.micLevel)
+        }
+        .onChange(of: capture.isCapturing) { _, _ in reportUnsavedWork() }
+        .onChange(of: capture.hasRecording) { _, _ in reportUnsavedWork() }
+        .onChange(of: capture.isCapturing) { wasCapturing, isCapturing in
+            // Stopped with the button, or on its own (the stream ended, the
+            // disk filled up, capture did not come back after sleep)
+            if wasCapturing && !isCapturing {
+                capture.setLiveSink(nil)
+                Task { await live.finish() }
             }
+        }
+        .alert(localized("mic_permission_required"), isPresented: $showMicPermissionAlert) {
+            Button(localized("open_system_settings")) {
+                openPrivacySettings("Privacy_Microphone")
+            }
+            Button(localized("cancel"), role: .cancel) { }
         } message: {
             Text(localized("mic_permission_message"))
         }
-        .onChange(of: captureService.isPausedForSleep) { _, isPaused in
-            handlePauseStateChange(isPaused: isPaused)
+        .alert(localized("system_audio_permission_required"), isPresented: $showScreenPermissionAlert) {
+            Button(localized("open_system_settings")) {
+                openPrivacySettings("Privacy_ScreenCapture")
+            }
+            Button(localized("cancel"), role: .cancel) { }
+        } message: {
+            Text(localized("system_audio_permission_message"))
         }
-        // Surface errors published by the service itself (stream death,
-        // failed restart after wake) — not just errors thrown to this view.
-        .onChange(of: captureService.errorMessage) { _, newValue in
-            if let newValue, !newValue.isEmpty {
-                errorMessage = newValue
-                showError = true
+        // No actions: the system supplies its own OK button
+        .alert(localized("system_audio_error"), isPresented: captureErrorBinding) {
+        } message: {
+            Text(capture.errorMessage ?? "")
+        }
+    }
+
+    private var captureErrorBinding: Binding<Bool> {
+        Binding(
+            get: { capture.errorMessage != nil },
+            set: { if !$0 { capture.errorMessage = nil } }
+        )
+    }
+
+    // MARK: - Controls column
+
+    private var controls: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 8)
+            sectionGap
+
+            VStack(spacing: 8) {
+                Text(localized("system_audio"))
+                    .font(.system(.title, design: .rounded).weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                statusBadge
+            }
+
+            sectionGap
+            recordButton
+            sectionGap
+
+            VStack(spacing: 14) {
+                Text(formatClock(capture.recordedSeconds))
+                    .font(.system(size: 44, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(capture.isCapturing || capture.hasRecording ? Color.textPrimary : Color.textTertiary)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel(localized("recording_duration"))
+                    .accessibilityValue(formatClock(capture.recordedSeconds, tenths: false))
+
+                meters
+            }
+
+            sectionGap
+
+            if capture.hasRecording && !capture.isCapturing {
+                finishedActions
+            } else if capture.permissionDenied {
+                permissionNotice
+            } else {
+                setupOptions
+            }
+
+            sectionGap
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, Metrics.gutter)
+    }
+
+    /// The space between sections: 26 pt, as on the microphone screen. With
+    /// the microphone rows showing, this column is taller than that one, so
+    /// in a window at its smallest the gaps give way rather than the content
+    /// running past the window's edges.
+    private var sectionGap: some View {
+        Spacer(minLength: 8)
+            .frame(maxHeight: 26)
+    }
+
+    private var statusBadge: some View {
+        Group {
+            if capture.isPausedForSleep {
+                StatusBadge(text: localized("system_audio_recording_paused"), color: .orange)
+            } else if capture.isCapturing {
+                StatusBadge(text: localized("system_audio_recording_in_progress"), color: .recordingRed, isPulsing: true)
+            } else if capture.hasRecording {
+                StatusBadge(text: localized("system_audio_recording_complete"), color: .primaryAccent)
+            } else if capture.permissionDenied {
+                StatusBadge(text: localized("system_audio_permission_required"), color: .orange)
+            } else {
+                StatusBadge(text: localized("tap_to_record_system"), color: .textTertiary)
             }
         }
-        // Recording can stop from inside the service (stream death, wake
-        // failure) — stop the display timer when that happens.
-        .onChange(of: captureService.isCapturing) { _, capturing in
-            if !capturing {
-                timer?.invalidate()
-                timer = nil
+        .frame(height: 18)
+    }
+
+    private var recordButton: some View {
+        let isCapturing = capture.isCapturing
+        let isUnavailable = capture.hasRecording && !isCapturing
+        return ZStack {
+            // A halo that follows the system audio level: direct feedback
+            // that sound is arriving, before and during recording.
+            Circle()
+                .fill((isCapturing ? Color.recordingRed : Color.brandGreen).opacity(0.16))
+                .frame(width: 150, height: 150)
+                .scaleEffect(1 + CGFloat(capture.systemAudioLevel) * 0.32)
+                .animation(.easeOut(duration: 0.12), value: capture.systemAudioLevel)
+                .accessibilityHidden(true)
+
+            Button(action: toggleCapture) {
+                Image(systemName: isCapturing ? "stop.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 42, weight: .medium))
+                    .foregroundStyle(isCapturing ? Color.white : Color.onAccent)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 124, height: 124)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(
+                .regular.tint(isCapturing ? Color.recordingRed : Color.primaryAccent).interactive(),
+                in: .circle
+            )
+            .disabled(isUnavailable)
+            .opacity(isUnavailable ? 0.45 : 1)
+            .keyboardShortcut(.space, modifiers: [])
+            .help(isCapturing ? localized("stop_recording") : localized("start_recording"))
+            .accessibilityLabel(isCapturing ? localized("stop_recording") : localized("start_recording"))
+        }
+        .frame(height: 190)
+    }
+
+    /// System audio, and below it — smaller, in its own colour — the
+    /// microphone while it is being mixed in.
+    private var meters: some View {
+        let isActive = capture.isCapturing || !capture.hasRecording
+        let showsMicrophone = capture.includesMicrophone && isActive
+        return VStack(spacing: 10) {
+            WaveformMeter(
+                levels: systemLevels.levels,
+                color: capture.isCapturing ? .recordingRed : .primaryAccent,
+                isActive: isActive
+            )
+            .frame(width: Self.columnWidth, height: 52)
+
+            if showsMicrophone {
+                HStack(spacing: 10) {
+                    Label(localized("microphone"), systemImage: "mic.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    WaveformMeter(
+                        levels: micLevels.levels,
+                        barCount: Self.micMeterBars,
+                        color: Self.micMeterColor,
+                        isActive: true
+                    )
+                    .frame(width: 214, height: 26)
+                }
+                .frame(width: Self.columnWidth)
+                .accessibilityElement(children: .combine)
+                .transition(.opacity)
             }
         }
-        // Mic monitoring failed to start — warn instead of silently
-        // recording a meeting without the user's voice.
-        .onChange(of: captureService.micSetupFailed) { _, failed in
-            if failed {
-                errorMessage = localized("mic_monitor_failed")
-                showError = true
+        .animation(.easeOut(duration: 0.2), value: showsMicrophone)
+    }
+
+    /// Before and during a recording: the microphone, and live text.
+    private var setupOptions: some View {
+        VStack(spacing: 12) {
+            // Stays usable while recording: it is how the microphone is
+            // brought back if it was lost along the way.
+            optionSwitch(localized("include_microphone"), isOn: includeMicrophone)
+                .help(localized("mic_and_system_audio_info"))
+
+            if capture.includesMicrophone {
+                Menu {
+                    Picker(localized("audio_input_device"), selection: $capture.selectedMicDeviceID) {
+                        Text(String(format: localized("system_default_device"), capture.defaultDeviceName))
+                            .tag(AudioDeviceID?.none)
+                        Divider()
+                        ForEach(capture.inputDevices) { device in
+                            Text(device.name).tag(Optional(device.id))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label(currentDeviceName, systemImage: "mic")
+                        .lineLimit(1)
+                        .frame(maxWidth: 260)
+                }
+                .glassAction()
+                .fixedSize()
+                .help(localized("audio_input_device"))
+            }
+
+            // Offered when a model for live text is installed; the microphone
+            // recording screen is where one can be fetched.
+            if let liveModelId {
+                optionSwitch("\(localized("live_text")) · \(modelManager.displayName(for: liveModelId))", isOn: $liveEnabled)
+                    .disabled(capture.isCapturing)
+            }
+        }
+        .frame(width: Self.columnWidth)
+    }
+
+    /// A labelled switch that fills the column, so stacked switches line up.
+    private func optionSwitch(_ title: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .tint(.primaryAccent)
+    }
+
+    private var currentDeviceName: String {
+        if let id = capture.selectedMicDeviceID, let device = capture.inputDevices.first(where: { $0.id == id }) {
+            return device.name
+        }
+        return capture.defaultDeviceName.isEmpty ? localized("microphone") : capture.defaultDeviceName
+    }
+
+    /// macOS has not allowed capturing system audio: say what to do about it.
+    private var permissionNotice: some View {
+        VStack(spacing: 14) {
+            Text(localized("system_audio_permission_message"))
+                .font(.callout)
+                .foregroundStyle(Color.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 360)
+
+            Button {
+                openPrivacySettings("Privacy_ScreenCapture")
+            } label: {
+                Label(localized("open_system_settings"), systemImage: "gearshape")
+            }
+            .glassAction()
+        }
+    }
+
+    /// After a recording: listen back, redo, or transcribe.
+    private var finishedActions: some View {
+        VStack(spacing: 16) {
+            Button {
+                transcribe()
+            } label: {
+                Label(localized("transcribe"), systemImage: "waveform")
+                    .frame(minWidth: 180)
+            }
+            .prominentAction()
+            .keyboardShortcut(.defaultAction)
+
+            HStack(spacing: 12) {
+                Button(action: togglePlayback) {
+                    Label(isPlaying ? localized("pause") : localized("play"), systemImage: isPlaying ? "pause.fill" : "play.fill")
+                }
+                .glassAction()
+
+                Button {
+                    startOver()
+                } label: {
+                    Label(localized("start_over"), systemImage: "arrow.counterclockwise")
+                }
+                .glassAction()
             }
         }
     }
 
-    // MARK: - Mic Permission
-    
-    private func enableMicMixing() {
+    // MARK: - Actions
+
+    private func reportUnsavedWork() {
+        guard !handedOff else { return }
+        if capture.isCapturing {
+            appState.unsavedWork = .recordingInProgress
+        } else if capture.hasRecording {
+            appState.unsavedWork = .untranscribedRecording
+        } else {
+            appState.unsavedWork = nil
+        }
+    }
+
+    private func toggleCapture() {
+        if capture.isCapturing {
+            // Live text is finished where `isCapturing` is observed
+            capture.stopCapture()
+            return
+        }
+        guard !capture.hasRecording, !isStarting else { return }
+        stopPlayback()
+        live.reset()
+        systemLevels.reset()
+        micLevels.reset()
+
+        // Attach live text before the first buffer so nothing is missed;
+        // audio is buffered while the model loads.
+        if liveEnabled, let liveModelId {
+            let sink = live.start(modelId: liveModelId, languageCode: languageManager.selectedLanguage.code)
+            capture.setLiveSink(sink)
+        }
+        isStarting = true
+        startTask = Task {
+            // Starts monitoring first if it is not running
+            let started = await capture.startCapture()
+            isStarting = false
+            guard !started else { return }
+            capture.setLiveSink(nil)
+            live.reset()
+            if capture.permissionDenied {
+                showScreenPermissionAlert = true
+            }
+        }
+    }
+
+    private func startOver() {
+        stopPlayback()
+        live.reset()
+        capture.deleteRecording()
+        systemLevels.reset()
+        micLevels.reset()
+        // The stream may have ended while the recording was on screen
+        // ("Stop Sharing" in the menu bar): bring the meters back.
+        monitoringRequest += 1
+    }
+
+    private func transcribe() {
+        guard let url = capture.recordingURL else { return }
+        stopPlayback()
+        handedOff = true
+        appState.transcribeRecording(at: url)
+    }
+
+    private var includeMicrophone: Binding<Bool> {
+        Binding(
+            get: { capture.includesMicrophone },
+            set: { include in
+                if include {
+                    requestMicrophone()
+                } else {
+                    capture.setMicrophoneIncluded(false)
+                }
+            }
+        )
+    }
+
+    /// Turns the microphone on once macOS allows it.
+    private func requestMicrophone() {
         switch AVAudioApplication.shared.recordPermission {
         case .granted:
-            captureService.refreshInputDevices()
-            captureService.observeDeviceChanges()
-            captureService.startMicMonitoring()
+            capture.setMicrophoneIncluded(true)
         case .denied:
-            showPermissionAlert = true
+            showMicPermissionAlert = true
         case .undetermined:
             AVAudioApplication.requestRecordPermission { granted in
                 DispatchQueue.main.async {
                     if granted {
-                        captureService.refreshInputDevices()
-                        captureService.observeDeviceChanges()
-                        captureService.startMicMonitoring()
+                        capture.setMicrophoneIncluded(true)
                     } else {
-                        showPermissionAlert = true
+                        showMicPermissionAlert = true
                     }
                 }
             }
@@ -401,78 +474,45 @@ struct SystemAudioRecordingView: View {
             break
         }
     }
-    
-    // MARK: - Recording Controls
-    
-    private func startCapture() {
-        do {
-            try captureService.startCapture(withMicrophone: micMixingEnabled)
-            recordingTime = 0
-            pausedAccumulated = 0
-            pauseStartDate = nil
-            recordingStartDate = Date()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-                guard let startDate = recordingStartDate else { return }
-                let pausedSoFar = pausedAccumulated + (pauseStartDate.map { Date().timeIntervalSince($0) } ?? 0)
-                recordingTime = Date().timeIntervalSince(startDate) - pausedSoFar
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+
+    private func openPrivacySettings(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
         }
     }
 
-    private func stopCapture() {
-        captureService.stopCapture()
-        timer?.invalidate()
-        timer = nil
-    }
-
-    /// Excludes sleep time from the displayed recording duration so it tracks
-    /// the actual audio captured rather than wall-clock time.
-    private func handlePauseStateChange(isPaused: Bool) {
-        if isPaused {
-            pauseStartDate = Date()
-        } else if let pauseStart = pauseStartDate {
-            pausedAccumulated += Date().timeIntervalSince(pauseStart)
-            pauseStartDate = nil
-        }
-    }
-    
     private func togglePlayback() {
         if isPlaying {
-            audioPlayer?.pause()
-            timer?.invalidate()
-            timer = nil
+            player?.pause()
             isPlaying = false
-        } else {
-            guard let url = captureService.recordingURL else { return }
-            if !FileManager.default.fileExists(atPath: url.path) { return }
-            
-            do {
-                audioPlayer = try AVAudioPlayer(contentsOf: url)
-                audioPlayer?.prepareToPlay()
-                
-                if audioPlayer?.play() == true {
-                    isPlaying = true
-                    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [self] _ in
-                        if audioPlayer?.isPlaying == false {
-                            isPlaying = false
-                            timer?.invalidate()
-                            timer = nil
-                        }
-                    }
-                }
-            } catch {
-                // Audio player creation failed
+            return
+        }
+        guard let url = capture.recordingURL else { return }
+        // Keep one player per recording so pause/resume continues in place
+        if player?.url != url {
+            player = try? AVAudioPlayer(contentsOf: url)
+            player?.prepareToPlay()
+        }
+        guard let player, player.play() else {
+            capture.errorMessage = localized("playback_unavailable")
+            return
+        }
+        isPlaying = true
+        watchPlayback(of: player)
+    }
+
+    private func watchPlayback(of player: AVAudioPlayer) {
+        Task { @MainActor in
+            while self.player === player, player.isPlaying {
+                try? await Task.sleep(for: .milliseconds(120))
             }
+            if self.player === player { isPlaying = false }
         }
     }
-    
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        let tenths = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
-        return String(format: "%02d:%02d.%d", minutes, seconds, tenths)
+
+    private func stopPlayback() {
+        player?.stop()
+        player = nil
+        isPlaying = false
     }
 }

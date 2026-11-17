@@ -243,6 +243,13 @@
 
 /* System Audio Recording */
 "system_audio" = "Systemljud";
+"system_audio_permission_required" = "Tillstånd för systemljud krävs";
+"system_audio_permission_message" = "Transcribe får inte spela in systemljud. Slå på det i Systeminställningar > Integritet och säkerhet > Skärm- och systemljudsinspelning. Avsluta sedan Transcribe och öppna appen igen.";
+"system_audio_start_failed" = "Kunde inte börja spela in systemljud: %@";
+"system_audio_no_display" = "Ingen skärm hittades att spela in ljud från.";
+"system_audio_capture_interrupted" = "Inspelningen av systemljud stoppades. Inspelningen sparades fram till dess.";
+"system_audio_mic_lost" = "Mikrofonen slutade fungera. Inspelningen fortsätter med enbart systemljud.";
+"system_audio_mic_not_started" = "Mikrofonen kunde inte startas, så inspelningen startades inte. Försök igen eller stäng av Inkludera mikrofon.";
 "system_audio_description" = "Spela in allt systemljud";
 "tap_to_record_system" = "Tryck för att börja spela in systemljud";
 "system_audio_recording_in_progress" = "Spelar in systemljud...";
