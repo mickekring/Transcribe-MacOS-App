@@ -11,6 +11,53 @@
 
 /* Settings - General */
 "settings" = "Inställningar";
+/* About window */
+"about_tagline" = "Ljudtranskribering för macOS";
+"about_feature_nordic" = "Svenska och norska med KB & NB Whisper";
+"about_feature_languages" = "Andra språk med OpenAI Whisper";
+"about_feature_llm" = "Bearbetning med lokala och molnbaserade språkmodeller";
+"about_feature_privacy" = "Integritet och suveränitet från grunden";
+"about_feature_built" = "Byggd med Swift och SwiftUI";
+"about_credits" = "Micke Kring, Peter Ljungstrand och Claude Code";
+"about_license" = "Öppen källkod under MIT-licensen";
+"about_source_link" = "Källkod på GitHub";
+"about_acknowledgements" = "Tack till";
+/* Quick Transcribe */
+"quick_placeholder" = "Spela in några meningar så får du dem som text.";
+"quick_local_note" = "Snabbtranskribering körs alltid med en lokal modell.";
+"quick_no_local_model" = "Ingen lokal modell är nedladdad. Ladda ner en i inställningarna för att använda snabbtranskribering.";
+/* YouTube sheet */
+"youtube_sheet_title" = "Transkribera från YouTube";
+"youtube_sheet_hint" = "Om möjligt laddas bara ljudet ner, för snabb transkribering.";
+"youtube_paste_link" = "Klistra in en YouTube-länk";
+"youtube_fetching_info" = "Hämtar information om videon…";
+"youtube_downloading" = "Laddar ner…";
+"youtube_starting_transcription" = "Startar transkribering…";
+"youtube_try_again" = "Försök igen";
+"youtube_untitled_video" = "YouTube-video";
+"youtube_local_only" = "Endast lokalt läge är aktiverat – YouTube-import är avstängd. Stäng av läget i inställningarna för att använda den.";
+"youtube_error_invalid_url" = "Ogiltig YouTube-länk. Kontrollera länken och försök igen.";
+"youtube_error_no_stream" = "Kunde inte hitta något lämpligt format att ladda ner.";
+"youtube_error_download_failed" = "Nedladdningen misslyckades. Försök igen.";
+"youtube_error_write_failed" = "Nedladdningen kunde inte sparas på disken: %@";
+"youtube_error_private" = "Videon är privat.";
+"youtube_error_age_restricted" = "Videon har åldersgräns och kan inte laddas ner utan inloggning.";
+"youtube_error_members_only" = "Videon är bara tillgänglig för kanalens medlemmar.";
+"youtube_error_live" = "Livesändningar kan inte laddas ner medan de pågår.";
+"youtube_error_recording_unavailable" = "Inspelningen av livesändningen är inte tillgänglig.";
+"youtube_error_region_blocked" = "Videon är inte tillgänglig i ditt land.";
+"youtube_error_unavailable" = "Videon är inte tillgänglig. Den kan ha tagits bort.";
+"youtube_error_no_response" = "YouTube svarade inte. Försök igen om en stund.";
+"youtube_error_extraction" = "Videon kunde inte läsas från YouTube. YouTube kan ha ändrat något – försök igen senare eller uppdatera appen.";
+/* Settings - General (continued) */
+"models_disk_usage" = "Använt diskutrymme: %@";
+"show_api_key" = "Visa API-nyckeln";
+"hide_api_key" = "Dölj API-nyckeln";
+"ollama_connecting" = "Ansluter…";
+"ollama_connected" = "Ansluten";
+"ollama_connected_no_models" = "Ansluten – inga modeller installerade";
+"ollama_invalid_url" = "Värd-URL:en är ogiltig";
+"ollama_connection_failed" = "Anslutningen misslyckades";
 "general" = "Allmänt";
 "transcription" = "Transkribering";
 "local_models" = "Lokala modeller";

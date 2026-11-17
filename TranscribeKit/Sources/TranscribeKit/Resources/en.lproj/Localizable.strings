@@ -11,6 +11,53 @@
 
 /* Settings - General */
 "settings" = "Settings";
+/* About window */
+"about_tagline" = "Audio transcription for macOS";
+"about_feature_nordic" = "Swedish & Norwegian with KB & NB Whisper";
+"about_feature_languages" = "Other languages with OpenAI Whisper";
+"about_feature_llm" = "Local & cloud LLM processing";
+"about_feature_privacy" = "Privacy & sovereignty by design";
+"about_feature_built" = "Built with Swift & SwiftUI";
+"about_credits" = "Micke Kring, Peter Ljungstrand & Claude Code";
+"about_license" = "Open source under the MIT license";
+"about_source_link" = "Source code on GitHub";
+"about_acknowledgements" = "Acknowledgements";
+/* Quick Transcribe */
+"quick_placeholder" = "Record a few sentences to get them as text.";
+"quick_local_note" = "Quick Transcribe always runs on a local model.";
+"quick_no_local_model" = "No local model is downloaded. Download one in Settings to use Quick Transcribe.";
+/* YouTube sheet */
+"youtube_sheet_title" = "Transcribe from YouTube";
+"youtube_sheet_hint" = "Only the audio is downloaded where possible, for fast transcription.";
+"youtube_paste_link" = "Paste a YouTube link";
+"youtube_fetching_info" = "Fetching video details…";
+"youtube_downloading" = "Downloading…";
+"youtube_starting_transcription" = "Starting transcription…";
+"youtube_try_again" = "Try Again";
+"youtube_untitled_video" = "YouTube video";
+"youtube_local_only" = "Local-only mode is enabled — YouTube import is disabled. Turn it off in Settings to use it.";
+"youtube_error_invalid_url" = "Invalid YouTube link. Check the link and try again.";
+"youtube_error_no_stream" = "Couldn't find a suitable format to download.";
+"youtube_error_download_failed" = "The download failed. Try again.";
+"youtube_error_write_failed" = "The download couldn't be saved to disk: %@";
+"youtube_error_private" = "This video is private.";
+"youtube_error_age_restricted" = "This video is age-restricted and can't be downloaded without signing in.";
+"youtube_error_members_only" = "This video is only available to members of the channel.";
+"youtube_error_live" = "Live streams can't be downloaded while they are being broadcast.";
+"youtube_error_recording_unavailable" = "The recording of this live stream isn't available.";
+"youtube_error_region_blocked" = "This video isn't available in your country.";
+"youtube_error_unavailable" = "This video is unavailable. It may have been removed.";
+"youtube_error_no_response" = "YouTube didn't respond. Try again in a little while.";
+"youtube_error_extraction" = "The video couldn't be read from YouTube. YouTube may have changed something — try again later, or update the app.";
+/* Settings - General (continued) */
+"models_disk_usage" = "Disk space used: %@";
+"show_api_key" = "Show API key";
+"hide_api_key" = "Hide API key";
+"ollama_connecting" = "Connecting…";
+"ollama_connected" = "Connected";
+"ollama_connected_no_models" = "Connected — no models installed";
+"ollama_invalid_url" = "The host URL isn't valid";
+"ollama_connection_failed" = "Connection failed";
 "general" = "General";
 "transcription" = "Transcription";
 "local_models" = "Local Models";

@@ -1,341 +1,293 @@
 import SwiftUI
 import TranscribeKit
 
+/// Sheet for transcribing a YouTube video: paste a link, the audio is
+/// downloaded, and the file is handed to the transcription screen.
 struct YouTubeTranscriptionView: View {
-    @State private var youtubeURL = ""
-    @State private var isProcessing = false
-    @State private var showingVideoInfo = false
-    @State private var videoTitle: String?
-    @State private var thumbnailURL: URL?
-    @State private var videoDuration: String?
-    @State private var downloadComplete = false
-    @State private var processingTask: Task<Void, Never>?
-
     @StateObject private var youtubeService = YouTubeDownloadService()
+    @ObservedObject private var localizationManager = LocalizationManager.shared
+    @AppStorage("localOnlyMode") private var localOnlyMode = false
     @Environment(\.dismiss) private var dismiss
-    
+
+    @State private var youtubeURL = ""
+    @State private var video: VideoSummary?
+    @State private var stage: Stage = .idle
+    @State private var processingTask: Task<Void, Never>?
+    /// The download was passed to the transcription screen and must survive this sheet.
+    @State private var handedOff = false
+    @FocusState private var linkFieldFocused: Bool
+
+    private enum Stage {
+        case idle
+        case fetchingInfo
+        case downloading
+        case startingTranscription
+    }
+
+    private struct VideoSummary {
+        let title: String
+        let thumbnailURL: URL?
+        let duration: String?
+    }
+
+    private var isProcessing: Bool { stage != .idle }
+
+    private var canStart: Bool {
+        !isProcessing && !localOnlyMode
+            && !youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
-        ZStack {
-            Color.surfaceBackground
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // Header
-                headerSection
-                
-                if !showingVideoInfo {
-                    // URL Input Section
-                    urlInputSection
-                } else {
-                    // Video Info & Download Section
-                    videoInfoSection
-                }
+        VStack(spacing: 20) {
+            Spacer(minLength: 0)
+
+            if let video {
+                videoCard(video)
+            } else {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(Color.primaryAccent)
+                    .frame(width: 68, height: 68)
+                    .background(Color.primaryAccent.opacity(0.14), in: Circle())
+                    .accessibilityHidden(true)
             }
-            .frame(width: 600, height: 500)
+
+            VStack(spacing: 6) {
+                Text(localized("youtube_sheet_title"))
+                    .font(.system(.title, design: .rounded).weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                Text(localized("youtube_sheet_hint"))
+                    .font(.callout)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .multilineTextAlignment(.center)
+
+            TextField(localized("youtube_paste_link"), text: $youtubeURL)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .frame(maxWidth: 440)
+                .focused($linkFieldFocused)
+                .disabled(isProcessing || localOnlyMode)
+                .onSubmit(start)
+                .accessibilityLabel(localized("youtube_paste_link"))
+
+            status
+                .frame(maxWidth: 440)
+                .frame(minHeight: 44)
+
+            actions
+
+            Spacer(minLength: 0)
+        }
+        .padding(Metrics.gutter)
+        .frame(width: 600, height: 500)
+        // The palette's text colours are tuned for the app's own surface,
+        // not for whatever material the system gives a sheet
+        .background { AuroraBackdrop(intensity: 0.4) }
+        .onAppear { linkFieldFocused = true }
+        .onChange(of: youtubeURL) { _, _ in
+            // What was fetched, or failed, belongs to the previous link
+            guard !isProcessing else { return }
+            video = nil
+            youtubeService.errorMessage = nil
         }
         .onDisappear {
             processingTask?.cancel()
+            if !handedOff {
+                youtubeService.cleanup()
+            }
         }
     }
-    
-    var headerSection: some View {
-        HStack {
-            Button(action: {
-                if showingVideoInfo && !isProcessing {
-                    showingVideoInfo = false
-                    youtubeURL = ""
-                    videoTitle = nil
-                    thumbnailURL = nil
-                } else if !isProcessing {
-                    dismiss()
+
+    // MARK: - Pieces
+
+    private func videoCard(_ video: VideoSummary) -> some View {
+        HStack(spacing: 14) {
+            AsyncImage(url: video.thumbnailURL) { phase in
+                if let image = phase.image {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    // Loading or missing: a still placeholder, not a spinner
+                    // that would turn forever when there is no thumbnail
+                    Color.elevatedSurface
+                        .overlay(
+                            Image(systemName: "play.rectangle")
+                                .font(.title2)
+                                .foregroundStyle(Color.textTertiary)
+                        )
                 }
-            }) {
-                Image(systemName: "arrow.left")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.textSecondary)
             }
-            .buttonStyle(.plain)
-            
-            Spacer()
-            
-            Text("YouTube Transkribering")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.textPrimary)
-            
-            Spacer()
-            
-            // Placeholder for balance
-            Color.clear
-                .frame(width: 30, height: 30)
+            .frame(width: 144, height: 81)
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.controlRadius, style: .continuous))
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(video.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(3)
+                if let duration = video.duration {
+                    Label(duration, systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 20)
-        .background(Color.surfaceBackground)
-        .overlay(
-            Rectangle()
-                .fill(Color.borderLight)
-                .frame(height: 1),
-            alignment: .bottom
-        )
+        .padding(12)
+        .frame(maxWidth: 440)
+        .contentCard()
     }
-    
-    var urlInputSection: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            
-            VStack(spacing: 24) {
-                // YouTube Icon
-                ZStack {
-                    Circle()
-                        .fill(Color.primaryAccent.opacity(0.12))
-                        .frame(width: 100, height: 100)
-                    
-                    Image(systemName: "play.rectangle.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(LinearGradient.accentGradient)
+
+    @ViewBuilder
+    private var status: some View {
+        if localOnlyMode {
+            Label(localized("youtube_local_only"), systemImage: "lock.shield")
+                .font(.callout)
+                .foregroundStyle(Color.textSecondary)
+        } else {
+            switch stage {
+            case .idle:
+                if let error = youtubeService.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.recordingRed)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                
-                Text("Klistra in YouTube-länk")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.textPrimary)
-                
-                Text("Videon laddas ner i lägsta kvalitet för snabb transkribering")
-                    .font(.system(size: 14))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            
-            // URL Input Field
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("https://youtube.com/watch?v=...", text: $youtubeURL)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .padding(14)
-                    .background(Color.cardBackground)
-                    .cornerRadius(12)
-                    .foregroundColor(.textPrimary)
-                    .disabled(isProcessing)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.borderLight, lineWidth: 1)
-                    )
-            }
-            .padding(.horizontal, 60)
-            
-            // Transcribe Button
-            Button(action: {
-                processingTask = Task {
-                    await fetchVideoInfo()
-                }
-            }) {
-                HStack {
-                    if isProcessing {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("Transkribera")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                }
-                .foregroundColor(.textPrimary)
-                .frame(width: 180, height: 44)
-                .background(Color.cardBackground)
-                .cornerRadius(22)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22)
-                        .stroke(Color.borderLight, lineWidth: 0.5)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(youtubeURL.isEmpty || isProcessing)
-            
-            if let error = youtubeService.errorMessage {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 60)
-                    .multilineTextAlignment(.center)
-            }
-            
-            Spacer()
-        }
-    }
-    
-    var videoInfoSection: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            
-            // Video Thumbnail & Info
-            VStack(spacing: 20) {
-                // Thumbnail
-                if let thumbnailURL = thumbnailURL {
-                    AsyncImage(url: thumbnailURL) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: 400, maxHeight: 225)
-                            .cornerRadius(12)
-                            .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.cardBackground)
-                            .frame(width: 400, height: 225)
-                            .overlay(
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            )
-                    }
-                }
-                
-                // Title
-                if let title = videoTitle {
-                    Text(title)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 40)
-                }
-                
-                // Duration
-                if let duration = videoDuration {
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 12))
-                        Text(duration)
-                            .font(.system(size: 14))
-                    }
-                    .foregroundColor(.textSecondary)
-                }
-            }
-            
-            // Download Progress
-            if isProcessing {
-                VStack(spacing: 12) {
-                    HStack {
-                        Text(downloadComplete ? "Startar transkribering..." : "Laddar ner video...")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.textPrimary)
-                        
-                        Spacer()
-                        
-                        if !downloadComplete {
-                            Text("\(Int(youtubeService.downloadProgress * 100))%")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.textPrimary)
-                        }
-                    }
-                    
+            case .fetchingInfo:
+                working(localized("youtube_fetching_info"))
+            case .downloading:
+                VStack(spacing: 8) {
+                    working(localized("youtube_downloading"), percent: Int(youtubeService.downloadProgress * 100))
                     ProgressView(value: youtubeService.downloadProgress)
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .tint(Color.primaryAccent)
-                        .accentColor(Color.primaryAccent)
-                        .background(Color.borderLight.opacity(0.2))
-                        .cornerRadius(4)
-                        .frame(height: 6)
+                        .progressViewStyle(.linear)
+                        .tint(.primaryAccent)
+                        .accessibilityLabel(localized("youtube_downloading"))
                 }
-                .padding(.horizontal, 60)
-            }
-
-            // Download error with retry
-            if !isProcessing, let error = youtubeService.errorMessage {
-                VStack(spacing: 16) {
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 60)
-                        .multilineTextAlignment(.center)
-
-                    Button(action: {
-                        youtubeService.errorMessage = nil
-                        isProcessing = true
-                        processingTask = Task {
-                            await downloadAndTranscribe()
-                        }
-                    }) {
-                        Text("Försök igen")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.textPrimary)
-                            .frame(width: 140, height: 36)
-                            .background(Color.cardBackground)
-                            .cornerRadius(18)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.borderLight, lineWidth: 0.5)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Spacer()
-        }
-    }
-
-    private func fetchVideoInfo() async {
-        isProcessing = true
-        youtubeService.errorMessage = nil
-        
-        do {
-            // Fetch video info
-            let info = try await youtubeService.fetchVideoInfo(from: youtubeURL)
-            
-            await MainActor.run {
-                self.videoTitle = info.title
-                self.thumbnailURL = info.thumbnailURL
-                self.videoDuration = info.duration
-                self.showingVideoInfo = true
-            }
-            
-            // Start download automatically
-            await downloadAndTranscribe()
-            
-        } catch {
-            guard !(error is CancellationError) else { return }
-            await MainActor.run {
-                youtubeService.errorMessage = error.localizedDescription
-                isProcessing = false
+            case .startingTranscription:
+                working(localized("youtube_starting_transcription"))
             }
         }
     }
 
-    private func downloadAndTranscribe() async {
-        do {
-            // Download video
-            let localFileURL = try await youtubeService.downloadVideoForTranscription(from: youtubeURL)
-            
-            await MainActor.run {
-                downloadComplete = true
+    /// A line for work in progress, with a way to stop it without leaving the sheet.
+    private func working(_ text: String, percent: Int? = nil) -> some View {
+        HStack(spacing: 10) {
+            AccentSpinner(size: 14, lineWidth: 2)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(Color.textPrimary)
+            Spacer(minLength: 8)
+            if let percent {
+                Text("\(percent) %")
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.primaryAccent)
             }
-            
-            // Small delay for UI feedback
-            try await Task.sleep(nanoseconds: 500_000_000)
-            
-            // Start transcription automatically
-            await MainActor.run {
-                // Dismiss this view and show transcription with the downloaded file
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ShowTranscriptionView"),
-                    object: nil,
-                    userInfo: ["fileURL": localFileURL, "title": videoTitle ?? "YouTube Video"]
+            Button(action: cancelProcessing) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help(localized(percent == nil ? "cancel" : "cancel_download"))
+            .accessibilityLabel(localized(percent == nil ? "cancel" : "cancel_download"))
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 12) {
+            Button(action: start) {
+                Label(
+                    youtubeService.errorMessage == nil ? localized("transcribe") : localized("youtube_try_again"),
+                    systemImage: "waveform"
                 )
-                
-                dismiss()
+                .frame(minWidth: 180)
             }
-            
-        } catch {
-            guard !(error is CancellationError) else { return }
-            await MainActor.run {
-                youtubeService.errorMessage = error.localizedDescription
-                isProcessing = false
-                downloadComplete = false
-            }
+            .prominentAction()
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canStart)
+
+            // Esc, and always available: closing the sheet stops whatever is running
+            Button(localized("cancel"), action: close)
+                .glassAction()
+                .keyboardShortcut(.cancelAction)
         }
+    }
+
+    // MARK: - Actions
+
+    private func start() {
+        guard canStart else { return }
+        // Set before the task runs: Return reaches both the field and the
+        // default button, and the second call must find the sheet busy
+        stage = .fetchingInfo
+        youtubeService.errorMessage = nil
+
+        let link = youtubeURL
+        let previous = processingTask
+        processingTask = Task {
+            // A run that was just cancelled removes its partial file as it
+            // unwinds; the same video would be written to the same path
+            await previous?.value
+            await process(link)
+        }
+    }
+
+    private func process(_ link: String) async {
+        // Cancelled while waiting: the sheet has already been reset
+        guard !Task.isCancelled else { return }
+
+        do {
+            let info = try await youtubeService.fetchVideoInfo(from: link)
+            try Task.checkCancellation()
+            video = VideoSummary(title: info.title, thumbnailURL: info.thumbnailURL, duration: info.duration)
+
+            stage = .downloading
+            let fileURL = try await youtubeService.downloadVideoForTranscription(from: link)
+            try Task.checkCancellation()
+
+            // Long enough for "Starting transcription…" to be read
+            stage = .startingTranscription
+            try await Task.sleep(for: .milliseconds(500))
+
+            handedOff = true
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ShowTranscriptionView"),
+                object: nil,
+                userInfo: ["fileURL": fileURL, "title": info.title]
+            )
+            dismiss()
+        } catch {
+            // Covers a cancel that arrived after the download had finished
+            youtubeService.cleanup()
+            // Whoever cancelled has already reset the sheet; the error a
+            // cancelled request throws is not something to show
+            guard !Task.isCancelled else { return }
+            youtubeService.errorMessage = error.localizedDescription
+            stage = .idle
+        }
+    }
+
+    /// Stops the work in flight and returns to the link field.
+    private func cancelProcessing() {
+        processingTask?.cancel()
+        stage = .idle
+        video = nil
+        youtubeService.errorMessage = nil
+        linkFieldFocused = true
+    }
+
+    private func close() {
+        cancelProcessing()
+        dismiss()
     }
 }
 
-// Linear Progress Style
+/// Linear progress bar in the accent gradient. This sheet no longer uses it;
+/// the transcription screen does, so it has to stay defined.
 struct LinearProgressViewStyle: ProgressViewStyle {
     func makeBody(configuration: Configuration) -> some View {
         GeometryReader { geometry in

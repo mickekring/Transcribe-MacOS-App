@@ -2,7 +2,21 @@ import SwiftUI
 import TranscribeKit
 
 struct AboutView: View {
+    // Re-renders the window when the app language changes while it is open
+    @ObservedObject private var localizationManager = LocalizationManager.shared
     @AppStorage("appColorScheme") private var appColorScheme: String = "dark"
+
+    /// The models and libraries the app ships or builds on. Two of the models
+    /// are licensed CC BY 4.0, which requires this credit. These are proper
+    /// names and are the same in every language.
+    private static let acknowledgements = [
+        "Pianissimo — Klang AI (CC BY 4.0)",
+        "Parakeet TDT 0.6B v3 — NVIDIA (CC BY 4.0)",
+        "KB Whisper — KBLab",
+        "NB Whisper — NbAiLab",
+        "WhisperKit — Argmax",
+        "FluidAudio — FluidInference",
+    ]
 
     private var preferredScheme: ColorScheme? {
         switch appColorScheme {
@@ -10,6 +24,13 @@ struct AboutView: View {
         case "light": return .light
         default: return nil
         }
+    }
+
+    /// The product name is not translated; it comes from the bundle.
+    var appName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? ProcessInfo.processInfo.processName
     }
 
     var appVersion: String {
@@ -21,64 +42,99 @@ struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 96, height: 96)
-
-            Text("Transcribe")
-                .font(.largeTitle)
-                .bold()
-                .foregroundColor(.textPrimary)
-
-            Text("Version \(appVersion) (\(buildNumber))")
-                .font(.subheadline)
-                .foregroundColor(.textSecondary)
-
-            Text("Audio transcription for macOS")
-                .font(.body)
-                .foregroundColor(.textPrimary)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 10) {
-                featureRow("Swedish & Norwegian with KB & NB Whisper")
-                featureRow("Other languages with OpenAI Whisper")
-                featureRow("Local & cloud LLM processing")
-                featureRow("Privacy & sovereignty by design")
-                featureRow("Built with Swift & SwiftUI")
-            }
-
-            Spacer()
-
+        VStack(spacing: 0) {
             VStack(spacing: 6) {
-                Text("Micke Kring, Peter Ljungstrand & Claude Code")
-                    .font(.caption)
-                    .foregroundColor(.textPrimary)
-                Text("Open source under the MIT license")
-                    .font(.caption)
-                    .foregroundColor(.textSecondary)
-            }
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 72, height: 72)
+                    .accessibilityHidden(true)
 
-            Link("GitHub", destination: URL(string: "https://github.com/mickekring/Transcribe-MacOS-App")!)
-                .font(.caption)
-                .foregroundColor(.primaryAccent)
-                .padding(.bottom, 16)
+                Text(appName)
+                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Text(String(format: localized("version_format"), appVersion, buildNumber))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textSecondary)
+
+                Text(localized("about_tagline"))
+                    .font(.body)
+                    .foregroundStyle(Color.textPrimary)
+                    .padding(.top, 6)
+            }
+            .multilineTextAlignment(.center)
+
+            // The window has a fixed size, so the middle scrolls rather than
+            // clips when a translation runs longer.
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        featureRow(localized("about_feature_nordic"))
+                        featureRow(localized("about_feature_languages"))
+                        featureRow(localized("about_feature_llm"))
+                        featureRow(localized("about_feature_privacy"))
+                        featureRow(localized("about_feature_built"))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentCard()
+
+                    VStack(spacing: 5) {
+                        Text(localized("about_acknowledgements"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.textPrimary)
+                            .accessibilityAddTraits(.isHeader)
+                        VStack(spacing: 2) {
+                            ForEach(Self.acknowledgements, id: \.self) { line in
+                                Text(line)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                }
+                .padding(.vertical, 16)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            VStack(spacing: 5) {
+                Text(localized("about_credits"))
+                    .foregroundStyle(Color.textPrimary)
+                HStack(spacing: 6) {
+                    Text(localized("about_license"))
+                        .foregroundStyle(Color.textSecondary)
+                    Text("·")
+                        .foregroundStyle(Color.textTertiary)
+                        .accessibilityHidden(true)
+                    Link(localized("about_source_link"), destination: URL(string: "https://github.com/mickekring/Transcribe-MacOS-App")!)
+                        .foregroundStyle(Color.primaryAccent)
+                        .pointerStyle(.link)
+                }
+            }
+            .font(.caption)
+            .multilineTextAlignment(.center)
         }
-        .padding(24)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
         .frame(width: 440, height: 520)
-        .background(Color.surfaceBackground)
+        // A window of its own, so it brings the app's backdrop with it
+        .background { AuroraBackdrop() }
         .preferredColorScheme(preferredScheme)
     }
 
     func featureRow(_ text: String) -> some View {
-        HStack {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.caption)
+        Label {
             Text(text)
                 .font(.body)
-                .foregroundColor(.textPrimary)
+                .foregroundStyle(Color.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.primaryAccent)
         }
     }
 }
