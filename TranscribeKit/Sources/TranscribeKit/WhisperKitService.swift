@@ -549,11 +549,36 @@ public class WhisperKitService {
         activeTranscriptionTask?.cancel()
     }
 
+    /// How the language of a transcription is settled before decoding.
+    enum LanguageChoice: Equatable {
+        /// Decode in this language.
+        case fixed(String)
+        /// Nothing fixes the language: detect it from the audio.
+        case detectFromAudio
+    }
+
+    /// What to decode in when the user asked for `requested` ("auto" or nil
+    /// meaning no preference) on `modelId`. The KB and NB models are
+    /// fine-tunes for one language each, so for them "auto" has an answer
+    /// without listening; only the multilingual OpenAI models need detection.
+    nonisolated static func languageChoice(requested: String?, modelId: String) -> LanguageChoice {
+        if let requested, !requested.isEmpty, requested != "auto" {
+            return .fixed(requested)
+        }
+        if modelId.hasPrefix("kb_whisper-") { return .fixed("sv") }
+        if modelId.hasPrefix("nb_whisper-") { return .fixed("no") }
+        return .detectFromAudio
+    }
+
     public func transcribe(fileURL: URL, modelId: String, language: String?) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         let cancelFlag = TranscriptionCancellationFlag()
         activeCancellationFlag = cancelFlag
 
-        return AsyncThrowingStream(TranscriptionUpdate.self) { continuation in
+        // Bounded, newest-wins: see TranscriptionUpdate.streamBufferLimit
+        return AsyncThrowingStream(
+            TranscriptionUpdate.self,
+            bufferingPolicy: .bufferingNewest(TranscriptionUpdate.streamBufferLimit)
+        ) { continuation in
             let task = Task { @MainActor in
                 do {
                     try Task.checkCancellation()
@@ -631,9 +656,35 @@ public class WhisperKitService {
                         isComplete: false
                     ))
                     
-                    // Get language code for transcription
-                    let languageCode = language ?? "auto"
-                    
+                    // Resolve the language to decode in. "Auto" has to become a
+                    // concrete language before decoding: with a nil language
+                    // and the prefill on, WhisperKit detects nothing (its
+                    // detectLanguage defaults to !usePrefillPrompt) and
+                    // prefills its default language — English.
+                    var decodeLanguage: String?
+                    var detectLanguagePerWindow = false
+                    switch Self.languageChoice(requested: language, modelId: modelId) {
+                    case .fixed(let code):
+                        decodeLanguage = code
+                        self.logger.info("Decoding language: \(code, privacy: .public)")
+                    case .detectFromAudio:
+                        do {
+                            // Detected once, from the first 30 seconds, and
+                            // held for the whole file.
+                            let detected = try await whisperKit.detectLanguage(audioPath: fileURL.path)
+                            decodeLanguage = detected.language
+                            self.logger.info("Decoding language: \(detected.language, privacy: .public) (detected from the audio)")
+                        } catch {
+                            // Leave the choice to the model, window by window.
+                            // The prefill stays on, so it still cannot switch
+                            // to translating; the other options are forcing
+                            // English or dropping the prefill, which lets it.
+                            detectLanguagePerWindow = true
+                            self.logger.warning("Language detection failed, detecting per window instead: \(error.localizedDescription, privacy: .private)")
+                        }
+                        try Task.checkCancellation()
+                    }
+
                     // Create decoding options.
                     // - usePrefillPrompt MUST be true for the language to be
                     //   enforced: WhisperKit applies it by prefilling the decoder
@@ -650,8 +701,10 @@ public class WhisperKitService {
                     // file, which matters for 45+ minute recordings.
                     let decodeOptions = DecodingOptions(
                         task: .transcribe,
-                        language: languageCode == "auto" ? nil : languageCode,
+                        language: decodeLanguage,
                         usePrefillPrompt: true,
+                        // Only when the one-off detection above failed
+                        detectLanguage: detectLanguagePerWindow,
                         skipSpecialTokens: true,
                         withoutTimestamps: false,
                         // Always on: word timings power word-level speaker
@@ -666,26 +719,42 @@ public class WhisperKitService {
                         concurrentWorkerCount: 1,
                         chunkingStrategy: .vad
                     )
-                    
-                    // Wrap mutable callback state in a Sendable container
-                    // This is safe because the callback is only invoked synchronously
-                    // within WhisperKit's transcription loop on a single thread.
+
+                    // WhisperKit reports on this run from other threads (see
+                    // StreamingCallbackState); the state object collects it.
                     let callbackState = StreamingCallbackState(continuation: continuation)
-                    
+
                     // Transcribe with streaming callback. Returning false from
                     // the callback early-stops WhisperKit inference on cancel.
                     let callback: @Sendable (TranscriptionProgress) -> Bool? = { progress in
                         guard !cancelFlag.isCancelled else { return false }
-                        return callbackState.handleProgress(progress)
+                        callbackState.handleProgress(progress)
+                        return true
                     }
+
+                    // Until the first words are decoded there is no transcript
+                    // to show. This is a status (progress below the content
+                    // floor), not a placeholder passed off as text.
+                    continuation.yield(TranscriptionUpdate(
+                        text: localized("transcribing"),
+                        progress: 0.12,
+                        segments: [],
+                        isComplete: false
+                    ))
+
                     // File names are the user's data: not in the public log
                     self.logger.info("Transcription started: \(fileURL.lastPathComponent, privacy: .private) model=\(modelId, privacy: .public)")
                     let transcribeStart = Date()
-                    let results = try await whisperKit.transcribe(
-                        audioPath: fileURL.path,
-                        decodeOptions: decodeOptions,
-                        callback: callback
-                    )
+                    let results = try await StreamingCallbackState.$current.withValue(callbackState) {
+                        try await whisperKit.transcribe(
+                            audioPath: fileURL.path,
+                            decodeOptions: decodeOptions,
+                            callback: callback
+                        )
+                    }
+                    // Progress callbacks can still be in flight; from here on
+                    // they must not add to the stream.
+                    callbackState.finish()
                     self.logger.info("Transcription finished in \(Date().timeIntervalSince(transcribeStart), format: .fixed(precision: 1))s")
 
                     // If cancelled, don't report the partial output as a
@@ -694,9 +763,15 @@ public class WhisperKitService {
                         throw CancellationError()
                     }
 
-                    // Finalize the callback state (saves last window text)
-                    callbackState.finalize()
-                    
+                    // Nor a transcript with a hole in it. WhisperKit leaves a
+                    // chunk that failed out of what it returns and mentions it
+                    // only in its debug log (updateSeekOffsetsForResults); if
+                    // every chunk failed, the result is empty and looks done.
+                    if let failure = callbackState.chunkFailure {
+                        self.logger.error("\(failure.failedChunks) of \(failure.chunkCount) chunks failed to transcribe: \(failure.error.localizedDescription, privacy: .private)")
+                        throw failure.error
+                    }
+
                     // Process final result. VAD chunking returns one
                     // TranscriptionResult per chunk — merge them all; taking
                     // only the first would drop most of the transcription.
@@ -776,91 +851,198 @@ private final class TranscriptionCancellationFlag: @unchecked Sendable {
     }
 }
 
-// Wraps mutable streaming state so it can be captured by a @Sendable callback.
-// All access is serialized by WhisperKit's transcription loop, so this is safe.
-private final class StreamingCallbackState: @unchecked Sendable {
+/// Everything WhisperKit reports about one transcription run while it is
+/// running: the text decoded so far (streamed to the UI), how far into the
+/// audio the decoder is, and whether any chunk failed.
+///
+/// All of it is guarded by a lock. WhisperKit does not call the progress
+/// callback from its decoding loop but from a detached task per decoded token
+/// (TextDecoder.decodeText), so calls overlap each other, can arrive out of
+/// order, and can trail in after the transcription has returned.
+final class StreamingCallbackState: @unchecked Sendable {
+    /// The run the current task is transcribing for. WhisperKit hands the
+    /// per-chunk results to no one, so `TranscribeWhisperKit` picks them up
+    /// where they are produced and needs to know whose they are; a task-local
+    /// keeps runs apart without assuming there is only one at a time.
+    @TaskLocal static var current: StreamingCallbackState?
+
+    /// Minimum time between two live-text updates. Each one carries the
+    /// whole transcript so far, so one per token would copy a growing string
+    /// dozens of times a second.
+    static let updateInterval: TimeInterval = 0.2
+
+    /// How many tokens an update may trail the newest one seen for its window
+    /// and still be taken for a late arrival. A larger drop means the window
+    /// is being decoded again from the start (temperature fallback), which is
+    /// newer, not older.
+    static let reorderTolerance = 8
+
     private let continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
-    private var lastUpdateTime = Date()
-    private let updateInterval: TimeInterval = 0.2
-    private var completedSegments: [Int: String] = [:]
+    private let lock = NSLock()
+
+    /// Text of the windows the decoder has moved past.
+    private var finishedText = ""
     private var currentWindowId = -1
     private var currentWindowText = ""
-    private var lastDisplayedText = ""
-    private let startTime = Date()
-    private var maxWindowId = 0
-    
-    public init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
+    private var currentWindowTokenCount = 0
+    private var lastYieldedText = ""
+    private var lastYieldTime = Date.distantPast
+    private var isFinished = false
+
+    /// Where each VAD chunk starts in the audio, in samples, and the length
+    /// of the audio they cover. Empty for audio that fits in one window.
+    private var chunkOffsets: [Int] = []
+    private var totalSamples = 0
+
+    private var chunkCount = 0
+    private var failedChunks = 0
+    private var firstFailure: Error?
+
+    init(continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation) {
         self.continuation = continuation
     }
-    
-    public func handleProgress(_ progress: TranscriptionProgress) -> Bool {
-        let now = Date()
-        
-        if progress.windowId != currentWindowId {
-            if currentWindowId >= 0 && !currentWindowText.isEmpty {
-                completedSegments[currentWindowId] = currentWindowText.trimmingCharacters(in: .whitespaces)
+
+    func handleProgress(_ progress: TranscriptionProgress) {
+        update(windowId: progress.windowId, tokenCount: progress.tokens.count, text: progress.text, now: Date())
+    }
+
+    /// Takes in one progress report. `tokenCount` orders reports within a
+    /// window: it only grows while a window is being decoded.
+    func update(windowId: Int, tokenCount: Int, text: String, now: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        // With one worker the windows are decoded in order, so a report for
+        // an earlier window is a straggler.
+        guard !isFinished, windowId >= currentWindowId else { return }
+
+        if windowId > currentWindowId {
+            if !currentWindowText.isEmpty {
+                finishedText += finishedText.isEmpty ? currentWindowText : " " + currentWindowText
             }
-            currentWindowId = progress.windowId
+            currentWindowId = windowId
+            currentWindowText = ""
+            currentWindowTokenCount = 0
+        } else if tokenCount <= currentWindowTokenCount,
+                  currentWindowTokenCount - tokenCount <= Self.reorderTolerance {
+            // Overtaken by a newer report for this window: showing it would
+            // make the live text step backwards.
+            return
         }
-        currentWindowText = strippingSpecialTokens(progress.text).trimmingCharacters(in: .whitespaces)
-        maxWindowId = max(maxWindowId, progress.windowId)
-        
-        // Build the complete text from all segments
-        var fullText = ""
-        
-        let sortedWindows = completedSegments.keys.sorted()
-        for windowId in sortedWindows {
-            if let segmentText = completedSegments[windowId] {
-                if !fullText.isEmpty {
-                    fullText += " "
-                }
-                fullText += segmentText
-            }
-        }
-        
-        if !fullText.isEmpty && !currentWindowText.isEmpty {
-            fullText += " " + currentWindowText
-        } else if fullText.isEmpty {
+        currentWindowTokenCount = tokenCount
+        currentWindowText = strippingSpecialTokens(text).trimmingCharacters(in: .whitespaces)
+
+        // Yield only when there is something new to show and the last update
+        // is old enough. Nothing is lost by skipping: the next report, or the
+        // final result, carries the same text and more.
+        guard now.timeIntervalSince(lastYieldTime) >= Self.updateInterval else { return }
+        let fullText: String
+        if finishedText.isEmpty {
             fullText = currentWindowText
+        } else if currentWindowText.isEmpty {
+            fullText = finishedText
+        } else {
+            fullText = finishedText + " " + currentWindowText
         }
-        
-        let textChanged = fullText != lastDisplayedText
-        let timeElapsed = now.timeIntervalSince(lastUpdateTime) >= updateInterval
-        
-        if textChanged || timeElapsed {
-            lastUpdateTime = now
-            lastDisplayedText = fullText
-            
-            let elapsedTime = now.timeIntervalSince(startTime)
-            let segmentCount = Double(completedSegments.count + 1)
-            
-            let timeProgress = min(elapsedTime / 20.0, 0.9)
-            let segmentProgress = min(segmentCount / 10.0, 0.9)
-            let estimatedProgress = min(0.3 + max(timeProgress, segmentProgress) * 0.65, 0.95)
-            
-            continuation.yield(TranscriptionUpdate(
-                text: fullText.isEmpty ? localized("transcribing") : fullText,
-                progress: estimatedProgress,
-                segments: [],
-                isComplete: false
-            ))
-        }
-        
-        return true
+        guard !fullText.isEmpty, fullText != lastYieldedText else { return }
+        lastYieldTime = now
+        lastYieldedText = fullText
+
+        continuation.yield(TranscriptionUpdate(
+            text: fullText,
+            progress: contentProgress,
+            segments: [],
+            isComplete: false
+        ))
     }
-    
-    public func finalize() {
-        if currentWindowId >= 0 && !currentWindowText.isEmpty {
-            completedSegments[currentWindowId] = currentWindowText
+
+    /// How far the decoder is through the audio, mapped into the band the
+    /// consumers reserve for content (below it they expect status messages;
+    /// 1.0 belongs to the final result). The position is the start of the
+    /// chunk WhisperKit says it is decoding, so it only moves when audio has
+    /// actually been transcribed. Call with the lock held.
+    private var contentProgress: Double {
+        let floor = TranscriptionUpdate.contentProgressFloor
+        guard totalSamples > 0, chunkOffsets.indices.contains(currentWindowId) else { return floor }
+        let fraction = Double(chunkOffsets[currentWindowId]) / Double(totalSamples)
+        return floor + (0.95 - floor) * min(max(fraction, 0), 1)
+    }
+
+    /// Records how WhisperKit split the audio: the sample offset and length
+    /// of each chunk, in decoding order. The progress callback's window id is
+    /// the index of the chunk being decoded.
+    func setChunkLayout(offsets: [Int], lengths: [Int]) {
+        lock.lock()
+        defer { lock.unlock() }
+        chunkOffsets = offsets
+        totalSamples = zip(offsets, lengths).map { $0 + $1 }.max() ?? 0
+    }
+
+    /// Records the outcome of every chunk. Generic so the caller's result
+    /// type does not have to be spelled here.
+    func recordChunkResults<Success>(_ results: [Result<Success, Error>]) {
+        lock.lock()
+        defer { lock.unlock() }
+        chunkCount += results.count
+        for case .failure(let error) in results {
+            failedChunks += 1
+            if firstFailure == nil, !(error is CancellationError) {
+                firstFailure = error
+            }
         }
     }
 
+    /// Set when at least one chunk failed: the first failure that is not a
+    /// cancellation, or a cancellation if those are all there is.
+    var chunkFailure: (error: Error, failedChunks: Int, chunkCount: Int)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard failedChunks > 0 else { return nil }
+        return (firstFailure ?? CancellationError(), failedChunks, chunkCount)
+    }
 
+    /// Stops live updates. Called when the transcription has returned, so a
+    /// progress report that is still in flight cannot follow the final result.
+    func finish() {
+        lock.lock()
+        defer { lock.unlock() }
+        isFinished = true
+    }
 }
 
 /// WhisperKit with the hooks this app needs and the stock class does not
 /// offer. Everything else — loading, chunking, decoding — is inherited as is.
 final class TranscribeWhisperKit: WhisperKit {
+
+    /// Hands the outcome of every chunk to the run it belongs to.
+    ///
+    /// For audio longer than one window, `transcribe` splits it into VAD
+    /// chunks and sends them here; of what comes back it keeps the successes
+    /// and drops the failures. This is the one place where both are visible.
+    /// The transcription itself is untouched: same call, same arguments.
+    ///
+    /// The result type is spelled with a module selector because the plain
+    /// name is this package's own `TranscriptionResult`, and
+    /// `WhisperKit.TranscriptionResult` would look for it inside the class.
+    override func transcribeWithOptions(
+        audioArrays: [[Float]],
+        decodeOptionsArray: [DecodingOptions?] = [nil],
+        seekOffsets: [Int]? = nil,
+        callback: TranscriptionCallback? = nil
+    ) async -> [Result<[WhisperKit::TranscriptionResult], Swift.Error>] {
+        let run = StreamingCallbackState.current
+        if let seekOffsets, seekOffsets.count == audioArrays.count {
+            run?.setChunkLayout(offsets: seekOffsets, lengths: audioArrays.map(\.count))
+        }
+        let results = await super.transcribeWithOptions(
+            audioArrays: audioArrays,
+            decodeOptionsArray: decodeOptionsArray,
+            seekOffsets: seekOffsets,
+            callback: callback
+        )
+        run?.recordChunkResults(results)
+        return results
+    }
 
     /// Refuses to fetch a tokenizer in local-only mode.
     ///

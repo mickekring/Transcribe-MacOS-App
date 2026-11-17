@@ -7,6 +7,25 @@ public struct TranscriptionUpdate {
     public let progress: Double
     public let segments: [TranscriptionSegmentData]
     public let isComplete: Bool
+
+    /// Updates below this progress carry a status message ("Loading model…")
+    /// in `text`; from here up, `text` is the transcript so far.
+    public static let contentProgressFloor = 0.15
+
+    /// How many unread updates a transcription stream holds before it starts
+    /// replacing the oldest (`.bufferingNewest`).
+    ///
+    /// Every update is a complete snapshot — the whole text so far, not a
+    /// delta — so a reader that falls behind loses nothing by skipping ahead,
+    /// and the unbounded default only let full copies of a growing transcript
+    /// pile up behind a slow reader. What must arrive still does:
+    /// - the final `isComplete` update is the last element yielded, and this
+    ///   policy only ever evicts the oldest one, so it cannot be dropped;
+    /// - status messages all precede the first content update, and content
+    ///   is throttled to five a second, so one is only evicted once the
+    ///   reader has left this many newer updates unread — seconds of not
+    ///   reading, after which that status is no longer the state to show.
+    static let streamBufferLimit = 16
 }
 
 @MainActor
@@ -15,11 +34,10 @@ public class TranscriptionService {
 
     private let modelManager = ModelManager.shared
     private let languageManager = LanguageManager.shared
-    private var whisperKitService: WhisperKitService?
     private var transcriptionTask: Task<Void, Never>?
 
     public func transcribe(fileURL: URL) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(TranscriptionUpdate.streamBufferLimit)) { continuation in
             let task = Task {
                 do {
                     // Check if we have a downloaded model
@@ -47,7 +65,7 @@ public class TranscriptionService {
             self.transcriptionTask = task
 
             // Cancelling this task ends the inner for-await loop, which
-            // terminates the WhisperKitService stream and stops inference.
+            // terminates the engine's stream and stops its inference.
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
             }
@@ -84,7 +102,10 @@ public class TranscriptionService {
         
         // Get the selected language
         let selectedLanguage = languageManager.selectedLanguage.code
-        
+
+        // Cancelled during the conversion: don't start an engine at all
+        try Task.checkCancellation()
+
         // Both engines produce the same update stream. The shared services
         // keep the loaded model alive across transcriptions and coalesce
         // concurrent loads instead of letting them compete.
@@ -92,26 +113,38 @@ public class TranscriptionService {
         if ModelManager.engine(for: modelId) == .parakeet {
             updates = ParakeetService.shared.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage)
         } else {
-            whisperKitService = WhisperKitService.shared
             updates = WhisperKitService.shared.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage)
         }
 
         for try await update in updates {
             continuation.yield(update)
-            
+
             if update.isComplete {
                 continuation.finish()
                 return
             }
         }
-        
+
+        // A cancelled task leaves the loop above without an error (the
+        // engine's stream just ends). That is not a transcription that
+        // finished: report it as the cancellation it was.
+        try Task.checkCancellation()
+
         // If the loop exits without isComplete, still finish the stream
         continuation.finish()
     }
-    
+
+    /// Cancels the transcription this instance started — and only that one.
+    ///
+    /// Cancelling the task is all it takes, for either engine: its for-await
+    /// over the engine's stream ends, the stream's termination handler runs,
+    /// and that handler stops the run that feeds it (WhisperKitService
+    /// cancels its producer and sets the flag its decoding callback checks;
+    /// ParakeetService cancels its producer task). Going through the shared
+    /// services instead would cancel whichever transcription registered
+    /// with them last, which may be another view's.
     public func cancelTranscription() {
         transcriptionTask?.cancel()
-        whisperKitService?.cancelTranscription()
     }
 }
 
