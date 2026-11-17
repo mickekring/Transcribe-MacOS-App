@@ -5,34 +5,60 @@ import os
 ///
 /// Designed for SPSC (single-producer, single-consumer) use between
 /// the AVAudioEngine mic tap (writer) and the SCStream callback (reader).
-/// Uses `os_unfair_lock` for short critical sections (memcpy ~4KB per call).
+/// Uses an unfair lock for short critical sections (memcpy ~4KB per call).
 ///
 /// Storage layout mirrors SCStream's non-interleaved format:
 /// `[L0 L1 L2 ... LN] [R0 R1 R2 ... RN]` — each channel stored contiguously.
+///
+/// The reader can be kept a set distance behind the writer with
+/// `cushionFrames` and `maxBacklogFrames`. Both are measured when a write
+/// arrives, on what is still unread at that moment — the low point of the
+/// backlog — so they mean the same whatever block sizes the two sides use.
 final class AudioRingBuffer: @unchecked Sendable {
     private let capacity: Int      // frames per channel
     private let channelCount: Int
+    private let cushionFrames: Int
+    private let maxBacklogFrames: Int
     private var buffer: [Float]    // channelCount * capacity floats
     private var writePosition: Int = 0
     private var readPosition: Int = 0
     private var availableFramesCount: Int = 0
-    private var lock = os_unfair_lock()
+    /// False while `read` is held back until the cushion has formed.
+    private var isPrimed: Bool
+    // Allocated on the heap: an `os_unfair_lock` stored in a Swift property
+    // and passed with `&` has no stable address, which the lock requires.
+    private let lock = OSAllocatedUnfairLock()
     
     /// Creates a ring buffer with the given capacity per channel.
     /// - Parameters:
     ///   - capacity: Number of frames per channel (e.g. 96000 for 2 seconds at 48kHz)
     ///   - channelCount: Number of audio channels (typically 2 for stereo)
-    init(capacity: Int, channelCount: Int) {
+    ///   - cushionFrames: `read` returns nothing until a write finds at least
+    ///     this many frames still unread — at the start, after `reset()`, and
+    ///     again after a read that ran the buffer dry. A reader that drains
+    ///     the buffer as fast as it fills would otherwise come up short every
+    ///     time the writer is a moment late. 0 (the default) reads whatever
+    ///     is there.
+    ///   - maxBacklogFrames: When a write finds more than this many frames
+    ///     still unread, the oldest are dropped so that `cushionFrames`
+    ///     remain. This keeps a writer whose clock runs slightly fast from
+    ///     leaving the reader ever further behind. `nil` (the default) only
+    ///     limits the backlog to `capacity`.
+    init(capacity: Int, channelCount: Int, cushionFrames: Int = 0, maxBacklogFrames: Int? = nil) {
+        let cushion = max(0, min(cushionFrames, capacity))
         self.capacity = capacity
         self.channelCount = channelCount
+        self.cushionFrames = cushion
+        self.maxBacklogFrames = max(cushion, min(maxBacklogFrames ?? capacity, capacity))
         self.buffer = [Float](repeating: 0, count: capacity * channelCount)
+        self.isPrimed = cushion == 0
     }
     
-    /// Number of frames available for reading.
+    /// Number of frames buffered, including any still held back as cushion.
     var availableFrames: Int {
-        os_unfair_lock_lock(&lock)
+        lock.lock()
         let count = availableFramesCount
-        os_unfair_lock_unlock(&lock)
+        lock.unlock()
         return count
     }
     
@@ -45,7 +71,18 @@ final class AudioRingBuffer: @unchecked Sendable {
     func write(from data: UnsafePointer<Float>, frameCount: Int, channelCount sourceChannels: Int) {
         guard frameCount > 0, sourceChannels == channelCount else { return }
         
-        os_unfair_lock_lock(&lock)
+        lock.lock()
+
+        // What is unread now, before the new frames are added, is how far
+        // the reader really is behind.
+        if availableFramesCount > maxBacklogFrames {
+            let dropped = availableFramesCount - cushionFrames
+            readPosition = (readPosition + dropped) % capacity
+            availableFramesCount = cushionFrames
+        }
+        if !isPrimed, availableFramesCount >= cushionFrames {
+            isPrimed = true
+        }
 
         // If a single write exceeds capacity, only the newest `capacity` frames
         // can survive — skip the older source frames entirely.
@@ -90,24 +127,36 @@ final class AudioRingBuffer: @unchecked Sendable {
         }
         availableFramesCount = min(availableFramesCount + framesToWrite, capacity)
 
-        os_unfair_lock_unlock(&lock)
+        lock.unlock()
     }
     
     /// Reads non-interleaved audio frames from the buffer.
     ///
-    /// Output layout: `channelCount` contiguous blocks of returned frame count each.
+    /// Output layout: `channelCount` contiguous blocks of `frameCount` floats
+    /// each, of which the first returned-count frames are filled.
     ///
-    /// - Returns: Number of frames actually read (may be less than requested if buffer has fewer).
+    /// - Returns: Number of frames actually read: fewer than requested if the
+    ///   buffer holds fewer, and 0 while a cushion is still forming.
     @discardableResult
     func read(into data: UnsafeMutablePointer<Float>, frameCount: Int, channelCount destChannels: Int) -> Int {
         guard frameCount > 0, destChannels == channelCount else { return 0 }
         
-        os_unfair_lock_lock(&lock)
+        lock.lock()
+        
+        guard isPrimed else {
+            lock.unlock()
+            return 0
+        }
         
         let framesToRead = min(frameCount, availableFramesCount)
+        if framesToRead < frameCount, cushionFrames > 0 {
+            // Ran dry: hold back until the cushion has formed again, so this
+            // is one gap rather than a short read on every call.
+            isPrimed = false
+        }
         
         guard framesToRead > 0 else {
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             return 0
         }
         
@@ -139,17 +188,19 @@ final class AudioRingBuffer: @unchecked Sendable {
         readPosition = (readPosition + framesToRead) % capacity
         availableFramesCount -= framesToRead
         
-        os_unfair_lock_unlock(&lock)
+        lock.unlock()
         
         return framesToRead
     }
     
-    /// Discards all buffered data and resets read/write positions.
+    /// Discards all buffered data and resets read/write positions. A cushion,
+    /// if configured, has to form again before the next read returns frames.
     func reset() {
-        os_unfair_lock_lock(&lock)
+        lock.lock()
         writePosition = 0
         readPosition = 0
         availableFramesCount = 0
-        os_unfair_lock_unlock(&lock)
+        isPrimed = cushionFrames == 0
+        lock.unlock()
     }
 }
