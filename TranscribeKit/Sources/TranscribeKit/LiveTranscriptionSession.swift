@@ -288,8 +288,9 @@ public actor LiveTranscriptionSession {
                 stats.decodes += 1
                 stats.totalDecodeSeconds += lastDecodeDuration
                 stats.slowestDecodeSeconds = max(stats.slowestDecodeSeconds, lastDecodeDuration)
-                words = buildWordTimings(from: result.tokenTimings ?? []).map {
-                    LiveWord(text: $0.word, start: $0.startTime + segmentStart, end: $0.endTime + segmentStart)
+                // Pauses stay visible to the commit policy (see ParakeetWords)
+                words = ParakeetWords.group(ParakeetWords.tokens(from: result.tokenTimings ?? [])).map {
+                    LiveWord(text: $0.word, start: $0.start + segmentStart, end: $0.end + segmentStart)
                 }
             } catch {
                 // Keep the previous hypothesis; the next decode retries

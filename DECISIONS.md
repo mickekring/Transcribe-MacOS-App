@@ -4,6 +4,18 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 
 ---
 
+## 2026-11-17: Parakeet Word Times — Punctuation Does Not Extend a Word
+
+**Problem**: Speaker labels on Parakeet transcripts put the first words of a turn under the previous speaker ("Hur mycket över" went to the speaker before), even with perfect speaker turns. The cause was in the word times, not the diarizer: TDT emits sentence punctuation late, usually just before the next word, once it can tell the sentence has ended. FluidAudio's `buildWordTimings` ends a word where its last token ends, so "annat." spanned the whole pause after it ([6.96–8.08], speech actually ending at 7.63) and the next word started the instant it ended. `SpeakerTranscriptFormatter` snaps each speaker change to the largest pause between words within ±0.7 s. With the real pause invisible, it snapped to a small pause inside the next sentence.
+
+**Decision**: `ParakeetWords` groups tokens with FluidAudio's word-boundary rule (so the text is identical), but a punctuation-only token joins the word's text without moving its start or end, and confidence is the mean of the spoken tokens. Live text uses the same grouping, since `LiveCommitPolicy` also cuts at pauses between words.
+
+**Rationale**: Fixed at the source rather than by teaching the formatter about Parakeet: segmenting, speaker matching and live commits all read pauses from word times, and Whisper's word times already show them. Verified with opt-in tests: with exact turns every line of a two-voice Swedish dialogue lands on its speaker, and on an English dialogue no speaker label ever holds both voices.
+
+**Known limit (not engine-related)**: the speaker model can split one voice into two labels, or with the count set to 2 merge the wrong ones, on similar synthetic voices. Turns come from the audio alone, so Whisper gets the same turns.
+
+---
+
 ## 2026-11-17: Live Transcription — Re-decode the Open Segment
 
 **Problem**: Show text while recording. Pianissimo and Parakeet v3 are not streaming models: they decode one fixed window of up to 15 seconds at a time.
@@ -52,6 +64,8 @@ Log of non-obvious technical decisions and their rationale. Newest entries first
 ## 2026-11-17: Liquid Glass on Controls, Solid Content
 
 **Decision**: Following Apple's guidance for macOS 26/27, Liquid Glass is used for the layer of controls that floats above content — toolbar items (the system's own glass), home tiles, the record button, action buttons — and never for content. Transcripts, cards and settings groups are solid surfaces (`.contentCard()`). The previous `.glassCard()` put a blur material over a flat background, where there was nothing to blur. The brand green appears at scale only in the static backdrop wash and on the single primary action of a screen.
+
+**Revised after the owner's review**: running text has no surface at all. The live-text panel was a grey card with a header and footer rule; against the green backdrop it read as a box from another app, and the owner finds borders and rules cluttered. It now sits directly on the backdrop like the transcript screen does: a status line above, a soft fade where text scrolls out, and a centred empty state until the first words. Cards remain for small grouped content.
 
 **Kept against the guidelines, deliberately**: the toolbar's appearance toggle and Settings button. Apple advises against both on macOS (appearance should follow the system; Settings belongs in the app menu). They are part of this app's established design.
 

@@ -66,7 +66,7 @@ Use Xcode's UI for SwiftUI previews, view hierarchy debugging, and Product → A
 - `ModelManager.swift` - Model catalog, download state and storage. `ModelManager.engine(for:)` is the one place that maps a model id to its runtime (`.whisperKit`, `.parakeet`, `.cloud`); route through it, never by id prefix.
 - `TranscriptionService.swift` - Entry point for local transcription: preprocesses the file, then streams `TranscriptionUpdate`s from whichever engine owns the selected model. Also holds `LocalModels` (engine-agnostic download / cancel / prewarm / unload).
 - `WhisperKitService.swift` - Whisper models (KB, NB, OpenAI) via WhisperKit.
-- `ParakeetService.swift` - Parakeet-family models (Pianissimo, Parakeet v3) via FluidAudio. Same update stream as WhisperKitService.
+- `ParakeetService.swift` - Parakeet-family models (Pianissimo, Parakeet v3) via FluidAudio. Same update stream as WhisperKitService. Words are built by `ParakeetWords`, not FluidAudio's `buildWordTimings` (see DECISIONS.md: late punctuation hid the pauses that speaker matching and live commits rely on).
 - `LiveTranscriptionSession.swift` - Live text for Parakeet-family models: re-decodes the audio since the last commit a few times per second and commits at pauses (`LiveCommitPolicy`). See DECISIONS.md.
 - `Services/HuggingFaceDownloader.swift` - Downloads a model at a pinned commit and verifies every file's size and SHA-256.
 - `Services/BergetTranscriptionService.swift` - Cloud transcription via Berget AI API (requires API key stored in Keychain)
@@ -167,9 +167,10 @@ for try await update in whisperKitService.transcribe(fileURL:modelId:language:) 
 
 ### Design System
 Liquid Glass is for controls that float above content; content is solid. Follow this when adding UI:
-- Toolbar items use the system's glass (no custom backgrounds, no `.sharedBackgroundVisibility(.hidden)`)
+- Toolbar items use the system's glass (no custom backgrounds, no `.sharedBackgroundVisibility(.hidden)`). Controls that pick a value (language, model) use `ToolbarChooserLabel` (icon, value, chevron) so they look alike; a `Menu` using it sets `.menuIndicator(.hidden)`
 - Buttons: `.prominentAction()` for the single primary action of a screen (tinted glass), `.glassAction()` for the rest; large custom controls use `.glassEffect(.regular.interactive(), in:)`, grouped in a `GlassEffectContainer`
-- Content surfaces (transcripts, cards, settings groups): `.contentCard()` — never a material or glass
+- Running text (the transcript, live text) sits directly on the window background: no card, no grey fill, no divider lines. The owner finds borders and rules cluttered
+- Smaller grouped content (settings groups, status cards): `.contentCard()` — never a material or glass
 - `AuroraBackdrop` is the only window background; screens do not paint their own
 
 Adaptive colors in `ColorExtensions.swift` (`NSColor(name:dynamicProvider:)`, with Increase Contrast variants):

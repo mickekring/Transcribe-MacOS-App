@@ -161,6 +161,56 @@ struct TranscriptSegmenterTests {
     }
 }
 
+// MARK: - Parakeet word timings
+
+struct ParakeetWordsTests {
+    private func token(_ text: String, _ start: Double, _ end: Double, _ confidence: Float = 0.9) -> ParakeetWords.Token {
+        .init(text: text, start: start, end: end, confidence: confidence)
+    }
+
+    /// As decoded from a real two-speaker recording: the full stop after
+    /// "annat" is emitted just before the next sentence, after the pause.
+    @Test func lateSentencePunctuationDoesNotHideThePause() {
+        let words = ParakeetWords.group([
+            token(" all", 6.64, 6.96),
+            token(" ann", 6.96, 7.20),
+            token("at", 7.20, 7.44),
+            token(".", 7.76, 8.08, 0.5),
+            token(" Det", 8.08, 8.40),
+        ])
+        #expect(words.map(\.word) == ["all", "annat.", "Det"])
+        // "annat." ends with its last spoken token, so the pause shows
+        #expect(abs(words[1].end - 7.44) < 0.001)
+        #expect(words[2].start - words[1].end > 0.6)
+        // Confidence comes from the spoken tokens only
+        #expect(abs(words[1].confidence - 0.9) < 0.001)
+    }
+
+    @Test func wordBoundariesMatchSentencePieceMarkers() {
+        let words = ParakeetWords.group([
+            token("▁Väl", 0.0, 0.2),
+            token("kommen", 0.2, 0.64),
+            token(",", 0.64, 0.72),
+            token(" allihop", 0.72, 1.2),
+            token("?", 1.6, 1.7),
+        ])
+        #expect(words.map(\.word) == ["Välkommen,", "allihop?"])
+        #expect(words.map(\.start) == [0.0, 0.72])
+        #expect(words.map(\.end) == [0.64, 1.2])
+    }
+
+    @Test func aWordOfOnlyPunctuationKeepsItsOwnTimes() {
+        let words = ParakeetWords.group([token(" -", 2.0, 2.08), token(" ja", 2.4, 2.6)])
+        #expect(words.map(\.word) == ["-", "ja"])
+        #expect(words[0].start == 2.0 && words[0].end == 2.08)
+    }
+
+    @Test func noTokensGiveNoWords() {
+        #expect(ParakeetWords.group([]).isEmpty)
+        #expect(ParakeetWords.group([token("<blank>", 0, 0.08)]).isEmpty)
+    }
+}
+
 // MARK: - Live commit policy
 
 struct LiveCommitPolicyTests {

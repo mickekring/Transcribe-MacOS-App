@@ -130,6 +130,122 @@ struct ParakeetIntegrationTests {
         #expect(!result.final.segments.isEmpty)
     }
 
+    // MARK: Speakers
+    //
+    // Speaker identification does not depend on the engine: diarization runs
+    // on the audio file, and its turns are matched to the transcript's word
+    // timings. The first test checks the Parakeet half of that (words land on
+    // the right turn); the second runs the whole chain on two distinct voices.
+
+    static let alva = "com.apple.voice.compact.sv-SE.Alva"
+    // The only other Swedish voice is a Siri voice, which the sandboxed test
+    // host can't use; the Norwegian voice reads Swedish well enough
+    static let nora = "com.apple.voice.compact.nb-NO.Nora"
+
+    @Test func pianissimoWordsLandOnTheRightSpeakerTurn() async throws {
+        // Each line with words from its start and its end, as Pianissimo spells them
+        let script: [(voice: String, text: String, first: String, last: String)] = [
+            (Self.alva, "Välkommen allihop. Jag tänkte att vi börjar med budgeten för nästa kvartal, eftersom den påverkar allt annat.", "Välkommen", "annat"),
+            (Self.nora, "Det låter bra. Jag har gått igenom siffrorna i helgen och vi ligger tyvärr en bit över plan.", "låter", "plan"),
+            (Self.alva, "Hur mycket över ligger vi, och vad beror det framför allt på?", "Hur mycket", "framför allt"),
+            (Self.nora, "Ungefär sju procent. Det mesta kommer från molntjänster och några nya licenser som vi inte hade räknat med.", "Ungefär", "licenser"),
+            (Self.alva, "Då behöver vi prata med leverantören innan sommaren. Kan du ta det?", "leverantören", "ta det"),
+            (Self.nora, "Absolut, jag bokar ett möte med dem redan nästa vecka och återkommer till gruppen.", "Absolut", "gruppen"),
+        ]
+        let dialogue = try await SpeechFixture.dialogue(script.map { ($0.voice, $0.text) })
+        defer { dialogue.fixture.remove() }
+
+        let result = try await transcribe(dialogue.fixture.url, modelId: "pianissimo_sv-coreml", language: "sv")
+        #expect(result.final.segments.flatMap { $0.words ?? [] }.count > 60, "the word timings speaker matching needs")
+
+        // The turns a perfect diarizer would give
+        let turns = dialogue.lines.map { SpeakerTurn(speakerId: $0.voice == Self.alva ? 0 : 1, start: $0.start, end: $0.end) }
+        let formatted = SpeakerTranscriptFormatter.format(
+            segments: result.final.segments, turns: turns,
+            speakerName: { $0 == 0 ? "ALVA" : "NORA" }, unknownLabel: "?"
+        )
+        Self.log.notice("SPEAKERS pianissimo: \(formatted.replacingOccurrences(of: "\n", with: " | "), privacy: .public)")
+
+        // One block per line, alternating, each holding its own line's words
+        let blocks = formatted.components(separatedBy: "\n\n").filter { !$0.isEmpty }
+        try #require(blocks.count == script.count, "\(blocks.count) speaker blocks")
+        for (block, line) in zip(blocks, script) {
+            #expect(block.contains(line.voice == Self.alva ? "ALVA" : "NORA"), "\(block)")
+            #expect(block.contains(line.first) && block.contains(line.last), "\(block)")
+        }
+
+        // The real diarizer on the same audio: whatever it makes of two similar
+        // synthetic voices, it must hear where one stops and the other starts
+        let auto = try await DiarizationService.shared.diarize(fileURL: dialogue.fixture.url)
+        Self.log.notice("SPEAKERS diarizer on two similar voices: \(Set(auto.map(\.speakerId)).count) speakers, turns \(auto.map { "\($0.speakerId)@\(String(format: "%.1f", $0.start))" }.joined(separator: " "), privacy: .public)")
+        for line in dialogue.lines {
+            #expect(auto.contains { abs($0.start - line.start) < 0.5 }, "no turn starts near \(line.start) s")
+        }
+    }
+
+    @Test func diarizationNeverMixesTwoVoicesInAParakeetTranscript() async throws {
+        let samantha = "com.apple.voice.compact.en-US.Samantha"
+        let daniel = "com.apple.voice.compact.en-GB.Daniel"
+        let dialogue = try await SpeechFixture.dialogue([
+            (samantha, "Good morning. I thought we could start with the budget for next quarter, since it affects everything else."),
+            (daniel, "Sounds good. I went through the numbers over the weekend, and we are a little over plan."),
+            (samantha, "How far over are we, and what is driving it?"),
+            (daniel, "About seven percent. Most of it comes from cloud services and a few new licences we had not planned for."),
+            (samantha, "Then we need to talk to the supplier before the summer. Can you take that?"),
+            (daniel, "Absolutely. I will book a meeting with them next week and report back to the group."),
+        ])
+        defer { dialogue.fixture.remove() }
+
+        let result = try await transcribe(dialogue.fixture.url, modelId: "parakeet_tdt-v3-coreml", language: "en")
+        let segments = result.final.segments
+        let words = segments.flatMap { $0.words ?? [] }
+        // Who really said each word: the line it falls in (Parakeet starts
+        // words a few frames early, hence the margin)
+        let voices: [String?] = words.map { word in
+            let middle = (word.start + word.end) / 2
+            return dialogue.lines.first { middle >= $0.start - 0.4 && middle <= $0.end + 0.4 }?.voice
+        }
+
+        // One person may get two labels (the speaker model's call, the same
+        // for every engine), but a label must never hold two people: at every
+        // speaker change the transcript splits between the right words
+        let turns = try await DiarizationService.shared.diarize(fileURL: dialogue.fixture.url)
+        let ids = try speakerPerWord(segments: segments, turns: turns, wordCount: words.count)
+        for id in Set(ids.compactMap { $0 }) {
+            let heard = zip(ids, voices).filter { $0.0 == id }.compactMap { $0.1 }
+            let majority = Dictionary(grouping: heard, by: { $0 }).values.map(\.count).max() ?? 0
+            #expect(Double(majority) / Double(max(heard.count, 1)) > 0.95, "speaker \(id) holds both voices")
+        }
+        // And the two voices are told apart
+        func label(of voice: String) -> Int? {
+            Dictionary(grouping: zip(ids, voices).filter { $0.1 == voice }.compactMap { $0.0 }, by: { $0 })
+                .max { $0.value.count < $1.value.count }?.key
+        }
+        #expect(label(of: samantha) != nil && label(of: samantha) != label(of: daniel))
+
+        let formatted = SpeakerTranscriptFormatter.format(
+            segments: segments, turns: turns, speakerName: { "S\($0)" }, unknownLabel: "?"
+        )
+        Self.log.notice("SPEAKERS parakeet v3: \(Set(turns.map(\.speakerId)).count) speakers: \(formatted.replacingOccurrences(of: "\n", with: " | "), privacy: .public)")
+    }
+
+    /// The speaker the transcript gives each word, read back from the
+    /// formatter's own output so its turn cleaning is part of what's tested.
+    private func speakerPerWord(segments: [TranscriptionSegmentData], turns: [SpeakerTurn], wordCount: Int) throws -> [Int?] {
+        let formatted = SpeakerTranscriptFormatter.format(
+            segments: segments, turns: turns, speakerName: { "S\($0)" }, unknownLabel: "S?"
+        )
+        var ids: [Int?] = []
+        for block in formatted.components(separatedBy: "\n\n") {
+            let parts = block.split(separator: "\n", maxSplits: 1)
+            guard parts.count == 2, let label = parts[0].split(separator: " ").last else { continue }
+            let id = Int(label.dropFirst().dropLast())
+            ids += Array(repeating: id, count: parts[1].split(separator: " ").count)
+        }
+        try #require(ids.count == wordCount, "\(ids.count) labelled words for \(wordCount)")
+        return ids
+    }
+
     @Test func silenceGivesAnEmptyTranscriptNotAnError() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("silence-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -205,6 +321,36 @@ struct SpeechFixture {
         guard let voice = AVSpeechSynthesisVoice(language: language) else {
             throw MissingVoice(language: language)
         }
+        let samples = try await synthesize(text, voice: voice)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("speech-\(UUID().uuidString).wav")
+        try writeWAV(samples: samples, to: url)
+        return SpeechFixture(url: url, samples: samples)
+    }
+
+    /// Lines spoken in turn by the given voices (by identifier), with a short
+    /// pause between them, and where each line sits in the audio.
+    @MainActor
+    static func dialogue(_ script: [(voice: String, text: String)]) async throws
+        -> (fixture: SpeechFixture, lines: [(voice: String, start: Double, end: Double)]) {
+        let pause = [Float](repeating: 0, count: 16_000 * 7 / 10)
+        var samples: [Float] = []
+        var lines: [(voice: String, start: Double, end: Double)] = []
+        for (identifier, text) in script {
+            guard let voice = AVSpeechSynthesisVoice(identifier: identifier) else {
+                throw MissingVoice(language: identifier)
+            }
+            let start = Double(samples.count) / 16_000
+            samples += try await synthesize(text, voice: voice)
+            lines.append((identifier, start, Double(samples.count) / 16_000))
+            samples += pause
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("dialogue-\(UUID().uuidString).wav")
+        try writeWAV(samples: samples, to: url)
+        return (SpeechFixture(url: url, samples: samples), lines)
+    }
+
+    @MainActor
+    private static func synthesize(_ text: String, voice: AVSpeechSynthesisVoice) async throws -> [Float] {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
 
@@ -221,10 +367,7 @@ struct SpeechFixture {
             }
         }
         synthesizer.delegate = nil
-        let samples = try resample(buffers)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("speech-\(UUID().uuidString).wav")
-        try writeWAV(samples: samples, to: url)
-        return SpeechFixture(url: url, samples: samples)
+        return try resample(buffers)
     }
 
     private static func resample(_ buffers: [AVAudioPCMBuffer]) throws -> [Float] {

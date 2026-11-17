@@ -306,26 +306,69 @@ public final class ParakeetService {
     }
 
     static func words(from result: ASRResult) -> [WordTimestamp] {
-        guard let timings = result.tokenTimings, !timings.isEmpty else { return [] }
-        // Mean token confidence per word, matched by time span
-        var tokenIndex = 0
-        return buildWordTimings(from: timings).map { word in
-            var sum: Float = 0
-            var count: Float = 0
-            while tokenIndex < timings.count, timings[tokenIndex].endTime <= word.endTime + 0.0001 {
-                if timings[tokenIndex].startTime >= word.startTime - 0.0001 {
-                    sum += timings[tokenIndex].confidence
-                    count += 1
-                }
-                tokenIndex += 1
-            }
-            return WordTimestamp(
-                word: word.word,
-                start: word.startTime,
-                end: word.endTime,
-                confidence: count > 0 ? sum / count : result.confidence
-            )
+        ParakeetWords.group(ParakeetWords.tokens(from: result.tokenTimings ?? []))
+    }
+}
+
+/// Words from Parakeet's sub-word tokens, with end times that keep the
+/// pauses between them.
+///
+/// FluidAudio's `buildWordTimings` ends a word where its last token ends.
+/// TDT emits sentence punctuation late — usually just before the next word,
+/// once it can tell the sentence is over — so "annat." spanned the whole
+/// pause after it and the next word started the moment it ended. Speaker
+/// matching snaps speaker changes to pauses between words, and the live
+/// commit policy cuts at them, so with no visible pause both picked a gap
+/// inside the next sentence instead. Here punctuation joins the word's text
+/// without moving its times; word boundaries are FluidAudio's, so the text
+/// is the same.
+enum ParakeetWords {
+    struct Token: Sendable {
+        let text: String
+        let start: Double
+        let end: Double
+        let confidence: Float
+    }
+
+    static func tokens(from timings: [TokenTiming]) -> [Token] {
+        timings.map { Token(text: $0.token, start: $0.startTime, end: $0.endTime, confidence: $0.confidence) }
+    }
+
+    static func group(_ tokens: [Token]) -> [WordTimestamp] {
+        var words: [WordTimestamp] = []
+        var text = ""
+        var spoken: [Token] = []
+        var punctuation: [Token] = []
+
+        func flush() {
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            defer { text = ""; spoken = []; punctuation = [] }
+            guard !trimmed.isEmpty else { return }
+            // A word that is only punctuation (rare) keeps its own times
+            let timed = spoken.isEmpty ? punctuation : spoken
+            guard let first = timed.first, let last = timed.last else { return }
+            let confidence = timed.map(\.confidence).reduce(0, +) / Float(timed.count)
+            words.append(WordTimestamp(word: trimmed, start: first.start, end: max(last.end, first.start), confidence: confidence))
         }
+
+        for token in tokens {
+            let raw = token.text
+            guard !raw.isEmpty, raw != "<blank>", raw != "<pad>" else { continue }
+            // Same boundary rule as FluidAudio: a leading "▁" or space starts a word
+            let startsWord = raw.hasPrefix("▁") || raw.hasPrefix(" ")
+            let piece = startsWord ? String(raw.dropFirst()) : raw
+            if startsWord || text.isEmpty {
+                flush()
+            }
+            text += piece
+            if !piece.isEmpty && piece.allSatisfy({ $0.isPunctuation }) {
+                punctuation.append(token)
+            } else {
+                spoken.append(token)
+            }
+        }
+        flush()
+        return words
     }
 }
 
