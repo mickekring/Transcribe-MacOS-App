@@ -59,7 +59,7 @@ public class WhisperKitService {
     public func prewarmSelectedModel() {
         guard let modelId = UserDefaults.standard.string(forKey: "selectedTranscriptionModel"),
               !modelId.isEmpty,
-              modelId != "berget-kb-whisper-large",
+              ModelManager.engine(for: modelId) == .whisperKit,
               ModelManager.shared.cachedModelFolder(for: modelId) != nil else { return }
         Task { @MainActor in
             self.logger.info("Prewarming selected model \(modelId, privacy: .public) at launch")
@@ -103,6 +103,12 @@ public class WhisperKitService {
     // MARK: - Initialization
     
     public func initialize(modelId: String) async throws {
+        // Only Whisper-family ids belong here. Anything else would fall
+        // through to the default variant below — and a failed load of its
+        // folder would delete another engine's model as "corrupt".
+        guard ModelManager.engine(for: modelId) == .whisperKit else {
+            throw TranscriptionError.unsupportedModel
+        }
         // Coalesce concurrent loads instead of misreporting them as
         // "model not found": await any in-flight initialization.
         while let task = initializationTask {
@@ -404,6 +410,9 @@ public class WhisperKitService {
     public func downloadOnly(modelId: String) async throws {
         let modelManager = ModelManager.shared
         
+        guard ModelManager.engine(for: modelId) == .whisperKit else {
+            throw TranscriptionError.unsupportedModel
+        }
         // Skip if already downloaded or already downloading
         guard modelManager.cachedModelFolder(for: modelId) == nil else { return }
         guard modelManager.isDownloading[modelId] != true else { return }
@@ -463,11 +472,11 @@ public class WhisperKitService {
                         let isAlreadyDownloading = ModelManager.shared.isDownloading[modelId] == true
                         let statusMessage: String
                         if isCached {
-                            statusMessage = String(format: NSLocalizedString("loading_model_status", comment: ""), ModelManager.shared.displayName(for: modelId))
+                            statusMessage = String(format: localized("loading_model_status"), ModelManager.shared.displayName(for: modelId))
                         } else if isAlreadyDownloading {
-                            statusMessage = String(format: NSLocalizedString("downloading_model", comment: ""), ModelManager.shared.displayName(for: modelId))
+                            statusMessage = String(format: localized("downloading_model"), ModelManager.shared.displayName(for: modelId))
                         } else {
-                            statusMessage = NSLocalizedString("downloading_whisperkit_model", comment: "")
+                            statusMessage = localized("downloading_whisperkit_model")
                         }
                         
                         continuation.yield(TranscriptionUpdate(
@@ -493,7 +502,7 @@ public class WhisperKitService {
                                     ? "\(elapsed / 60) min \(elapsed % 60) s"
                                     : "\(elapsed) s"
                                 continuation.yield(TranscriptionUpdate(
-                                    text: String(format: NSLocalizedString("model_optimizing_status", comment: ""),
+                                    text: String(format: localized("model_optimizing_status"),
                                                  ModelManager.shared.displayName(for: modelId), elapsedText),
                                     progress: 0.01,
                                     segments: [],
@@ -515,7 +524,7 @@ public class WhisperKitService {
                     
                     // Initial progress
                     continuation.yield(TranscriptionUpdate(
-                        text: NSLocalizedString("initializing_whisperkit", comment: ""),
+                        text: localized("initializing_whisperkit"),
                         progress: 0.05,
                         segments: [],
                         isComplete: false
@@ -523,7 +532,7 @@ public class WhisperKitService {
                     
                     // Loading audio
                     continuation.yield(TranscriptionUpdate(
-                        text: NSLocalizedString("loading_audio_file", comment: ""),
+                        text: localized("loading_audio_file"),
                         progress: 0.1,
                         segments: [],
                         isComplete: false
@@ -736,7 +745,7 @@ private final class StreamingCallbackState: @unchecked Sendable {
             let estimatedProgress = min(0.3 + max(timeProgress, segmentProgress) * 0.65, 0.95)
             
             continuation.yield(TranscriptionUpdate(
-                text: fullText.isEmpty ? "Transkriberar..." : fullText,
+                text: fullText.isEmpty ? localized("transcribing") : fullText,
                 progress: estimatedProgress,
                 segments: [],
                 isComplete: false

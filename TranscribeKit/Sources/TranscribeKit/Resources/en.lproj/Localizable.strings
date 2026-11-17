@@ -364,3 +364,4 @@
 "ios_berget_section" = "Cloud models from Berget AI";
 "ios_berget_asr_header" = "Transcription";
 "ios_berget_llm_header" = "Language models";
+"model_group_fast_live" = "Fast · Live";

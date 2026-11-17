@@ -20,8 +20,7 @@ struct ContentView: View {
     @State private var fileErrorMessage = ""
     @State private var showModelDownloadError = false
     @State private var modelDownloadErrorMessage = ""
-    private let whisperKitService = WhisperKitService.shared
-    
+
     var body: some View {
         Group {
             if appState.showRecordingView {
@@ -114,7 +113,7 @@ struct ContentView: View {
             }
             // Load the selected model in the background so the first
             // transcription doesn't pay the (potentially long) ANE load.
-            whisperKitService.prewarmSelectedModel()
+            LocalModels.prewarmSelectedModel()
 
             // Migrate the legacy cloud model id and refresh Berget's catalog
             if selectedModel == "berget-kb-whisper-large" {
@@ -350,7 +349,7 @@ struct ContentView: View {
     
     func downloadModel(_ modelId: String) async {
         do {
-            try await whisperKitService.downloadOnly(modelId: modelId)
+            try await LocalModels.download(modelId: modelId)
         } catch is CancellationError {
             // User cancelled from the dropdown — no error alert
         } catch {
@@ -525,12 +524,25 @@ struct ContentView: View {
         .buttonStyle(PlainButtonStyle())
         .popover(isPresented: $showModelPopover) {
             VStack(alignment: .leading, spacing: 0) {
+                // Parakeet-family models: fast, and the ones that can transcribe live
+                Text(localized("model_group_fast_live"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                ForEach(ModelManager.parakeetModels, id: \.self) { modelId in
+                    modelDropdownRow(modelId: modelId, icon: "bolt")
+                }
+
+                Divider().padding(.horizontal, 12).padding(.vertical, 4)
+
                 // KB Whisper models
                 Text("KB Whisper")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
                     .padding(.bottom, 4)
 
                 ForEach(ModelManager.kbModels, id: \.self) { modelId in
@@ -622,7 +634,7 @@ struct ContentView: View {
                         .foregroundColor(.primaryAccent)
                         .monospacedDigit()
                     Button(action: {
-                        whisperKitService.cancelDownload(modelId: modelId)
+                        LocalModels.cancelDownload(modelId: modelId)
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 13))
@@ -694,14 +706,11 @@ struct ContentView: View {
     }
     
     func getModelIcon(_ modelId: String) -> String {
-        if modelId.starts(with: "kb_whisper-") || modelId.starts(with: "nb_whisper-") || modelId.starts(with: "openai_whisper-") {
-            return "laptopcomputer"
-        } else if modelId.starts(with: "berget") {
-            return "cloud"
-        } else if modelId.starts(with: "cloud-") {
-            return "cloud.fill"
-        } else {
-            return "cube"
+        switch ModelManager.engine(for: modelId) {
+        case .whisperKit: return "laptopcomputer"
+        case .parakeet: return "bolt"
+        case .cloud: return "cloud"
+        case .none: return "cube"
         }
     }
 }

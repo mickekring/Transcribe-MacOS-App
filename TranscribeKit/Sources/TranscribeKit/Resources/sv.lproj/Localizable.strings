@@ -364,3 +364,4 @@
 "ios_berget_section" = "Molnmodeller från Berget AI";
 "ios_berget_asr_header" = "Transkribering";
 "ios_berget_llm_header" = "Språkmodeller";
+"model_group_fast_live" = "Snabb · Realtid";

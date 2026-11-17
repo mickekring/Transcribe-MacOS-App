@@ -28,16 +28,15 @@ public class TranscriptionService {
                         throw TranscriptionError.noModelSelected
                     }
 
-                    if selectedModel.starts(with: "kb_whisper-") ||  // KB CoreML models
-                       selectedModel.starts(with: "nb_whisper-") ||  // NB Whisper CoreML models
-                       selectedModel.starts(with: "openai_whisper-") {
-                        // Use WhisperKit for standard Whisper models and KB CoreML models
-                        try await transcribeWithWhisperKit(
+                    switch ModelManager.engine(for: selectedModel) {
+                    case .whisperKit, .parakeet:
+                        try await transcribeLocally(
                             fileURL: fileURL,
                             modelId: selectedModel,
                             continuation: continuation
                         )
-                    } else {
+                    case .cloud, .none:
+                        // Cloud models are driven by the caller (upload + chunking)
                         throw TranscriptionError.unsupportedModel
                     }
                 } catch {
@@ -55,22 +54,11 @@ public class TranscriptionService {
         }
     }
     
-    private func transcribeWithWhisperKit(
+    private func transcribeLocally(
         fileURL: URL,
         modelId: String,
         continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
     ) async throws {
-        // Use the shared service so the loaded model persists across
-        // transcriptions and concurrent loads coalesce instead of competing.
-        if whisperKitService == nil {
-            whisperKitService = WhisperKitService.shared
-        }
-        
-        // Use WhisperKit for standard models
-        guard let service = whisperKitService else {
-            throw TranscriptionError.modelNotFound
-        }
-        
         // If the file is a video container or non-native audio format,
         // extract the audio track to a temporary .m4a first.
         let preprocessor = AudioPreprocessor.shared
@@ -79,7 +67,7 @@ public class TranscriptionService {
         
         if needsConversion {
             continuation.yield(TranscriptionUpdate(
-                text: NSLocalizedString("converting_audio_format", comment: ""),
+                text: localized("converting_audio_format"),
                 progress: 0.02,
                 segments: [],
                 isComplete: false
@@ -97,8 +85,18 @@ public class TranscriptionService {
         // Get the selected language
         let selectedLanguage = languageManager.selectedLanguage.code
         
-        // Stream transcription updates with model and language
-        for try await update in service.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage) {
+        // Both engines produce the same update stream. The shared services
+        // keep the loaded model alive across transcriptions and coalesce
+        // concurrent loads instead of letting them compete.
+        let updates: AsyncThrowingStream<TranscriptionUpdate, Error>
+        if ModelManager.engine(for: modelId) == .parakeet {
+            updates = ParakeetService.shared.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage)
+        } else {
+            whisperKitService = WhisperKitService.shared
+            updates = WhisperKitService.shared.transcribe(fileURL: audioURL, modelId: modelId, language: selectedLanguage)
+        }
+
+        for try await update in updates {
             continuation.yield(update)
             
             if update.isComplete {
@@ -131,5 +129,45 @@ public enum TranscriptionError: LocalizedError {
         case .unsupportedModel:
             return "Unsupported model type"
         }
+    }
+}
+
+/// Engine-agnostic entry points for local model management. Views call these
+/// instead of a specific runtime's service, so a model id is always handled
+/// by the engine that owns it.
+@MainActor
+public enum LocalModels {
+    /// Downloads a model without loading it.
+    public static func download(modelId: String) async throws {
+        switch ModelManager.engine(for: modelId) {
+        case .parakeet: try await ParakeetService.shared.downloadOnly(modelId: modelId)
+        case .whisperKit: try await WhisperKitService.shared.downloadOnly(modelId: modelId)
+        case .cloud, .none: throw TranscriptionError.unsupportedModel
+        }
+    }
+
+    public static func cancelDownload(modelId: String) {
+        switch ModelManager.engine(for: modelId) {
+        case .parakeet: ParakeetService.shared.cancelDownload(modelId: modelId)
+        case .whisperKit: WhisperKitService.shared.cancelDownload(modelId: modelId)
+        case .cloud, .none: break
+        }
+    }
+
+    /// Loads the selected model in the background at launch, if it is local
+    /// and already downloaded.
+    public static func prewarmSelectedModel() {
+        guard let modelId = UserDefaults.standard.string(forKey: "selectedTranscriptionModel"), !modelId.isEmpty else { return }
+        switch ModelManager.engine(for: modelId) {
+        case .parakeet: ParakeetService.shared.prewarm(modelId: modelId)
+        case .whisperKit: WhisperKitService.shared.prewarmSelectedModel()
+        case .cloud, .none: break
+        }
+    }
+
+    /// Frees every loaded local model.
+    public static func unloadAll() {
+        WhisperKitService.shared.unloadModel()
+        ParakeetService.shared.unloadModel()
     }
 }

@@ -362,3 +362,4 @@
 "ios_berget_section" = "Skymodeller fra Berget AI";
 "ios_berget_asr_header" = "Transkripsjon";
 "ios_berget_llm_header" = "Språkmodeller";
+"model_group_fast_live" = "Rask · Sanntid";
