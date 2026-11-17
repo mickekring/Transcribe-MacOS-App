@@ -39,7 +39,7 @@ public class AudioPreprocessor {
         url: URL,
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProcessedAudio {
-        onProgress?(NSLocalizedString("analyzing_audio_file", comment: ""))
+        onProgress?(localized("analyzing_audio_file"))
         
         let asset = AVAsset(url: url)
         let duration = try await asset.load(.duration)
@@ -69,7 +69,7 @@ public class AudioPreprocessor {
         var needsCleanup = false
 
         if needsConversion {
-            onProgress?(NSLocalizedString("converting_audio_format", comment: ""))
+            onProgress?(localized("converting_audio_format"))
             processedURL = try await convertToOptimalFormat(url: url)
             needsCleanup = true
         }
@@ -77,7 +77,7 @@ public class AudioPreprocessor {
         // Chunk if needed
         var chunks: [AudioChunk] = []
         if needsChunking {
-            onProgress?(NSLocalizedString("splitting_audio_chunks", comment: ""))
+            onProgress?(localized("splitting_audio_chunks"))
             chunks = try await createChunks(url: processedURL, duration: durationInSeconds)
             // Chunks are always temporary files, even when no conversion happened
             needsCleanup = true

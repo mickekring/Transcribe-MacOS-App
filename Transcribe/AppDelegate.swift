@@ -81,7 +81,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarItem?.menu = menu
     }
     
+    /// Another copy of the app (same bundle id, so the same sandbox container
+    /// and temp folder) is running — e.g. the installed app next to a debug
+    /// build. Its recordings live in the folder this instance would wipe.
+    private var anotherInstanceIsRunning: Bool {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return false }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            .contains { $0.processIdentifier != ownPID && !$0.isTerminated }
+    }
+
     private func cleanupTemporaryFiles(isStartup: Bool = false) {
+        // The temp folder is shared by every running copy; whichever copy
+        // quits last (or starts alone) does the cleanup.
+        guard !anotherInstanceIsRunning else { return }
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("Transcribe")
         
         do {
