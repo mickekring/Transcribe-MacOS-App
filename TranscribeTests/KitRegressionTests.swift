@@ -755,3 +755,225 @@ struct BergetCancellationTests {
         }
     }
 }
+
+// MARK: - Speaker turns
+
+struct SpeakerTurnSnappingTests {
+
+    /// Back-to-back words filling `start..<end`, so the only pauses in a
+    /// test are the ones it puts there.
+    private func speech(_ label: String, from start: Double, to end: Double, wordLength: Double = 0.5) -> [WordTimestamp] {
+        var words: [WordTimestamp] = []
+        var time = start
+        while time < end - 0.0001 {
+            let wordEnd = min(time + wordLength, end)
+            words.append(WordTimestamp(word: "\(label)\(words.count)", start: time, end: wordEnd, confidence: 1))
+            time = wordEnd
+        }
+        return words
+    }
+
+    /// A[0–10], B[10–10.5], A[10.5–20]: a short "ja" from B. The longest
+    /// pause near it is the one just before it (9.7–10.0), which is within
+    /// reach of both of B's boundaries.
+    private var interjection: (turns: [SpeakerTurn], words: [WordTimestamp]) {
+        let turns = [
+            SpeakerTurn(speakerId: 0, start: 0, end: 10),
+            SpeakerTurn(speakerId: 1, start: 10, end: 10.5),
+            SpeakerTurn(speakerId: 0, start: 10.5, end: 20),
+        ]
+        let words = speech("a", from: 0, to: 9.7)
+            + [WordTimestamp(word: "ja", start: 10.0, end: 10.3, confidence: 1)]
+            + speech("b", from: 10.4, to: 20)
+        return (turns, words)
+    }
+
+    @Test func aShortInterjectionKeepsItsTurn() throws {
+        let cleaned = SpeakerTranscriptFormatter.cleanTurns(interjection.turns, words: interjection.words)
+        try #require(cleaned.count == 3)
+
+        // The first boundary takes the long pause before the interjection…
+        #expect(abs(cleaned[1].start - 9.85) < 0.0001)
+        #expect(cleaned[0].end == cleaned[1].start)
+        // …and the second one may not take it too: it gets the next pause
+        #expect(abs(cleaned[1].end - 10.35) < 0.0001)
+        #expect(cleaned[2].start == cleaned[1].end)
+        #expect(cleaned[1].end > cleaned[1].start)
+    }
+
+    @Test func theInterjectionIsAttributedToItsSpeaker() {
+        let output = SpeakerTranscriptFormatter.format(
+            segments: [TranscriptionSegmentData(start: 0, end: 20, text: "", words: interjection.words)],
+            turns: interjection.turns,
+            speakerName: { "Speaker \($0)" },
+            unknownLabel: "?"
+        )
+        let blocks = output.components(separatedBy: "\n\n")
+        #expect(blocks.count == 3)
+        #expect(blocks.dropFirst().first == "[00:10] Speaker 1:\nja")
+        #expect(blocks.last?.hasPrefix("[00:10] Speaker 0:\nb0") == true)
+    }
+
+    @Test func noTurnIsEverLeftEmptyOrInverted() {
+        // Interjections of every length around the snapping window, at
+        // different distances from the pause before them
+        // (from 0.4 s: anything under 0.3 s is discarded as debris beforehand)
+        for length in stride(from: 0.4, through: 1.6, by: 0.1) {
+            for pause in [0.1, 0.3, 0.6] {
+                let turns = [
+                    SpeakerTurn(speakerId: 0, start: 0, end: 10),
+                    SpeakerTurn(speakerId: 1, start: 10, end: 10 + length),
+                    SpeakerTurn(speakerId: 0, start: 10 + length, end: 20),
+                ]
+                let words = speech("a", from: 0, to: 10 - pause)
+                    + speech("ja", from: 10, to: 10 + length - 0.1, wordLength: 0.4)
+                    + speech("b", from: 10 + length, to: 20)
+                let cleaned = SpeakerTranscriptFormatter.cleanTurns(turns, words: words)
+                #expect(cleaned.count == 3)
+                #expect(cleaned.allSatisfy { $0.end > $0.start }, "length \(length), pause \(pause)")
+            }
+        }
+    }
+
+    @Test func anOrdinaryHandoverStillSnapsToThePause() throws {
+        // The diarizer puts the change at 5.2; the speakers actually changed
+        // in the pause at 4.6–5.0.
+        let turns = [
+            SpeakerTurn(speakerId: 0, start: 0, end: 5.2),
+            SpeakerTurn(speakerId: 1, start: 5.2, end: 10),
+        ]
+        let words = speech("a", from: 0, to: 4.6) + speech("b", from: 5.0, to: 10)
+
+        let cleaned = SpeakerTranscriptFormatter.cleanTurns(turns, words: words)
+        try #require(cleaned.count == 2)
+        #expect(abs(cleaned[0].end - 4.8) < 0.0001)
+        #expect(cleaned[1].start == cleaned[0].end)
+        #expect(cleaned[0].start == 0)
+        #expect(cleaned[1].end == 10)
+    }
+
+    @Test func eachBoundaryOfLongerTurnsSnapsToItsOwnPause() throws {
+        let turns = [
+            SpeakerTurn(speakerId: 0, start: 0, end: 8),
+            SpeakerTurn(speakerId: 1, start: 8, end: 16),
+            SpeakerTurn(speakerId: 0, start: 16, end: 24),
+        ]
+        let words = speech("a", from: 0, to: 7.5) + speech("b", from: 7.9, to: 16.2) + speech("c", from: 16.6, to: 24)
+
+        let cleaned = SpeakerTranscriptFormatter.cleanTurns(turns, words: words)
+        try #require(cleaned.count == 3)
+        #expect(abs(cleaned[1].start - 7.7) < 0.0001)
+        #expect(abs(cleaned[2].start - 16.4) < 0.0001)
+    }
+
+    @Test func aBoundaryWithoutAPauseNearbyStaysWhereItWas() {
+        let turns = [
+            SpeakerTurn(speakerId: 0, start: 0, end: 5),
+            SpeakerTurn(speakerId: 1, start: 5, end: 10),
+        ]
+        let cleaned = SpeakerTranscriptFormatter.cleanTurns(turns, words: speech("a", from: 0, to: 10))
+        #expect(cleaned.map(\.start) == [0, 5])
+        #expect(cleaned.map(\.end) == [5, 10])
+    }
+}
+
+struct SpeakerTranscriptFallbackTests {
+
+    private func words(_ items: [(String, Double, Double)]) -> [WordTimestamp] {
+        items.map { WordTimestamp(word: $0.0, start: $0.1, end: $0.2, confidence: 1) }
+    }
+
+    private let turns = [
+        SpeakerTurn(speakerId: 0, start: 0, end: 3),
+        SpeakerTurn(speakerId: 1, start: 3, end: 6),
+        SpeakerTurn(speakerId: 0, start: 6, end: 9),
+    ]
+
+    private func format(_ segments: [TranscriptionSegmentData]) -> String {
+        SpeakerTranscriptFormatter.format(segments: segments, turns: turns, speakerName: { "Speaker \($0)" }, unknownLabel: "?")
+    }
+
+    @Test func aSegmentWithoutWordTimingsKeepsItsText() {
+        // The middle segment came back from alignment without words
+        let output = format([
+            TranscriptionSegmentData(start: 0, end: 2, text: "Vad kostar den", words: words([("Vad", 0, 0.5), ("kostar", 0.6, 1.2), ("den", 1.3, 1.8)])),
+            TranscriptionSegmentData(start: 3.2, end: 5, text: " 250 kronor ", words: nil),
+            TranscriptionSegmentData(start: 6.2, end: 7, text: "Tack", words: words([("Tack", 6.2, 6.8)])),
+        ])
+        #expect(output.components(separatedBy: "\n\n") == [
+            "[00:00] Speaker 0:\nVad kostar den",
+            "[00:03] Speaker 1:\n250 kronor",
+            "[00:06] Speaker 0:\nTack",
+        ])
+    }
+
+    @Test func segmentsThatAllHaveWordsAreFormattedFromTheWordsAlone() {
+        // The segment text is not consulted when there are word timings
+        let output = format([
+            TranscriptionSegmentData(start: 0, end: 2, text: "ignored", words: words([("Hej", 0, 0.5), ("där", 0.6, 1.2)])),
+            TranscriptionSegmentData(start: 3.2, end: 5, text: "ignored", words: words([("Hej", 3.4, 3.9)])),
+        ])
+        #expect(output == "[00:00] Speaker 0:\nHej där\n\n[00:03] Speaker 1:\nHej")
+    }
+
+    @Test func withoutAnyWordTimingsSegmentsAreAssignedWhole() {
+        let output = format([
+            TranscriptionSegmentData(start: 0, end: 2, text: "Vad kostar den", words: nil),
+            TranscriptionSegmentData(start: 3.2, end: 5, text: "250 kronor", words: []),
+        ])
+        #expect(output == "[00:00] Speaker 0:\nVad kostar den\n\n[00:03] Speaker 1:\n250 kronor")
+    }
+}
+
+// MARK: - Speaker models on disk
+
+struct DiarizationModelTests {
+
+    @Test func everyModelOfThePipelineIsChecked() {
+        let repo = URL(fileURLWithPath: "/repo")
+        let required = DiarizationService.requiredModelFiles(in: repo)
+        #expect(required.count == 3)
+        let folders = required.map(\.folder.path)
+        #expect(folders.contains { $0.hasPrefix("/repo/speaker_segmenter/pyannote-v3/") })
+        #expect(folders.contains { $0.hasPrefix("/repo/speaker_embedder/pyannote-v3/") })
+        #expect(folders.contains("/repo/speaker_clusterer/pyannote-v4/W32A32"))
+
+        let files = required.flatMap(\.files).map(\.path)
+        // Four compiled models, three files each
+        #expect(files.count == 12)
+        for model in ["SpeakerSegmenter", "SpeakerEmbedderPreprocessor", "SpeakerEmbedder", "PldaProjector"] {
+            #expect(files.filter { $0.contains("/\(model).mlmodelc/") }.count == 3, "\(model)")
+        }
+    }
+
+    @Test func aFolderThatMerelyExistsIsNotADownloadedModel() throws {
+        let scratch = try ScratchDirectory()
+        // What an interrupted first download leaves: the first model's folder
+        // with some of its files, nothing of the others.
+        let required = DiarizationService.requiredModelFiles(in: scratch.url)
+        let first = try #require(required.first)
+        try FileManager.default.createDirectory(at: first.folder, withIntermediateDirectories: true)
+        try Data().write(to: first.folder.appendingPathComponent("README.txt"))
+
+        let incomplete = DiarizationService.incompleteModelFolders(in: scratch.url)
+        #expect(Set(incomplete.map(\.path)) == Set(required.map(\.folder.path)))
+    }
+
+    @Test func onlyTheFolderMissingAFileIsIncomplete() throws {
+        let scratch = try ScratchDirectory()
+        let required = DiarizationService.requiredModelFiles(in: scratch.url)
+        for file in required.flatMap(\.files) {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: file)
+        }
+        #expect(DiarizationService.incompleteModelFolders(in: scratch.url).isEmpty)
+
+        // The embedder has two compiled models; lose the weights of one
+        let embedder = required[1]
+        let weights = try #require(embedder.files.first { $0.path.hasSuffix("SpeakerEmbedder.mlmodelc/weights/weight.bin") })
+        try FileManager.default.removeItem(at: weights)
+
+        let incomplete = DiarizationService.incompleteModelFolders(in: scratch.url)
+        #expect(incomplete.map(\.path) == [embedder.folder.path])
+    }
+}
