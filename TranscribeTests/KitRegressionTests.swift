@@ -977,3 +977,43 @@ struct DiarizationModelTests {
         #expect(incomplete.map(\.path) == [embedder.folder.path])
     }
 }
+
+// MARK: - LLM stream
+
+struct LLMStreamTests {
+
+    @Test func chunksCarryContent() {
+        let line = #"data: {"id":"1","choices":[{"index":0,"delta":{"content":"Hej"}}]}"#
+        #expect(LLMService.streamEvent(fromLine: line) == .content("Hej"))
+        #expect(LLMService.streamEvent(fromLine: "data: [DONE]") == .done)
+    }
+
+    @Test func anErrorInTheMiddleOfTheStreamIsAFailure() {
+        // OpenAI-compatible shape
+        let nested = #"data: {"error":{"message":"The model ran out of memory","type":"server_error"}}"#
+        #expect(LLMService.streamEvent(fromLine: nested) == .failure("The model ran out of memory"))
+        // Ollama's shape
+        let plain = #"data: {"error":"an error was encountered while running the model"}"#
+        #expect(LLMService.streamEvent(fromLine: plain) == .failure("an error was encountered while running the model"))
+        // Not wrapped in an SSE data line
+        let bare = #"{"error":{"message":"context length exceeded"}}"#
+        #expect(LLMService.streamEvent(fromLine: bare) == .failure("context length exceeded"))
+        // An error without a readable message is still an error
+        let odd = #"data: {"error":{"code":500}}"#
+        #expect(LLMService.streamEvent(fromLine: odd) == .failure(#"{"error":{"code":500}}"#))
+    }
+
+    @Test func linesWithoutAnythingToActOnAreIgnored() {
+        #expect(LLMService.streamEvent(fromLine: "") == .ignored)
+        #expect(LLMService.streamEvent(fromLine: ": keep-alive") == .ignored)
+        #expect(LLMService.streamEvent(fromLine: "event: message") == .ignored)
+        #expect(LLMService.streamEvent(fromLine: "data: not json") == .ignored)
+        // A role-only first chunk, a final chunk with only a finish reason
+        #expect(LLMService.streamEvent(fromLine: #"data: {"choices":[{"delta":{"role":"assistant"}}]}"#) == .ignored)
+        #expect(LLMService.streamEvent(fromLine: #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#) == .ignored)
+        // A chunk that spells out the absence of an error
+        #expect(LLMService.streamEvent(fromLine: #"data: {"error":null,"choices":[{"delta":{"content":"ok"}}]}"#) == .content("ok"))
+        // Bare JSON is only looked at for errors
+        #expect(LLMService.streamEvent(fromLine: #"{"choices":[{"delta":{"content":"x"}}]}"#) == .ignored)
+    }
+}

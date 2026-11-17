@@ -110,33 +110,27 @@ public final class LLMService: Sendable {
                     }
                     
                     // Parse SSE stream
-                    for try await line in bytes.lines {
+                    stream: for try await line in bytes.lines {
                         guard !Task.isCancelled else {
                             continuation.finish()
                             return
                         }
-                        
-                        // SSE format: "data: {...}"
-                        guard line.hasPrefix("data: ") else { continue }
-                        let jsonString = String(line.dropFirst(6))
-                        
-                        // Check for stream end
-                        if jsonString == "[DONE]" {
-                            break
-                        }
-                        
-                        // Parse the JSON chunk
-                        guard let data = jsonString.data(using: .utf8),
-                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let choices = json["choices"] as? [[String: Any]],
-                              let delta = choices.first?["delta"] as? [String: Any],
-                              let content = delta["content"] as? String else {
+
+                        switch Self.streamEvent(fromLine: line) {
+                        case .content(let content):
+                            continuation.yield(content)
+                        case .done:
+                            break stream
+                        case .failure(let message):
+                            // The answer so far is cut short; ending the
+                            // stream normally would pass it off as complete.
+                            continuation.finish(throwing: LLMError.streamingFailed(message))
+                            return
+                        case .ignored:
                             continue
                         }
-                        
-                        continuation.yield(content)
                     }
-                    
+
                     continuation.finish()
                 } catch {
                     if !Task.isCancelled {
@@ -149,5 +143,63 @@ public final class LLMService: Sendable {
                 task.cancel()
             }
         }
+    }
+
+    /// What one line of a chat-completion stream means.
+    enum StreamEvent: Equatable {
+        /// A piece of the answer.
+        case content(String)
+        /// The end-of-stream marker.
+        case done
+        /// The server gave up part-way and says why.
+        case failure(String)
+        /// Nothing to act on: a blank line, a comment, a chunk without text.
+        case ignored
+    }
+
+    /// Interprets one line of the stream.
+    ///
+    /// Servers report a failure that happens after the response has started
+    /// — the model crashed, a limit was hit — in the stream itself, as an
+    /// object with an `error` member where a chunk would be. It comes as an
+    /// SSE data line like any chunk, or from some servers as a bare JSON
+    /// line.
+    static func streamEvent(fromLine line: String) -> StreamEvent {
+        let payload: String
+        if line.hasPrefix("data: ") {
+            // SSE format: "data: {...}"
+            payload = String(line.dropFirst(6))
+        } else if line.hasPrefix("{") {
+            payload = line
+        } else {
+            return .ignored
+        }
+
+        if payload == "[DONE]" {
+            return .done
+        }
+        guard let data = payload.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .ignored
+        }
+
+        if let error = json["error"], !(error is NSNull) {
+            // OpenAI-compatible: {"error": {"message": "..."}}; Ollama: {"error": "..."}
+            if let message = (error as? [String: Any])?["message"] as? String {
+                return .failure(message)
+            }
+            if let message = error as? String {
+                return .failure(message)
+            }
+            return .failure(payload)
+        }
+
+        guard line.hasPrefix("data: "),
+              let choices = json["choices"] as? [[String: Any]],
+              let delta = choices.first?["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return .ignored
+        }
+        return .content(content)
     }
 }
