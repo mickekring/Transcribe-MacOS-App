@@ -9,9 +9,11 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 > [!NOTE]
 > **An iOS version (1.1) lives in this repository** as the `TranscribeiOS` target — a full app running KB/NB Whisper, speaker identification, and on-device AI text processing (Gemma 4, Qwen 3.5 via MLX) entirely on the phone. See [iOS version](#ios-version) below, including its hardware requirements.
 
-<img width="2776" height="1860" alt="t26_1" src="https://github.com/user-attachments/assets/0511a227-8a77-4a05-ba39-478eecec5b28" />
+<img width="1413" height="980" alt="t_3-0-1_1" src="https://github.com/user-attachments/assets/54bda596-99c6-44ae-ac1f-f566afe83585" />
 
-<img width="2776" height="1860" alt="t26_2" src="https://github.com/user-attachments/assets/5cb9ace4-92c4-4e36-9f3b-a3a2aa521044" />
+<img width="1413" height="980" alt="t_3-0-1_2" src="https://github.com/user-attachments/assets/611919e8-7b26-40b7-ba10-46e6c3aba1b3" />
+
+<img width="1413" height="980" alt="t_3-0-1_3" src="https://github.com/user-attachments/assets/599224e1-2a31-4b2e-81b7-17f2611fd77f" />
 
 ## Features
 
