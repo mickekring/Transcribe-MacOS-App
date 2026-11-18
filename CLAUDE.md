@@ -213,7 +213,7 @@ Declared in `TranscribeKit/Package.swift` and the Xcode project; the resolved ve
 - `YouTubeKit` - YouTube audio; update it when YouTube imports break (each release follows YouTube's changes)
 - `mlx-swift`, `mlx-swift-lm`, `swift-huggingface` - iOS target only (on-device LLM)
 
-To update: delete the lock file, run `xcodebuild -resolvePackageDependencies`, read the release notes, then run the tests with `RUN_MODEL_TESTS=1` (the Whisper and Parakeet model tests catch changed transcripts). The repo-root `Package.swift` is a stale manifest that only the editor's language server reads; the app does not use it.
+To update: delete the lock file, run `xcodebuild -resolvePackageDependencies`, read the release notes, then run the tests with `RUN_MODEL_TESTS=1` (the Whisper and Parakeet model tests catch changed transcripts). There is no package manifest at the repository root; don't add one (an old one went stale and only confused the editor's language server).
 
 Keychain access uses the native Security framework (`SimplifiedManagers.swift` → `KeychainHelper`).
 

@@ -114,7 +114,7 @@ Singleton (`ModelManager.shared`). Responsibilities:
 
 ### WhisperKit Integration
 
-WhisperKit v0.17.0 (resolved from `from: "0.5.0"` in Package.swift).
+WhisperKit comes from `argmax-oss-swift`, declared in `TranscribeKit/Package.swift` (see Dependencies).
 
 Key `WhisperKitConfig` parameters used:
 - `modelFolder: String?` — absolute path to skip download entirely
@@ -206,14 +206,17 @@ Note: `AppDelegate.cleanupTemporaryFiles()` runs both at `applicationDidFinishLa
 
 ## Dependencies
 
-### Package.swift
-- `WhisperKit` (from: "0.5.0") — on-device speech recognition via CoreML
-- `YouTubeKit` (from: "0.3.0") — YouTube video downloading
+Packages are declared in two places; there is no package manifest at the repository root.
+
+- `TranscribeKit/Package.swift` (the shared package): `argmax-oss-swift` (WhisperKit, SpeakerKit), `FluidAudio`
+- The Xcode project: `YouTubeKit`, plus `mlx-swift`, `mlx-swift-lm`, `swift-transformers` and `swift-huggingface` for the iOS app
+
+The resolved versions are locked in `Transcribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` (committed).
 
 ### WhisperKit Transitive Dependencies
 ```
 WhisperKit
-  └── swift-transformers (≥1.1.6)
+  └── swift-transformers
         └── Hub target
               └── yyjson (exact: 0.12.0) — fast JSON parser (C library)
 ```
