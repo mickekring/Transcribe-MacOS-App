@@ -22,10 +22,11 @@ A native macOS app for speech-to-text transcription. Runs entirely on-device usi
 - **Fast models** -- [Pianissimo](https://klang.ai/pianissimo-sv/) from Klang AI (Swedish) and NVIDIA's Parakeet v3 (25 European languages) transcribe an hour of audio in well under a minute on Apple Silicon.
 - **Built-in recording** -- Record directly in the app with a live level meter and input device selection. Choosing a microphone here does not change your system-wide input device.
 - **System audio capture** -- Record all audio playing on your Mac (meetings, media, notifications) using ScreenCaptureKit. Optionally mix in your microphone to capture both sides of a meeting. macOS asks for permission on first use.
-- **Speaker identification** -- Diarization labels who said what, with renameable speakers and a known-speaker-count control. Runs locally (SpeakerKit/Pyannote) or server-side with cloud transcriptions.
+- **Speaker identification** -- Diarization labels who said what, with renameable speakers and a known-speaker-count control. Runs locally with every local model, Pianissimo and Parakeet included (SpeakerKit/Pyannote), or server-side with cloud transcriptions.
 - **Text processing with LLM** -- Summarize, extract action points, or run custom prompts on transcriptions using Berget AI or a local Ollama instance. Speaker-labeled transcripts give the LLM full context of who said what.
-- **Cloud transcription (optional)** -- Berget AI provides GDPR-compliant cloud transcription (KB Whisper, NB Whisper, Faster Whisper V3) with server-side diarization. Models are listed live from the API.
-- **Privacy by default** -- All recordings and downloads are stored in a temporary cache and automatically deleted when the app quits.
+- **Cloud transcription (optional)** -- Berget AI provides GDPR-compliant cloud transcription with server-side diarization. Models are listed live from the API (currently KB Whisper, NB Whisper, Pianissimo, and Faster Whisper V3).
+- **Privacy by default** -- Recordings and downloaded audio are stored in a temporary cache and automatically deleted when the app quits. The app asks first if a recording hasn't been transcribed or a transcript hasn't been saved.
+- **Built-in help** -- The **?** button in the toolbar (or ⌘?) opens a short guide to using the app and to how it handles your data.
 - **100+ languages** -- Whisper supports broad multilingual transcription with automatic language detection.
 - **Localized UI** -- English, Swedish, and Norwegian, defaulting to your macOS language.
 
@@ -71,14 +72,16 @@ KB Whisper CoreML models are hosted at [mickekringai/kb-whisper-coreml](https://
 
 Pianissimo is [Klang AI's](https://huggingface.co/KlangAI/pianissimo-sv) Swedish fine-tune of NVIDIA Parakeet TDT 0.6B v3 (both CC BY 4.0). The app downloads the CoreML conversion at [magnushjelm/pianissimo-sv-coreml](https://huggingface.co/magnushjelm/pianissimo-sv-coreml) and Parakeet v3 from [FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml), each pinned to a specific revision and checked against its checksums.
 
+Every model download, including the Whisper models, their tokenizers, and the speaker-identification models, is pinned to a specific commit tested with the app. A change to a model repository never reaches the app without a new release.
+
 **Cloud (optional):**
 
 [Berget AI](https://berget.ai) -- Swedish cloud infrastructure, GDPR-compliant. Requires an API key configured in Settings.
 
 ## Tech Stack
 
-- **SwiftUI** -- Native macOS interface with dark/light mode
-- **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** -- On-device Whisper models via CoreML
+- **SwiftUI** -- Native macOS interface with Liquid Glass and dark/light mode
+- **[WhisperKit and SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift)** -- On-device Whisper models and speaker identification via CoreML
 - **[FluidAudio](https://github.com/FluidInference/FluidAudio)** -- On-device Parakeet-family models (Pianissimo, Parakeet v3) via CoreML
 - **[YouTubeKit](https://github.com/alexeichhorn/YouTubeKit)** -- YouTube audio downloading
 - **AVFoundation / CoreAudio** -- Audio recording, playback, and device management
@@ -87,10 +90,16 @@ Pianissimo is [Klang AI's](https://huggingface.co/KlangAI/pianissimo-sv) Swedish
 
 ## Privacy and Security
 
-- All transcription and speaker identification happens locally by default
-- **Local-only mode** (Settings → General) disables every network feature: cloud transcription/text processing, the model catalog, YouTube import, and model downloads — nothing leaves your Mac
-- Recordings, YouTube downloads, and converted audio live in a private temporary folder inside the app's sandbox and are deleted on quit; leftovers from force-quits are cleaned up on next launch
-- The only network connections the app ever makes, and only when you use those features: HuggingFace (model downloads), Berget AI (cloud transcription/LLM, requires your API key), YouTube (imports), and your own Ollama host
+- With local models, transcription, live text, and speaker identification all happen on your Mac; audio and text never leave it
+- **Local-only mode** (Settings → General) switches off everything that could send audio or text off your Mac: cloud transcription and text processing, Ollama at any address other than this computer, the Berget model list, YouTube import, and model downloads. It is enforced where the network requests are made, not just hidden in the interface
+- Recordings, YouTube downloads, and converted audio live in a private temporary folder inside the app's sandbox and are deleted on quit; leftovers from force-quits are cleaned up on next launch. The app asks before you leave or quit with a recording that hasn't been transcribed or a transcript that hasn't been saved
+- The only network connections the app makes:
+  - Hugging Face, for model downloads (the default model downloads automatically on first launch)
+  - Berget AI, for cloud transcription and text processing, plus its model list once you've added an API key
+  - YouTube, for imports
+  - Your own Ollama host
+- Audio sent to Berget is uploaded under a neutral file name, never your file's name
+- Model downloads are pinned to tested versions (see [Models](#models))
 - API keys are stored in the macOS Keychain, not in plaintext
 - No analytics, no tracking, no telemetry — in the app or its dependencies
 
